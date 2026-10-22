@@ -1,0 +1,57 @@
+/** Size, stages and the night tide. */
+
+export const START_MASS = 10;
+export const MAX_MASS = 320;
+export const BASE_RADIUS = 10;
+
+export interface StageDef {
+  mass: number;
+  name: string;
+}
+
+/** Crossing into stages 2–4 triggers an evolution choice. */
+export const STAGES: StageDef[] = [
+  { mass: 0, name: 'Ephyra' },
+  { mass: 34, name: 'Drifter' },
+  { mass: 78, name: 'Bloom' },
+  { mass: 165, name: 'Apex' },
+];
+
+export const RUN_SECONDS = 180;
+
+export function radiusForMass(mass: number): number {
+  return BASE_RADIUS * Math.sqrt(Math.max(START_MASS * 0.5, mass) / START_MASS);
+}
+
+/** 1-based stage index for a given mass. */
+export function stageForMass(mass: number): number {
+  let stage = 1;
+  for (let i = 1; i < STAGES.length; i++) {
+    if (mass >= STAGES[i].mass) stage = i + 1;
+  }
+  return stage;
+}
+
+/** 0..1 progress from the current stage threshold to the next (1 at apex). */
+export function stageProgress(mass: number): number {
+  const stage = stageForMass(mass);
+  if (stage >= STAGES.length) return Math.min(1, (mass - STAGES[stage - 1].mass) / (MAX_MASS - STAGES[stage - 1].mass));
+  const lo = STAGES[stage - 1].mass;
+  const hi = STAGES[stage].mass;
+  return Math.max(0, Math.min(1, (mass - lo) / (hi - lo)));
+}
+
+/** Mass gained from food tapers slightly as the jelly grows so stages stay paced. */
+export function growthGain(base: number, mass: number): number {
+  const taper = 1 / (1 + Math.max(0, mass - START_MASS) / 420);
+  return base * taper;
+}
+
+export function maxSpeedFor(radius: number, speedMult: number): number {
+  return 235 * Math.pow(BASE_RADIUS / radius, 0.27) * speedMult;
+}
+
+/** Bigger jellies are easier for hunters to notice. */
+export function detectionScale(radius: number): number {
+  return 0.72 + 0.28 * Math.pow(radius / BASE_RADIUS, 0.65);
+}
