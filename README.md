@@ -14,6 +14,7 @@ You're a thimble-sized moon jelly in Lantern Reef. Eat anything clearly smaller 
 ## Features
 
 - **Core loop:** buoyant, pulse-driven movement with momentum. Food grows you, growth reveals bigger prey, and size works both ways: bigger jellies spot more food, but hunters notice them from further away and they can't slip through tight coral gaps.
+- **Feeding shapes the body:** the more Jelli eats in a run, the more its body develops. The bell domes higher with finer scallops, more and longer tentacles sprout, radial and ring canals branch through the bell, the gonads fill in, and the oral arms grow long and ruffled. Each meal briefly swells the bell and glows through it in the prey's color.
 - **Evolution:** feeding fills an evolution meter. Each time it fills you pick a tier in one of three paths, up to 9 choices (every path maxed):
   - **Glow:** wider light in the dark, pulls in plankton, more rare spawns, a rare-species compass, and hunters notice you later.
   - **Surge:** faster, stronger bursts, riding currents, then two charges and longer tentacle reach while bursting.

@@ -1,9 +1,9 @@
 import type { World, Creature, CoralCluster, Current } from '../sim/world';
 import { canEat, isThreat } from '../sim/rules';
 import { WORLD, darknessAt } from '../content/world';
-import { BASE_RADIUS } from '../content/progression';
+import { BASE_RADIUS, maturity } from '../content/progression';
 import { TAU, clamp, damp, hexToRgb, lerp, rgba } from '../core/math';
-import { drawCreatureShape, drawJelly, jellyStyleForSpecies, lookFor, type JellyStyle } from './creatures';
+import { drawCreatureShape, drawJelly, jellyStyleForSpecies, lookFor, type JellyBody, type JellyStyle } from './creatures';
 import { drawGlow } from './sprites';
 import { Particles } from './particles';
 import { POWERS, TITAN_SCALE } from '../content/powerups';
@@ -653,6 +653,8 @@ export class Renderer {
       ctx.setLineDash([]);
     }
 
+    this.body.maturity = maturity(p.food);
+    this.body.gulp = damp(this.body.gulp, 0, 2.2, dt);
     this.drawTentacles(world, tr * scale, alpha);
 
     ctx.save();
@@ -660,8 +662,16 @@ export class Renderer {
     ctx.translate(x, y);
     ctx.scale(z * scale, z * scale);
     ctx.rotate(p.heading + Math.PI / 2);
-    drawJelly(ctx, tr, world.time, p.thrust, this.playerStyle, p.tiers, false, this.sway);
+    drawJelly(ctx, tr, world.time, p.thrust, this.playerStyle, p.tiers, false, this.sway, this.body);
     ctx.restore();
+  }
+
+  private body: JellyBody = { maturity: 0, gulp: 0, gut: '#ffffff' };
+
+  /** A meal just went down: the bell swells and glows with its color for a moment. */
+  feed(color: string): void {
+    this.body.gulp = 1;
+    this.body.gut = color;
   }
 
   private tentRoot = { x: 0, y: 0 };
@@ -727,7 +737,7 @@ export class Renderer {
       }
 
       // Tapered ribbon: thick at the rim, fine at the tip.
-      const base = r * (active ? 0.19 : 0.13);
+      const base = r * (active ? 0.19 : 0.13) * (1 + 0.35 * this.body.maturity);
       const L = (N + 1) * 2;
       for (let i = 0; i <= N; i++) {
         const j0 = Math.max(0, i - 1) * 2;
