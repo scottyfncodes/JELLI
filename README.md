@@ -14,6 +14,9 @@ You're a thimble-sized moon jelly in Lantern Reef. Eat anything clearly smaller 
 ## Features
 
 - **Core loop:** buoyant, pulse-driven movement with momentum. Food grows you, growth reveals bigger prey, and size works both ways: bigger jellies spot more food, but hunters notice them from further away and they can't slip through tight coral gaps.
+- **Catch chains:** catches within 3 seconds of each other build a chain worth up to 3x score, with a rising chime and a draining meter. Pearls keep a chain alive.
+- **Treasure:** pearls rest all over the reef (hoards around reef mounds, strays in open water, glowing in the deep). A sunken pirate ship sits in the lower shallows with a chest worth 1,500 that spills more pearls. Pearls bank across dives.
+- **Chase your best:** your best score sits under the clock, and passing it mid-run gets its own moment.
 - **Feeding shapes the body:** the more Jelli eats in a run, the more its body develops. The bell domes higher with finer scallops, more and longer tentacles sprout, radial and ring canals branch through the bell, the gonads fill in, and the oral arms grow long and ruffled. Each meal briefly swells the bell and glows through it in the prey's color.
 - **Evolution:** feeding fills an evolution meter. Each time it fills you pick a tier in one of three paths, up to 9 choices (every path maxed):
   - **Glow:** wider light in the dark, pulls in plankton, more rare spawns, a rare-species compass, and hunters notice you later.
@@ -28,7 +31,7 @@ You're a thimble-sized moon jelly in Lantern Reef. Eat anything clearly smaller 
   - **Prism Frenzy** (Prism Seahorse): double points and food drifts to you.
   - **Aurora Veil** (Aurora Jelly): hunters can't see you.
 - **Field Guide:** 21 species across four rarity tiers. Rare encounters depend on conditions: coral in the shallows, the time of night, Glow tier 2, and riding an abyssal current.
-- **Lineage:** 12 challenges that unlock 6 bell colors and 3 starting traits.
+- **Lineage:** 16 challenges that unlock 9 bell colors and 3 starting traits, including chains, pearls and the pirate's gold.
 - **Audio:** synthesized WebAudio ambience and effects, with no audio files. Volume, mute and reduced-motion settings are included.
 
 ## Development

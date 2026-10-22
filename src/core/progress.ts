@@ -13,6 +13,11 @@ export interface RunStats {
   evolutions: number;
   stings: number;
   powerups: number;
+  /** Longest catch chain this run. */
+  bestCombo: number;
+  pearls: number;
+  /** 1 once the pirate chest has been opened this run. */
+  chest: number;
   maxDepth: number;
   time: number;
   caughtBy: string | null;
@@ -30,6 +35,9 @@ export function emptyRunStats(): RunStats {
     evolutions: 0,
     stings: 0,
     powerups: 0,
+    bestCombo: 0,
+    pearls: 0,
+    chest: 0,
     maxDepth: 0,
     time: 0,
     caughtBy: null,
@@ -50,6 +58,8 @@ export function metricValue(metric: ChallengeMetric, run: RunStats | null, save:
       return countDiscovered(save, 'rare') + countDiscovered(save, 'legendary');
     case 'life.legendaryDiscovered':
       return countDiscovered(save, 'legendary');
+    case 'life.pearls':
+      return save.stats.pearls;
   }
   if (!run) return 0;
   switch (metric) {
@@ -71,6 +81,10 @@ export function metricValue(metric: ChallengeMetric, run: RunStats | null, save:
       return run.score;
     case 'run.powerups':
       return run.powerups;
+    case 'run.bestCombo':
+      return run.bestCombo;
+    case 'run.chest':
+      return run.chest;
   }
   return 0;
 }
@@ -110,6 +124,9 @@ export function applyRun(save: SaveData, run: RunStats, now = Date.now()): RunOu
   save.stats.runs += 1;
   save.stats.longest = Math.max(save.stats.longest, run.time);
   save.stats.eaten += run.eaten;
+  save.stats.pearls += run.pearls ?? 0;
+  save.stats.chests += run.chest ?? 0;
+  save.best.combo = Math.max(save.best.combo, run.bestCombo ?? 0);
 
   const completed: ChallengeDef[] = [];
   const unlocked: UnlockId[] = [];

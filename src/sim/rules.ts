@@ -55,3 +55,15 @@ export function escapeRate(playerR: number, preyR: number, predator: boolean): n
   const rel = preyR / playerR;
   return Math.max(0, rel - 0.55) * 2.2 + (predator ? 0.45 : 0);
 }
+
+/** Seconds after a catch in which the next catch (or a pearl) keeps a chain alive. */
+export const COMBO_WINDOW = 3;
+
+/** Score multiplier for a chain of n catches: +0.25x per link, up to 3x. */
+export function comboMult(n: number): number {
+  return 1 + Math.min(Math.max(0, n - 1), 8) * 0.25;
+}
+
+/** Points for a pearl, and for the pirate chest. */
+export const PEARL_SCORE = 40;
+export const CHEST_SCORE = 1500;

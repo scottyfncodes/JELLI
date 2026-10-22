@@ -19,9 +19,13 @@ import { TAU, angleLerp, clamp, lerp, mulberry32 } from '../core/math';
 import { FRENZY_MAGNET, OVERCHARGE_RATE, POWERS, TITAN_SCALE, emptyPowers, type PowerId, type PowerTimers } from '../content/powerups';
 import { emptyRunStats, type RunStats } from '../core/progress';
 import {
+  CHEST_SCORE,
+  COMBO_WINDOW,
+  PEARL_SCORE,
   REACH_ARC,
   busyArms,
   canEat,
+  comboMult,
   escapeRate,
   isThreat,
   tentacleCount,
@@ -54,6 +58,28 @@ export interface Current {
   h: number;
   fx: number;
   fy: number;
+}
+
+/** A collectible pearl resting in the reef. */
+export interface Pearl {
+  x: number;
+  y: number;
+  taken: boolean;
+  /** Animation offset so pearls don't shimmer in sync. */
+  seed: number;
+}
+
+/** The sunken pirate ship: a landmark with a treasure chest beside it. */
+export interface Wreck {
+  x: number;
+  y: number;
+  /** Hull roll in radians. */
+  tilt: number;
+  chestX: number;
+  chestY: number;
+  chestOpen: boolean;
+  /** The jelly has come close enough to see it this run. */
+  found: boolean;
 }
 
 export type CreatureState = 'wander' | 'notice' | 'chase' | 'rest' | 'flee' | 'puffed' | 'orbit';
@@ -159,13 +185,37 @@ export type SimEvent =
   | { type: 'power'; id: PowerId; x: number; y: number }
   | { type: 'shield'; x: number; y: number; def: SpeciesDef }
   | { type: 'grab'; x: number; y: number; def: SpeciesDef }
-  | { type: 'escape'; x: number; y: number; def: SpeciesDef };
+  | { type: 'escape'; x: number; y: number; def: SpeciesDef }
+  | { type: 'pearl'; x: number; y: number }
+  | { type: 'chest'; x: number; y: number }
+  | { type: 'wreck' };
 
 export type RunEnd = 'caught' | null;
 
 const DESPAWN_PAD = 380;
+/** Ship-local hull colliders [x, y, r]: keel to deck, bow (-x) to the raised stern. Shared with the renderer. */
+export const WRECK_HULL: [number, number, number][] = [
+  [-250, 18, 34],
+  [-190, 22, 46],
+  [-120, 26, 52],
+  [-50, 26, 54],
+  [20, 26, 54],
+  [90, 24, 54],
+  [160, 18, 54],
+  [215, -10, 50],
+  [235, -60, 38],
+  // The rock ledge the ship has settled on.
+  [-340, 104, 46],
+  [-255, 112, 52],
+  [-160, 118, 56],
+  [-60, 120, 58],
+  [40, 120, 58],
+  [140, 118, 56],
+  [235, 112, 52],
+  [320, 104, 46],
+];
 /** A reach that hasn't connected by then gives up. */
-const REACH_TIME = 0.9;
+const REACH_TIME = 1.2;
 /** How long the arm clings before reeling in. */
 const GRAB_TIME = 0.12;
 /** How long swallowing takes at the bell. */
@@ -207,6 +257,8 @@ export class World {
   /** Hunting tentacles: the only way the jelly catches food. */
   readonly tentacles: Tentacle[] = [];
   readonly events: SimEvent[] = [];
+  readonly pearls: Pearl[] = [];
+  readonly wreck: Wreck = { x: 0, y: 0, tilt: 0, chestX: 0, chestY: 0, chestOpen: false, found: false };
   readonly player: Player;
   readonly run: RunStats = emptyRunStats();
   readonly demo: boolean;
@@ -217,6 +269,9 @@ export class World {
   /** Evolution milestones already reached this run. */
   evolutionsReached = 0;
   zone: ZoneDef = ZONES[0];
+  /** Catches in the current chain, and seconds left before it breaks. */
+  combo = 0;
+  comboT = 0;
   viewRadius = 500;
   /** Half extents of the visible area; hunters only notice the jelly from on screen. */
   viewHW = 300;
@@ -288,11 +343,16 @@ export class World {
       addCluster(x, H + 20, 3, 60, 130, 80);
     }
 
+    this.placeWreck(rng);
+    const nearWreck = (x: number, y: number, pad: number) => Math.hypot(x - this.wreck.x, y - this.wreck.y) < 360 + pad;
+
     // Large reef mounds: landmarks to navigate by and cover for hiding prey.
+    const mounds: { x: number; y: number }[] = [];
     for (let y = 1400; y < H - 600; y += 1100 + rng() * 500) {
       for (let x = 700 + rng() * 600; x < W - 500; x += 1700 + rng() * 900) {
-        if (Math.hypot(x - START_X, y - START_Y) < 900) continue;
+        if (Math.hypot(x - START_X, y - START_Y) < 900 || nearWreck(x, y, 260)) continue;
         addCluster(x, y, 7 + Math.floor(rng() * 5), 40, 120, 190);
+        mounds.push({ x, y });
       }
     }
 
@@ -303,7 +363,7 @@ export class World {
       const n = Math.round((1 + (rng() < 0.55 ? 1 : 0)) * perRow);
       for (let k = 0; k < n; k++) {
         const x = 260 + rng() * (W - 520);
-        if (Math.hypot(x - START_X, y - START_Y) < 420) continue;
+        if (Math.hypot(x - START_X, y - START_Y) < 420 || nearWreck(x, y, 120)) continue;
         const r = 40 + rng() * 45;
         // Keep outcrops apart so every gap stays a real, readable passage.
         if (this.coralWithin(x, y, r + 150)) continue;
@@ -318,6 +378,8 @@ export class World {
       }
     }
 
+    this.placePearls(rng, mounds);
+
     const cur = (x: number, y: number, w: number, h: number, fx: number, fy: number) =>
       this.currents.push({ x, y, w, h, fx, fy });
     cur(W * 0.08, 2450, W * 0.84, 160, 95, 0);
@@ -330,6 +392,60 @@ export class World {
     cur(W * 0.1, 10600, W * 0.8, 180, -110, 0);
   }
 
+  /**
+   * The pirate ship rests on a ledge in the lower shallows, still sunlit, a long swim from the start.
+   * Its hull collides like reef (invisible circles in the coral grid) but is drawn as a ship.
+   */
+  private placeWreck(rng: () => number): void {
+    const wr = this.wreck;
+    wr.x = this.width * 0.3 + (rng() - 0.5) * 500;
+    wr.y = 3000 + rng() * 300;
+    wr.tilt = -0.1 - rng() * 0.08;
+    const cos = Math.cos(wr.tilt);
+    const sin = Math.sin(wr.tilt);
+    const at = (lx: number, ly: number) => ({ x: wr.x + lx * cos - ly * sin, y: wr.y + lx * sin + ly * cos });
+    for (const [lx, ly, r] of WRECK_HULL) {
+      const c = at(lx, ly);
+      this.indexCoral({ x: c.x, y: c.y, r });
+    }
+    // The chest has spilled out onto the sand just past the bow.
+    const chest = at(-330, 58);
+    wr.chestX = chest.x;
+    wr.chestY = chest.y;
+  }
+
+  /** Pearls: a trail spilling from the wreck, small hoards around reef mounds, and strays in open water. */
+  private placePearls(rng: () => number, mounds: { x: number; y: number }[]): void {
+    const add = (x: number, y: number) => {
+      if (x < 60 || x > this.width - 60 || y < 80 || y > this.height - 80) return;
+      if (this.coralWithin(x, y, 14)) return;
+      this.pearls.push({ x, y, taken: false, seed: rng() * TAU });
+    };
+    const wr = this.wreck;
+    for (let i = 0; i < 9; i++) add(wr.chestX - 30 - i * 34 + (rng() - 0.5) * 20, wr.chestY - 10 - i * 16 + (rng() - 0.5) * 20);
+    for (let i = 0; i < 7; i++) add(wr.x - 200 + i * 66, wr.y - 150 - Math.sin((i / 6) * Math.PI) * 60);
+    for (const m of mounds) {
+      const n = 3 + Math.floor(rng() * 3);
+      const a0 = rng() * TAU;
+      for (let i = 0; i < n; i++) {
+        const a = a0 + (i / n) * TAU * 0.6;
+        add(m.x + Math.cos(a) * 260, m.y + Math.sin(a) * 210);
+      }
+    }
+    for (let i = 0; i < 70; i++) add(200 + rng() * (this.width - 400), 600 + rng() * (this.height - 900));
+  }
+
+  private indexCoral(c: Coral): void {
+    for (let gx = Math.floor((c.x - c.r) / 200); gx <= Math.floor((c.x + c.r) / 200); gx++) {
+      for (let gy = Math.floor((c.y - c.r) / 200); gy <= Math.floor((c.y + c.r) / 200); gy++) {
+        const key = gx * 1000 + gy;
+        let cell = this.coralGrid.get(key);
+        if (!cell) this.coralGrid.set(key, (cell = []));
+        cell.push(c);
+      }
+    }
+  }
+
   private addCoral(circles: Coral[], rng: () => number): CoralCluster {
     let minX = Infinity;
     let minY = Infinity;
@@ -340,15 +456,7 @@ export class World {
       minY = Math.min(minY, c.y - c.r);
       maxX = Math.max(maxX, c.x + c.r);
       maxY = Math.max(maxY, c.y + c.r);
-      // Index into every grid cell the circle touches.
-      for (let gx = Math.floor((c.x - c.r) / 200); gx <= Math.floor((c.x + c.r) / 200); gx++) {
-        for (let gy = Math.floor((c.y - c.r) / 200); gy <= Math.floor((c.y + c.r) / 200); gy++) {
-          const key = gx * 1000 + gy;
-          let cell = this.coralGrid.get(key);
-          if (!cell) this.coralGrid.set(key, (cell = []));
-          cell.push(c);
-        }
-      }
+      this.indexCoral(c);
     }
     const cluster = { circles, minX, minY, maxX, maxY, hue: rng(), seed: Math.floor(rng() * 1e6) };
     this.corals.push(cluster);
@@ -489,6 +597,11 @@ export class World {
     this.resolveContacts(dt);
     this.updateSpawning(dt);
     this.updateDiscovery();
+    this.updateTreasure();
+    if (this.comboT > 0) {
+      this.comboT -= dt;
+      if (this.comboT <= 0) this.combo = 0;
+    }
 
     const zone = zoneAt(p.y);
     if (zone !== this.zone) {
@@ -988,9 +1101,9 @@ export class World {
   private restPoint(t: Tentacle, r: number, out: { x: number; y: number }): { x: number; y: number } {
     this.tentacleRoot(t, r, out);
     const h = this.player.heading;
-    // A relaxed arm hangs at about half its full length, so longer arms read as longer reach.
-    const len = tentacleReach(r, this.run.eaten) * 0.55;
-    const sway = Math.sin(this.time * 1.7 + t.seed) * r * 0.55;
+    // A relaxed arm streams out at most of its length, so longer arms read as longer reach.
+    const len = tentacleReach(r, this.run.eaten) * 0.85;
+    const sway = (Math.sin(this.time * 1.3 + t.seed) + 0.5 * Math.sin(this.time * 2.1 + t.seed * 1.7)) * r * 0.8;
     const side = (t.slot - 0.5) * r * 1.2;
     out.x += -Math.cos(h) * len - Math.sin(h) * (sway + side);
     out.y += -Math.sin(h) * len + Math.cos(h) * (sway + side);
@@ -1091,8 +1204,8 @@ export class World {
       switch (t.phase) {
         case 'idle': {
           this.restPoint(t, R, rest);
-          // Ease toward the rest pose so the arm trails and lags organically.
-          const k = 1 - Math.exp(-7 * dt);
+          // Ease toward the rest pose with plenty of drag, so the arm streams and lags behind turns.
+          const k = 1 - Math.exp(-4 * dt);
           t.x += (rest.x - t.x) * k;
           t.y += (rest.y - t.y) * k;
           // Never let a trailing arm stretch into a hunting-length line.
@@ -1100,7 +1213,7 @@ export class World {
           const dx = t.x - rest.x;
           const dy = t.y - rest.y;
           const d = Math.hypot(dx, dy);
-          const max = tentacleReach(R, this.run.eaten) * 0.9;
+          const max = tentacleReach(R, this.run.eaten) * 1.4;
           if (d > max) {
             t.x = rest.x + (dx / d) * max;
             t.y = rest.y + (dy / d) * max;
@@ -1114,7 +1227,7 @@ export class World {
             break;
           }
           const away = Math.hypot(c.x - p.x, c.y - p.y) - c.r * 0.5;
-          if (away > reach * 1.2 || t.t > REACH_TIME || this.blocked(t.x, t.y, c.x, c.y)) {
+          if (away > reach * 1.2 || t.t > REACH_TIME || this.blocked(p.x, p.y, c.x, c.y)) {
             // Out of range, too slow, or it ducked behind coral: it got away.
             this.letGo(t, true);
             t.cooldown = 0.8;
@@ -1306,7 +1419,11 @@ export class World {
     p.mass = Math.min(MAX_MASS, p.mass + growthGain(c.def.growth * sizeK, p.mass));
     p.food += c.def.growth;
     p.r = radiusForMass(p.mass);
-    this.run.score += c.def.score * (p.powers.frenzy > 0 ? 2 : 1);
+    // Catches in quick succession build a chain that multiplies their score.
+    this.combo = this.comboT > 0 ? this.combo + 1 : 1;
+    this.comboT = COMBO_WINDOW;
+    this.run.bestCombo = Math.max(this.run.bestCombo, this.combo);
+    this.run.score += Math.round(c.def.score * (p.powers.frenzy > 0 ? 2 : 1) * comboMult(this.combo));
     this.run.eaten += 1;
     this.run.eatenBySpecies[c.def.id] = (this.run.eatenBySpecies[c.def.id] ?? 0) + 1;
     if (c.def.role === 'predator') this.run.predatorsEaten += 1;
@@ -1348,6 +1465,44 @@ export class World {
     r.stage = this.player.stage;
     r.score += Math.floor(r.time * 5);
     r.seen = [...this.seen];
+  }
+
+  // ---------------------------------------------------------------- treasure
+
+  /** Pearls are picked up by swimming through them (they are treasure, not food). */
+  private updateTreasure(): void {
+    const p = this.player;
+    if (!p.alive) return;
+    const reach = p.r + 12;
+    for (const pr of this.pearls) {
+      if (pr.taken || Math.abs(pr.x - p.x) > reach || Math.abs(pr.y - p.y) > reach) continue;
+      if (Math.hypot(pr.x - p.x, pr.y - p.y) > reach) continue;
+      pr.taken = true;
+      this.run.pearls += 1;
+      this.run.score += PEARL_SCORE;
+      // A pearl keeps a running chain alive.
+      if (this.combo > 0) this.comboT = COMBO_WINDOW;
+      this.events.push({ type: 'pearl', x: pr.x, y: pr.y });
+    }
+    const wr = this.wreck;
+    if (!wr.found && Math.hypot(wr.x - p.x, wr.y - p.y) < 520) {
+      wr.found = true;
+      this.events.push({ type: 'wreck' });
+    }
+    if (!wr.chestOpen && Math.hypot(wr.chestX - p.x, wr.chestY - p.y) < p.r + 24) {
+      wr.chestOpen = true;
+      this.run.chest = 1;
+      this.run.score += CHEST_SCORE;
+      this.events.push({ type: 'chest', x: wr.chestX, y: wr.chestY });
+      // The lid bursts open and spills a few more pearls to scoop up.
+      for (let i = 0; i < 8; i++) {
+        const a = -Math.PI / 2 + (i - 3.5) * 0.32;
+        const d = 50 + (i % 3) * 22;
+        const x = wr.chestX + Math.cos(a) * d;
+        const y = wr.chestY + Math.sin(a) * d;
+        if (!this.insideCoral(x, y, 8)) this.pearls.push({ x, y, taken: false, seed: i });
+      }
+    }
   }
 
   // ---------------------------------------------------------------- discovery

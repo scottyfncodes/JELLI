@@ -16,6 +16,7 @@ import { WORLD } from './content/world';
 import { POWERS } from './content/powerups';
 import type { PathId } from './content/types';
 import { clamp } from './core/math';
+import { COMBO_WINDOW, comboMult } from './sim/rules';
 import { PKind } from './render/particles';
 import {
   buildUI,
@@ -57,8 +58,10 @@ class Game {
   private runNew: string[] = [];
   private demoT = 0;
   private resultsTimer = 0;
-  private hudCache = { score: -1, tide: -1, growth: -1, stage: -1, cd: -1, charges: -1, maxCharges: -1, sting: '', tiers: '', powers: '' };
+  private hudCache = { score: -1, tide: -1, growth: -1, stage: -1, cd: -1, charges: -1, maxCharges: -1, sting: '', tiers: '', powers: '', combo: -1, comboBar: -1, pearls: -1, beaten: false };
   private tutorial = { step: 0, t: 0, eats: 0 };
+  /** Personal best when this run began, for the mid-run "new best" moment. */
+  private bestAtStart = 0;
   private noticeCooldown = 0;
 
   constructor() {
@@ -347,10 +350,13 @@ class Game {
     for (const s of ['title', 'pause', 'evolve', 'results']) this.show(s, false);
     this.show('hud', true);
     this.ui.toasts.innerHTML = '';
-    this.hudCache = { score: -1, tide: -1, growth: -1, stage: -1, cd: -1, charges: -1, maxCharges: -1, sting: '', tiers: '', powers: '' };
+    this.hudCache = { score: -1, tide: -1, growth: -1, stage: -1, cd: -1, charges: -1, maxCharges: -1, sting: '', tiers: '', powers: '', combo: -1, comboBar: -1, pearls: -1, beaten: false };
     this.tutorial = { step: this.save.tutorialDone ? 99 : 0, t: 0, eats: 0 };
     this.updateHint();
     this.zoneToast(this.world.zone.name, 'Eat smaller creatures to grow');
+    this.bestAtStart = this.save.best.score;
+    this.ui.hudBest.textContent = this.bestAtStart > 0 ? `Best ${fmt(this.bestAtStart)}` : '';
+    this.ui.hudBest.classList.remove('beaten');
   }
 
   private pause(): void {
@@ -532,6 +538,14 @@ class Game {
     switch (e.type) {
       case 'eat':
         this.renderer.feed(e.def.colors.glow);
+        if (this.world.combo >= 2) {
+          this.audio.combo(this.world.combo);
+          const el = this.ui.combo;
+          el.classList.remove('bump');
+          void el.offsetWidth;
+          el.classList.add('bump');
+          setTimeout(() => el.classList.remove('bump'), 140);
+        }
         ps.burst(e.x, e.y, 6 + Math.min(18, e.r), 60 + e.r * 4, Math.max(2, e.r * 0.35), e.def.colors.glow, 0.6);
         this.audio.eat(clamp(e.r / 40, 0, 1));
         this.tutorialSignal('eat');
@@ -614,6 +628,21 @@ class Game {
         this.audio.sting();
         this.toast('<b>Shield blocked a bite!</b>', POWERS.shield.color, `${e.def.name} stunned`);
         break;
+      case 'pearl':
+        ps.burst(e.x, e.y, 8, 70, 1.8, '#fff0fa', 0.5);
+        this.audio.pearl();
+        break;
+      case 'wreck':
+        this.toast('<b>A sunken pirate ship</b>', '#ffd27a', 'Landmark');
+        break;
+      case 'chest':
+        ps.burst(e.x, e.y, 46, 260, 5, '#ffd27a', 1.1);
+        ps.emit(PKind.Ring, e.x, e.y, 0, 0, 0.8, 20, '#ffd27a', 300, 0);
+        this.renderer.addShake(0.3);
+        this.flash();
+        this.audio.discover(true);
+        this.toast('<b>Pirate treasure!</b> +1,500', '#ffd27a', 'Sunken ship');
+        break;
       case 'grab':
         // The arm closes on its catch: a tight ring and a soft pluck.
         ps.emit(PKind.Ring, e.x, e.y, 0, 0, 0.3, Math.max(2, e.def.radius * 0.6), e.def.colors.glow, 70, 0);
@@ -673,6 +702,35 @@ class Game {
     if (score !== c.score) {
       c.score = score;
       ui.score.textContent = fmt(score);
+      // Passing your personal best is its own moment, once per run.
+      if (!c.beaten && this.bestAtStart > 0 && score > this.bestAtStart) {
+        c.beaten = true;
+        ui.hudBest.textContent = 'New best';
+        ui.hudBest.classList.add('beaten');
+        this.toast('<b>New personal best!</b> Keep going', '#ffd27a', 'Record');
+        this.audio.discover(false);
+        this.flash();
+      }
+    }
+    if (w.run.pearls !== c.pearls) {
+      c.pearls = w.run.pearls;
+      ui.pearlCount.textContent = String(c.pearls);
+    }
+    // Catch chain: shows from two catches, with a bar draining toward the break.
+    const combo = w.combo >= 2 ? w.combo : 0;
+    if (combo !== c.combo) {
+      c.combo = combo;
+      ui.combo.classList.toggle('show', combo > 0);
+      ui.combo.classList.toggle('hot', combo >= 5);
+      if (combo) {
+        ui.comboN.textContent = `Chain ${combo}`;
+        ui.comboMult.textContent = `${comboMult(combo).toFixed(2).replace(/0$/, '')}x`;
+      }
+    }
+    const cb = combo ? Math.round((w.comboT / COMBO_WINDOW) * 60) / 60 : 0;
+    if (cb !== c.comboBar) {
+      c.comboBar = cb;
+      ui.comboBar.style.transform = `scaleX(${cb})`;
     }
     // Elapsed time: runs are endless, so this counts up.
     const tide = Math.floor(w.time);
