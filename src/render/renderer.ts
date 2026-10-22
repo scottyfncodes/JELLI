@@ -5,6 +5,7 @@ import { BASE_RADIUS, maturity } from '../content/progression';
 import { TAU, clamp, damp, hexToRgb, lerp, rgba } from '../core/math';
 import { drawCreatureShape, drawJelly, jellyStyleForSpecies, lookFor, type JellyBody, type JellyStyle } from './creatures';
 import { drawGlow } from './sprites';
+import { drawChest, drawShip } from './wreck';
 import { Particles } from './particles';
 import { POWERS, TITAN_SCALE } from '../content/powerups';
 
@@ -17,7 +18,7 @@ export interface JoystickView {
 }
 
 /** Samples along each hunting tentacle. */
-const TENT_SEGS = 14;
+const TENT_SEGS = 22;
 
 const WATER_STOPS: [number, string][] = [
   [0, '#2b6eaa'],
@@ -239,6 +240,8 @@ export class Renderer {
     this.drawKelp();
     this.drawCurrents(world, dt);
     this.drawCorals(world);
+    this.drawWreck(world);
+    this.drawPearls(world);
     this.drawCreatures(world);
     this.drawPlayer(world, dt);
     this.particles.update(dt);
@@ -499,6 +502,50 @@ export class Renderer {
     }
   }
 
+  private drawWreck(world: World): void {
+    const wr = world.wreck;
+    const z = this.zoom;
+    const x = this.sx(wr.x);
+    const y = this.sy(wr.y);
+    if (!this.onScreen(x, y, 420 * z)) return;
+    const ctx = this.ctx;
+    const t = this.reducedMotion ? 0 : this.time;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(z, z);
+    ctx.rotate(wr.tilt);
+    drawShip(ctx, t);
+    ctx.restore();
+    ctx.save();
+    ctx.translate(this.sx(wr.chestX), this.sy(wr.chestY));
+    ctx.scale(z, z);
+    ctx.rotate(wr.tilt);
+    drawChest(ctx, t, wr.chestOpen);
+    ctx.restore();
+  }
+
+  /** Pearls: small pale spheres that bob and shimmer. */
+  private drawPearls(world: World): void {
+    const ctx = this.ctx;
+    const z = this.zoom;
+    const t = this.reducedMotion ? 0 : this.time;
+    for (const pr of world.pearls) {
+      if (pr.taken) continue;
+      const x = this.sx(pr.x);
+      const y = this.sy(pr.y + Math.sin(t * 1.5 + pr.seed) * 2);
+      if (!this.onScreen(x, y, 20 * z)) continue;
+      const r = 4.5 * z;
+      const g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.35, r * 0.1, x, y, r);
+      g.addColorStop(0, '#ffffff');
+      g.addColorStop(0.55, '#f1e6f6');
+      g.addColorStop(1, '#b9a7cf');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, TAU);
+      ctx.fill();
+    }
+  }
+
   private onScreen(x: number, y: number, pad: number): boolean {
     return x > -pad && x < this.w + pad && y > -pad && y < this.h + pad;
   }
@@ -721,8 +768,8 @@ export class Renderer {
       const y1 = root.y + oy * len * 0.38;
       const x2 = tt.x - ux * len * 0.3 + nx * bend;
       const y2 = tt.y - uy * len * 0.3 + ny * bend;
-      const amp = Math.min(r * 0.45, len * 0.09) * (1 - taut * 0.8);
-      const speed = active ? 9 : 3.2;
+      const amp = Math.min(r * 0.9, len * 0.16) * (1 - taut * 0.8);
+      const speed = active ? 8 : 2.6;
 
       for (let i = 0; i <= N; i++) {
         const s = i / N;
@@ -731,7 +778,8 @@ export class Renderer {
         const b = 3 * m * m * s;
         const c = 3 * m * s * s;
         const d = s * s * s;
-        const wave = Math.sin(s * 7 - time * speed + tt.seed) * amp * Math.sin(Math.PI * s);
+        // Two travelling waves, a long swell and a quick ripple, for a loose, flowing arm.
+        const wave = (Math.sin(s * 9 - time * speed + tt.seed) + 0.4 * Math.sin(s * 17 - time * speed * 1.5 + tt.seed * 2)) * amp * Math.sin(Math.PI * s);
         pts[i * 2] = a * root.x + b * x1 + c * x2 + d * tt.x + nx * wave;
         pts[i * 2 + 1] = a * root.y + b * y1 + c * y2 + d * tt.y + ny * wave;
       }
@@ -833,6 +881,15 @@ export class Renderer {
         }
       }
     }
+    // Pearls catch whatever light there is, so they stay findable in the deep.
+    for (const pr of world.pearls) {
+      if (pr.taken) continue;
+      const x = this.sx(pr.x);
+      const y = this.sy(pr.y);
+      if (!this.onScreen(x, y, 30 * z)) continue;
+      const tw = 0.7 + 0.3 * Math.sin(this.time * 2.2 + pr.seed);
+      drawGlow(ctx, '#fff0fa', x, y, 15 * z, (0.25 + dark * 0.5) * tw);
+    }
     if (p.alive) drawGlow(ctx, this.playerStyle.glow, this.sx(p.x), this.sy(p.y), p.r * z * 2.4, 0.12 + dark * 0.12);
     ctx.globalCompositeOperation = 'source-over';
   }
@@ -875,6 +932,24 @@ export class Renderer {
         const ey = clamp(py + Math.sin(a) * 2000, 26, this.h - 26);
         const chasing = c.state === 'chase' || c.state === 'notice';
         this.drawChevron(ex, ey, a, chasing ? '#ff5d5d' : 'rgba(255,140,140,0.6)');
+      }
+    }
+
+    // The unopened pirate chest glints at the screen edge when it is somewhere nearby.
+    const wr = world.wreck;
+    if (!wr.chestOpen) {
+      const cx = this.sx(wr.chestX);
+      const cy = this.sy(wr.chestY);
+      const d = Math.hypot(wr.chestX - p.x, wr.chestY - p.y);
+      if (d < 1600 && !this.onScreen(cx, cy, -20)) {
+        const a = Math.atan2(cy - py, cx - px);
+        const ex = clamp(px + Math.cos(a) * 2000, 30, this.w - 30);
+        const ey = clamp(py + Math.sin(a) * 2000, 70, this.h - 30);
+        const pulse = 0.55 + 0.45 * Math.sin(this.time * 3);
+        ctx.globalCompositeOperation = 'lighter';
+        drawGlow(ctx, '#ffd27a', ex, ey, 18, pulse * 0.8);
+        ctx.globalCompositeOperation = 'source-over';
+        this.drawChevron(ex, ey, a, '#ffe2a3');
       }
     }
 

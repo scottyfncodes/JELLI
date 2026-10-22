@@ -665,26 +665,32 @@ export function drawJelly(
     if (glow >= 2) drawGlow(ctx, '#ffd27a', 0, -r * 0.2, r * 3.6, 0.12 + (glow - 2) * 0.08);
   }
 
-  // Tentacles trail behind the bell.
+  // Tentacles stream behind the bell as long, flowing ribbons. A travelling wave runs down
+  // each one, growing toward the tip, and turns bend the tips furthest (sway).
   // Feeding sprouts more and longer marginal tentacles.
   const count = 7 + Math.floor(m * 10) + sting * 2;
   const tentColor = sting > 0 && !flat ? '#c59bff' : style.tentacle;
-  const lenBase = r * (1.9 + surge * 0.45) * (1 + 0.5 * m);
+  const lenBase = r * (2.8 + surge * 0.5) * (1 + 0.5 * m);
+  const tentX = (i: number, x0: number, f: number) => {
+    const ph = t * 2.2 + i * 0.9;
+    const wave = Math.sin(ph - f * 5.5) * r * 0.34 + Math.sin(ph * 1.6 - f * 9 + i) * r * 0.1;
+    return x0 * (1 - f * 0.35) + wave * Math.pow(f, 0.8) + sway * r * 1.2 * f * f;
+  };
+  const SEGS = flat ? 5 : 10;
   ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
   ctx.strokeStyle = rgba(tentColor, al(0.5));
   ctx.lineWidth = Math.max(0.6, r * (0.055 + sting * 0.008));
   ctx.beginPath();
   for (let i = 0; i < count; i++) {
     const k = count === 1 ? 0.5 : i / (count - 1);
     const x0 = (k - 0.5) * w * 1.7;
-    const len = lenBase * (0.75 + 0.25 * Math.sin(i * 2.3 + 1));
-    const ph = t * 2.4 + i * 0.9;
-    const s1 = Math.sin(ph) * r * 0.25 + sway * r * 0.4;
-    const s2 = Math.sin(ph - 1.4) * r * 0.35 + sway * r * 0.9;
-    const x1 = x0 * 0.9 + s1;
-    const x2 = x0 * (0.7 - surge * 0.15) + s2;
+    const len = lenBase * (0.7 + 0.3 * Math.sin(i * 2.3 + 1));
     ctx.moveTo(x0, rimY);
-    ctx.bezierCurveTo(x1, rimY + len * 0.35, x2, rimY + len * 0.7, x0 * 0.6 + s2 * 1.2, rimY + len);
+    for (let j = 1; j <= SEGS; j++) {
+      const f = j / SEGS;
+      ctx.lineTo(tentX(i, x0, f), rimY + len * f * (1 - 0.1 * Math.abs(sway) * f));
+    }
   }
   ctx.stroke();
 
@@ -694,13 +700,11 @@ export function drawJelly(
     for (let i = 0; i < count; i += 2) {
       const k = i / (count - 1);
       const x0 = (k - 0.5) * w * 1.7;
+      const len = lenBase * (0.7 + 0.3 * Math.sin(i * 2.3 + 1));
       for (let j = 1; j <= 2 + sting; j++) {
         const f = j / (3 + sting);
-        const ph = t * 2.4 + i * 0.9;
-        const x = x0 * (1 - f * 0.4) + Math.sin(ph - f * 1.4) * r * 0.3 * f + sway * r * 0.8 * f;
-        const y = rimY + lenBase * f * 0.85;
         ctx.beginPath();
-        ctx.arc(x, y, Math.max(0.6, r * 0.05), 0, TAU);
+        ctx.arc(tentX(i, x0, f), rimY + len * f, Math.max(0.6, r * 0.05), 0, TAU);
         ctx.fill();
       }
     }

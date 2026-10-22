@@ -23,8 +23,8 @@ export interface SaveData {
   discovered: Record<string, DiscoveryRecord>;
   challenges: Record<string, number>;
   unlocks: UnlockId[];
-  best: { score: number; mass: number };
-  stats: { runs: number; eaten: number; longest: number };
+  best: { score: number; mass: number; combo: number };
+  stats: { runs: number; eaten: number; longest: number; pearls: number; chests: number };
   selected: { skin: string; trait: string | null };
   settings: Settings;
   tutorialDone: boolean;
@@ -36,8 +36,8 @@ export function defaultSave(): SaveData {
     discovered: {},
     challenges: {},
     unlocks: [...DEFAULT_UNLOCKS],
-    best: { score: 0, mass: 0 },
-    stats: { runs: 0, eaten: 0, longest: 0 },
+    best: { score: 0, mass: 0, combo: 0 },
+    stats: { runs: 0, eaten: 0, longest: 0, pearls: 0, chests: 0 },
     selected: { skin: 'moon', trait: null },
     settings: { volume: 0.7, muted: false, reducedMotion: null },
     tutorialDone: false,
@@ -91,12 +91,15 @@ export function sanitizeSave(raw: unknown): SaveData {
   if (isObj(raw.best)) {
     save.best.score = Math.floor(num(raw.best.score, 0));
     save.best.mass = num(raw.best.mass, 0);
+    save.best.combo = Math.floor(num(raw.best.combo, 0));
   }
 
   if (isObj(raw.stats)) {
     save.stats.runs = Math.floor(num(raw.stats.runs, 0));
     save.stats.eaten = Math.floor(num(raw.stats.eaten, 0));
     save.stats.longest = num(raw.stats.longest, 0);
+    save.stats.pearls = Math.floor(num(raw.stats.pearls, 0));
+    save.stats.chests = Math.floor(num(raw.stats.chests, 0));
   }
 
   if (isObj(raw.selected)) {

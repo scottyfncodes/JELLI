@@ -1495,3 +1495,113 @@ input[type='range']::-moz-range-thumb {
   animation-delay: 0ms !important;
   transition-duration: 1ms !important;
 }
+
+/* ------------------------------------------------------------------ chains, best and pearls */
+
+.hud-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-faint);
+}
+
+.hud-best.beaten {
+  color: var(--gold);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.hud-pearls {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-dim);
+}
+
+.pearl-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #fff 0 25%, #eadcf2 60%, #b9a7cf 100%);
+  box-shadow: 0 0 6px rgba(255, 240, 250, 0.6);
+}
+
+.combo {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--sab) + 92px);
+  transform: translateX(-50%) scale(0.9);
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: baseline;
+  column-gap: 8px;
+  row-gap: 6px;
+  padding: 8px 16px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(10, 20, 58, 0.6);
+  box-shadow: 0 0 0 1px var(--line) inset;
+  opacity: 0;
+  transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+  pointer-events: none;
+}
+
+.combo.show {
+  opacity: 1;
+  transform: translateX(-50%) scale(1);
+}
+
+.combo.bump {
+  transform: translateX(-50%) scale(1.08);
+}
+
+.combo-n {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.combo-mult {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--cyan);
+  font-variant-numeric: tabular-nums;
+}
+
+.combo.hot .combo-mult {
+  color: var(--gold);
+}
+
+.combo-bar {
+  grid-column: 1 / -1;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.combo-bar i {
+  display: block;
+  height: 100%;
+  background: currentColor;
+  color: var(--cyan);
+  transform-origin: left;
+}
+
+.combo.hot .combo-bar i {
+  color: var(--gold);
+}
+
+.stat strong em {
+  font-style: normal;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--gold);
+}

@@ -57,6 +57,7 @@ export function buildUI(root: HTMLElement, touch: boolean): void {
       <div class="hud-score">
         <span class="score" data-bind="score">0</span>
         <span class="tide" data-bind="tide">${ICONS.clock}<span data-bind="tideText">0:00</span></span>
+        <span class="hud-meta"><span class="hud-best" data-bind="hudBest"></span><span class="hud-pearls"><i class="pearl-dot" aria-hidden="true"></i><span data-bind="pearlCount">0</span></span></span>
       </div>
       <div class="hud-growth">
         <div class="stage-name" data-bind="stage">${STAGES[0].name}</div>
@@ -68,6 +69,7 @@ export function buildUI(root: HTMLElement, touch: boolean): void {
     <div class="toasts" data-bind="toasts" aria-live="polite"></div>
     <div class="hint" data-bind="hint"></div>
     <div class="powers" data-bind="powers"></div>
+    <div class="combo" data-bind="combo" aria-live="off"><span class="combo-n" data-bind="comboN"></span><span class="combo-mult" data-bind="comboMult"></span><span class="combo-bar"><i data-bind="comboBar"></i></span></div>
     <div class="sting-chip" data-bind="sting">${ICONS.sting.replace('aria-hidden', 'width="14" height="14" aria-hidden')}<span data-bind="stingText">Sting ready</span></div>
     <div class="burst-label">${touch ? 'Burst' : 'Space'}</div>
     <button class="burst-btn" data-bind="burst" aria-label="Burst">${ICONS.burst}<span class="charges" data-bind="charges"></span></button>
@@ -140,7 +142,8 @@ export function buildUI(root: HTMLElement, touch: boolean): void {
 
 export function renderTitle(ui: Binds, save: SaveData): void {
   ui.guideCount.textContent = `${countDiscovered(save)}/${SPECIES.length}`;
-  ui.best.textContent = save.best.score > 0 ? `Best ${fmt(save.best.score)} · ${save.stats.runs} ${save.stats.runs === 1 ? 'dive' : 'dives'}` : '';
+  const pearls = save.stats.pearls > 0 ? ` · ${fmt(save.stats.pearls)} ${save.stats.pearls === 1 ? 'pearl' : 'pearls'}` : '';
+  ui.best.textContent = save.best.score > 0 ? `Best ${fmt(save.best.score)} · ${save.stats.runs} ${save.stats.runs === 1 ? 'dive' : 'dives'}${pearls}` : '';
   const chips: string[] = [];
   if (save.selected.skin !== 'moon') {
     const skin = SKINS_BY_ID[save.selected.skin];
@@ -256,6 +259,8 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
       <div class="stat"><span>Eaten</span><strong>${run.eaten}</strong></div>
       <div class="stat"><span>Survived</span><strong>${mmss(run.time)}</strong></div>
       <div class="stat"><span>Deepest</span><strong>${esc(zoneName(run.maxDepth))}</strong></div>
+      <div class="stat"><span>Longest chain</span><strong>${run.bestCombo}${run.bestCombo >= save.best.combo && run.bestCombo > 1 ? ' <em>best</em>' : ''}</strong></div>
+      <div class="stat"><span>Pearls</span><strong>${run.pearls}${run.chest ? ' + chest' : ''}</strong></div>
     </div>
     ${evo ? `<div class="loadout">${evo}</div>` : ''}
     ${disc}

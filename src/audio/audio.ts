@@ -165,6 +165,21 @@ export class AudioEngine {
     this.tone(base * 2, 0.08, 'triangle', 0.05);
   }
 
+  /** A soft bell for a collected pearl. */
+  pearl(): void {
+    this.tone(1567.98, 0.25, 'sine', 0.07);
+    this.tone(2349.32, 0.18, 'sine', 0.03, 0.04);
+  }
+
+  /** Each link in a catch chain rings a step higher up a pentatonic scale. */
+  combo(n: number): void {
+    const steps = [0, 2, 4, 7, 9];
+    const k = Math.min(n - 2, 14);
+    const semis = steps[k % 5] + 12 * Math.floor(k / 5);
+    const f = 523.25 * Math.pow(2, semis / 12);
+    this.tone(f, 0.16, 'triangle', 0.07, 0.03);
+  }
+
   grab(): void {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
