@@ -24,7 +24,7 @@ export interface SaveData {
   challenges: Record<string, number>;
   unlocks: UnlockId[];
   best: { score: number; mass: number };
-  stats: { runs: number; eaten: number; survived: number };
+  stats: { runs: number; eaten: number; longest: number };
   selected: { skin: string; trait: string | null };
   settings: Settings;
   tutorialDone: boolean;
@@ -37,7 +37,7 @@ export function defaultSave(): SaveData {
     challenges: {},
     unlocks: [...DEFAULT_UNLOCKS],
     best: { score: 0, mass: 0 },
-    stats: { runs: 0, eaten: 0, survived: 0 },
+    stats: { runs: 0, eaten: 0, longest: 0 },
     selected: { skin: 'moon', trait: null },
     settings: { volume: 0.7, muted: false, reducedMotion: null },
     tutorialDone: false,
@@ -96,7 +96,7 @@ export function sanitizeSave(raw: unknown): SaveData {
   if (isObj(raw.stats)) {
     save.stats.runs = Math.floor(num(raw.stats.runs, 0));
     save.stats.eaten = Math.floor(num(raw.stats.eaten, 0));
-    save.stats.survived = Math.floor(num(raw.stats.survived, 0));
+    save.stats.longest = num(raw.stats.longest, 0);
   }
 
   if (isObj(raw.selected)) {

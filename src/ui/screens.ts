@@ -55,7 +55,7 @@ export function buildUI(root: HTMLElement, touch: boolean): void {
     <div class="hud-top">
       <div class="hud-score">
         <span class="score" data-bind="score">0</span>
-        <span class="tide" data-bind="tide">${ICONS.clock}<span data-bind="tideText">3:00</span></span>
+        <span class="tide" data-bind="tide">${ICONS.clock}<span data-bind="tideText">0:00</span></span>
       </div>
       <div class="hud-growth">
         <div class="stage-name" data-bind="stage">${STAGES[0].name}</div>
@@ -195,8 +195,13 @@ export function renderEvolve(ui: Binds, tiers: Tiers, stage: number): void {
 
 export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, save: SaveData, tiers: Tiers): void {
   const caughtBy = run.caughtBy ? SPECIES_BY_ID[run.caughtBy] : null;
-  const title = run.survived ? 'The tide has turned' : caughtBy ? `Caught by a ${caughtBy.name}` : 'Run ended';
-  const sub = run.survived ? 'You drifted home on the night tide.' : caughtBy ? 'Every jelly is somebody’s dinner. Grow faster next time.' : 'A short swim, but every dive counts.';
+  const title = caughtBy ? `Caught by a ${caughtBy.name}` : 'Run ended';
+  const longest = save.stats.runs > 1 && run.time >= save.stats.longest && run.time > 0;
+  const sub = caughtBy
+    ? longest
+      ? 'Your longest swim yet. The reef will remember.'
+      : 'Every jelly is somebody’s dinner. Grow faster next time.'
+    : 'A short swim, but every dive counts.';
   const stageName = STAGES[run.stage - 1]?.name ?? '';
   const evo = PATH_ORDER.filter((p) => tiers[p] > 0)
     .map((p) => `<span class="chip"><span class="dot" style="--c:${PATHS[p].color}"></span>${PATHS[p].name} ${tiers[p]}</span>`)
@@ -226,7 +231,7 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
 
   ui.results.innerHTML = `
     <div class="results-head">
-      <p class="eyebrow">${run.survived ? 'Tide survived' : 'Run over'}</p>
+      <p class="eyebrow">Run over</p>
       <h2>${esc(title)}</h2>
       <p>${esc(sub)}</p>
       <div class="big-score">${fmt(run.score)}</div>
@@ -235,7 +240,7 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
     <div class="stat-grid">
       <div class="stat"><span>Size</span><strong>${esc(stageName)}</strong></div>
       <div class="stat"><span>Eaten</span><strong>${run.eaten}</strong></div>
-      <div class="stat"><span>Time</span><strong>${mmss(run.time)}</strong></div>
+      <div class="stat"><span>Survived</span><strong>${mmss(run.time)}</strong></div>
       <div class="stat"><span>Deepest</span><strong>${esc(zoneName(run.maxDepth))}</strong></div>
     </div>
     ${evo ? `<div class="loadout">${evo}</div>` : ''}

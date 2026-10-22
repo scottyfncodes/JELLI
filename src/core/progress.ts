@@ -14,7 +14,6 @@ export interface RunStats {
   stings: number;
   maxDepth: number;
   time: number;
-  survived: boolean;
   caughtBy: string | null;
   seen: string[];
   eatenBySpecies: Record<string, number>;
@@ -31,7 +30,6 @@ export function emptyRunStats(): RunStats {
     stings: 0,
     maxDepth: 0,
     time: 0,
-    survived: false,
     caughtBy: null,
     seen: [],
     eatenBySpecies: {},
@@ -59,8 +57,8 @@ export function metricValue(metric: ChallengeMetric, run: RunStats | null, save:
       return run.maxDepth;
     case 'run.eaten':
       return run.eaten;
-    case 'run.survived':
-      return run.survived ? 1 : 0;
+    case 'run.time':
+      return run.time;
     case 'run.predatorsEaten':
       return run.predatorsEaten;
     case 'run.stage':
@@ -106,8 +104,8 @@ export function applyRun(save: SaveData, run: RunStats, now = Date.now()): RunOu
   if (newBest) save.best.score = run.score;
   save.best.mass = Math.max(save.best.mass, run.mass);
   save.stats.runs += 1;
+  save.stats.longest = Math.max(save.stats.longest, run.time);
   save.stats.eaten += run.eaten;
-  if (run.survived) save.stats.survived += 1;
 
   const completed: ChallengeDef[] = [];
   const unlocked: UnlockId[] = [];

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { World } from '../src/sim/world';
 import { SPECIES_BY_ID } from '../src/content/species';
-import { STAGES, RUN_SECONDS } from '../src/content/progression';
+import { STAGES, hunterScale } from '../src/content/progression';
 import { mulberry32 } from '../src/core/math';
 
 const idle = { ax: 0, ay: 0, burst: false };
@@ -91,14 +91,24 @@ describe('world simulation', () => {
     expect(p.charges).toBe(1);
   });
 
-  it('surviving the night tide ends the run with a bonus', () => {
+  it('runs never time out; only being caught ends them', () => {
     const w = makeWorld();
-    w.time = RUN_SECONDS - 0.01;
+    w.player.invuln = 1e9;
+    w.time = 10 * 60;
     w.creatures.length = 0;
     w.update(1 / 60, idle);
-    expect(w.ended).toBe('survived');
-    expect(w.run.survived).toBe(true);
-    expect(w.run.score).toBeGreaterThan(1500);
+    expect(w.ended).toBeNull();
+  });
+
+  it('hunters spawned late in a run are bigger', () => {
+    const w = makeWorld();
+    const early = w.spawn(SPECIES_BY_ID['gulper-eel'], 0, 0).r / SPECIES_BY_ID['gulper-eel'].radius;
+    w.time = 20 * 60;
+    const late = w.spawn(SPECIES_BY_ID['gulper-eel'], 0, 0).r / SPECIES_BY_ID['gulper-eel'].radius;
+    expect(late).toBeGreaterThan(early * 1.4);
+    expect(hunterScale(0)).toBe(1);
+    // An apex-size jelly is still prey for a late-run gulper.
+    expect(late * SPECIES_BY_ID['gulper-eel'].radius).toBeGreaterThan(60);
   });
 
   it('rare species respect their conditions', () => {

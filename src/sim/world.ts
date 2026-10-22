@@ -4,10 +4,11 @@ import { WORLD, ZONES, darknessAt, zoneAt, type ZoneDef } from '../content/world
 import { computeStats, emptyTiers, type Tiers } from '../content/evolutions';
 import {
   MAX_MASS,
-  RUN_SECONDS,
   START_MASS,
   STAGES,
   detectionScale,
+  extraHunters,
+  hunterScale,
   growthGain,
   maxSpeedFor,
   radiusForMass,
@@ -111,7 +112,7 @@ export type SimEvent =
   | { type: 'rare'; def: SpeciesDef }
   | { type: 'notice'; def: SpeciesDef; x: number; y: number };
 
-export type RunEnd = 'caught' | 'survived' | null;
+export type RunEnd = 'caught' | null;
 
 const DESPAWN_PAD = 380;
 const START_X = WORLD.width / 2;
@@ -371,13 +372,6 @@ export class World {
       p.y += p.vy * dt;
       this.updateCreatures(dt);
       if (p.deathT > 1.5) this.ended = 'caught';
-      return;
-    }
-
-    if (!this.demo && this.time >= RUN_SECONDS) {
-      this.run.survived = true;
-      this.ended = 'survived';
-      this.finalizeRun();
       return;
     }
 
@@ -853,11 +847,10 @@ export class World {
 
   private finalizeRun(): void {
     const r = this.run;
-    r.time = Math.min(this.time, RUN_SECONDS);
+    r.time = this.time;
     r.mass = this.player.mass;
     r.stage = this.player.stage;
     r.score += Math.floor(r.time * 5);
-    if (r.survived) r.score += 1500 + Math.floor(this.player.mass * 4);
     r.seen = [...this.seen];
   }
 
@@ -908,7 +901,7 @@ export class World {
         else if (c.def.role === 'predator' && !c.def.rare) hunters++;
       }
       const ramp = this.demo ? 0 : clamp((this.time - 14) / 30, 0, 1);
-      const hunterTarget = Math.round(zone.predators * ramp + (zone.id === 'shallows' && this.time > 70 ? 1 : 0));
+      const hunterTarget = Math.round(zone.predators * ramp + (zone.id === 'shallows' && this.time > 70 ? 1 : 0)) + (this.demo ? 0 : extraHunters(this.time));
       if (prey < zone.prey) this.spawnGroup('prey');
       else if (hunters < hunterTarget) this.spawnGroup('predator');
     }
@@ -990,7 +983,8 @@ export class World {
   }
 
   spawn(def: SpeciesDef, x: number, y: number): Creature {
-    const r = def.radius * (1 + (this.rand() * 2 - 1) * def.radiusVar);
+    const grow = def.role === 'predator' && !this.demo ? hunterScale(this.time) : 1;
+    const r = def.radius * (1 + (this.rand() * 2 - 1) * def.radiusVar) * grow;
     const heading = this.rand() * TAU;
     const c: Creature = {
       id: this.nextId++,
