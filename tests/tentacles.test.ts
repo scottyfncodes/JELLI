@@ -28,7 +28,7 @@ describe('tentacle hunting', () => {
   it('runs the full detect, reach, grab, pull, eat, reset cycle', () => {
     const w = makeWorld();
     const p = w.player;
-    const krill = still(w, 'glimmer-krill', p.x, p.y - 28);
+    const krill = still(w, 'glimmer-krill', p.x, p.y - 19);
     const phases: TentaclePhase[] = [];
     let arm: ReturnType<typeof armOn>;
     for (let i = 0; i < 180 && !krill.dead; i++) {
@@ -47,7 +47,7 @@ describe('tentacle hunting', () => {
     expect(w.events.some((e) => e.type === 'grab')).toBe(true);
     expect(arm!.target).toBeNull();
     // Reset: the arm can hunt again.
-    const next = still(w, 'glimmer-krill', p.x - 22, p.y - 10);
+    const next = still(w, 'glimmer-krill', p.x - 12, p.y - 14);
     for (let i = 0; i < 180 && !next.dead; i++) w.update(1 / 60, idle);
     expect(next.dead).toBe(true);
     expect(w.run.eaten).toBe(2);
@@ -92,11 +92,46 @@ describe('tentacle hunting', () => {
     expect(touching.dead).toBe(true);
   });
 
+  it('snags one fish at a time while young, two from Bloom', () => {
+    const w = makeWorld();
+    const p = w.player;
+    const fish = [0, 1, 2, 3].map((i) => still(w, 'glimmer-krill', p.x - 12 + i * 8, p.y - 16));
+    let most = 0;
+    for (let f = 0; f < 240; f++) {
+      w.update(1 / 60, idle);
+      most = Math.max(most, w.tentacles.filter((t) => t.phase !== 'idle' && t.phase !== 'retract').length);
+    }
+    expect(most).toBe(1);
+    expect(fish.filter((c) => c.dead).length).toBeGreaterThanOrEqual(2);
+    p.stage = 3;
+    const more = [0, 1, 2, 3].map((i) => still(w, 'glimmer-krill', p.x - 12 + i * 8, p.y - 16));
+    most = 0;
+    for (let f = 0; f < 120; f++) {
+      w.update(1 / 60, idle);
+      most = Math.max(most, w.tentacles.filter((t) => t.phase !== 'idle' && t.phase !== 'retract').length);
+    }
+    expect(most).toBe(2);
+    expect(more.some((c) => c.dead)).toBe(true);
+  });
+
+  it('each meal lengthens the arms a little', () => {
+    const w = makeWorld();
+    const p = w.player;
+    const before = w.tentacleReach();
+    const krill = still(w, 'glimmer-krill', p.x, p.y - 15);
+    for (let i = 0; i < 180 && !krill.dead; i++) w.update(1 / 60, idle);
+    expect(krill.dead).toBe(true);
+    const after = w.tentacleReach();
+    expect(after).toBeGreaterThan(before);
+    expect(after - before).toBeLessThan(3);
+  });
+
   it('never lets two tentacles claim the same fish', () => {
     const w = makeWorld();
     const p = w.player;
-    const fish = [0, 1, 2, 3, 4, 5].map((i) => still(w, 'glimmer-krill', p.x + Math.cos(-0.4 - i * 0.45) * 24, p.y + Math.sin(-0.4 - i * 0.45) * 24));
-    for (let f = 0; f < 120; f++) {
+    const fish = [0, 1, 2, 3, 4, 5].map((i) => still(w, 'glimmer-krill', p.x + Math.cos(-0.4 - i * 0.45) * 17, p.y + Math.sin(-0.4 - i * 0.45) * 17));
+    w.player.stage = 4;
+    for (let f = 0; f < 240; f++) {
       w.update(1 / 60, idle);
       const targets = w.tentacles.map((t) => t.target).filter(Boolean);
       expect(new Set(targets).size).toBe(targets.length);
@@ -109,7 +144,7 @@ describe('tentacle hunting', () => {
   it('lets go when the target darts out of range mid-reach', () => {
     const w = makeWorld();
     const p = w.player;
-    const krill = still(w, 'glimmer-krill', p.x + 6, p.y - 28);
+    const krill = still(w, 'glimmer-krill', p.x + 6, p.y - 19);
     w.update(1 / 60, idle);
     const arm = armOn(w, krill)!;
     expect(arm.phase).toBe('reach');
@@ -128,7 +163,7 @@ describe('tentacle hunting', () => {
     // An rng of 0 makes every escape roll succeed.
     const w = makeWorld({ rng: () => 0 });
     const p = w.player;
-    const fish = still(w, 'sea-butterfly', p.x, p.y - 26);
+    const fish = still(w, 'sea-butterfly', p.x, p.y - 19);
     fish.r = fish.baseR = p.r * 0.85;
     let escaped = false;
     for (let i = 0; i < 120 && !escaped; i++) {
@@ -146,7 +181,7 @@ describe('tentacle hunting', () => {
   it('small prey never escapes once caught', () => {
     const w = makeWorld({ rng: () => 0 });
     const p = w.player;
-    const krill = still(w, 'glimmer-krill', p.x, p.y - 26);
+    const krill = still(w, 'glimmer-krill', p.x, p.y - 19);
     for (let i = 0; i < 180 && !krill.dead; i++) w.update(1 / 60, idle);
     expect(krill.dead).toBe(true);
     expect(w.events.some((e) => e.type === 'escape')).toBe(false);
@@ -155,7 +190,7 @@ describe('tentacle hunting', () => {
   it('drops its catch if the jelly is caught', () => {
     const w = makeWorld();
     const p = w.player;
-    const krill = still(w, 'glimmer-krill', p.x, p.y - 28);
+    const krill = still(w, 'glimmer-krill', p.x, p.y - 19);
     for (let i = 0; i < 60 && !krill.held; i++) w.update(1 / 60, idle);
     expect(krill.held).toBe(true);
     p.invuln = 0;
@@ -172,7 +207,7 @@ describe('tentacle hunting', () => {
   it('recovers when its catch vanishes from the world mid-pull', () => {
     const w = makeWorld();
     const p = w.player;
-    const krill = still(w, 'glimmer-krill', p.x, p.y - 28);
+    const krill = still(w, 'glimmer-krill', p.x, p.y - 19);
     let arm: ReturnType<typeof armOn>;
     for (let i = 0; i < 60 && !krill.held; i++) {
       w.update(1 / 60, idle);
@@ -188,6 +223,8 @@ describe('tentacle hunting', () => {
     const w = makeWorld();
     const p = w.player;
     p.r = 30;
+    // A well-fed jelly, so its arms are long.
+    w.run.eaten = 300;
     // The slimmest lone coral pillar, so prey behind it sits inside tentacle range.
     const c = w.corals
       .filter((cl) => cl.circles.length === 1 && cl.minY > 800)
@@ -197,7 +234,7 @@ describe('tentacle hunting', () => {
     p.y = c.y;
     const hidden = still(w, 'glimmer-krill', c.x + c.r + 6, c.y);
     // In range, but the reef is in the way.
-    expect(Math.hypot(hidden.x - p.x, hidden.y - p.y)).toBeLessThan(tentacleReach(p.r));
+    expect(Math.hypot(hidden.x - p.x, hidden.y - p.y)).toBeLessThan(w.tentacleReach());
     for (let i = 0; i < 30; i++) w.update(1 / 60, idle);
     expect(hidden.claimed).toBe(false);
     expect(hidden.dead).toBe(false);
@@ -216,7 +253,7 @@ describe('tentacle hunting', () => {
     const p = w.player;
     const mass = p.mass;
     const food = p.food;
-    const krill = still(w, 'glimmer-krill', p.x, p.y - 24);
+    const krill = still(w, 'glimmer-krill', p.x, p.y - 19);
     for (let i = 0; i < 180 && !krill.dead; i++) w.update(1 / 60, idle);
     expect(p.mass).toBeGreaterThan(mass);
     expect(p.food).toBe(food + krillDef.growth);

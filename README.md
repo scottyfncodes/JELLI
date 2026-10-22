@@ -8,7 +8,7 @@ You're a thimble-sized moon jelly in Lantern Reef. Eat anything clearly smaller 
 
 - **Touch:** drag anywhere to steer (floating thumb-stick). Tap ⚡ (or tap with a second finger) to burst.
 - **Keyboard:** WASD / arrows to swim, Space to burst, Esc / P to pause, Enter to start.
-- Your tentacles do the hunting: swim near anything wearing a cyan ring and an arm reaches out, grabs it and reels it in to eat. Heavy prey can wriggle free, and arms can't reach through coral.
+- Your tentacles do the hunting: swim past anything wearing a cyan ring and a trailing arm snags it and reels it in. Every meal makes the arms a little longer. Heavy prey can wriggle free, and arms can't reach through coral.
 - Red eyes, a `!` and a dashed lunge line warn of a hunter about to strike.
 
 ## Features
