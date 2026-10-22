@@ -20,6 +20,7 @@ import { FRENZY_MAGNET, OVERCHARGE_RATE, POWERS, TITAN_SCALE, emptyPowers, type 
 import { emptyRunStats, type RunStats } from '../core/progress';
 import {
   REACH_ARC,
+  busyArms,
   canEat,
   escapeRate,
   isThreat,
@@ -959,7 +960,7 @@ export class World {
   tentacleReach(): number {
     const p = this.player;
     const maw = p.burstT > 0 ? p.stats.burstMaw : 1;
-    return tentacleReach(this.playerReach()) * maw;
+    return tentacleReach(this.playerReach(), this.run.eaten) * maw;
   }
 
   /** Where a tentacle joins the bell rim, for a bell of radius r. */
@@ -988,7 +989,7 @@ export class World {
     this.tentacleRoot(t, r, out);
     const h = this.player.heading;
     // A relaxed arm hangs at about half its full length, so longer arms read as longer reach.
-    const len = tentacleReach(r) * 0.55;
+    const len = tentacleReach(r, this.run.eaten) * 0.55;
     const sway = Math.sin(this.time * 1.7 + t.seed) * r * 0.55;
     const side = (t.slot - 0.5) * r * 1.2;
     out.x += -Math.cos(h) * len - Math.sin(h) * (sway + side);
@@ -1099,7 +1100,7 @@ export class World {
           const dx = t.x - rest.x;
           const dy = t.y - rest.y;
           const d = Math.hypot(dx, dy);
-          const max = tentacleReach(R) * 0.9;
+          const max = tentacleReach(R, this.run.eaten) * 0.9;
           if (d > max) {
             t.x = rest.x + (dx / d) * max;
             t.y = rest.y + (dy / d) * max;
@@ -1116,7 +1117,7 @@ export class World {
           if (away > reach * 1.2 || t.t > REACH_TIME || this.blocked(t.x, t.y, c.x, c.y)) {
             // Out of range, too slow, or it ducked behind coral: it got away.
             this.letGo(t, true);
-            t.cooldown = 0.35;
+            t.cooldown = 0.8;
             break;
           }
           const left = World.approach(t, c.x, c.y, speed, dt);
@@ -1179,7 +1180,7 @@ export class World {
             t.target = null;
             t.phase = 'idle';
             t.t = 0;
-            t.cooldown = 0.5;
+            t.cooldown = 1.1;
           }
           break;
         }
@@ -1214,8 +1215,10 @@ export class World {
       cands.push(c);
     }
     if (!cands.length) return;
+    let free = busyArms(p.stage) - this.tentacles.filter((t) => t.phase !== 'idle' && t.phase !== 'retract').length;
     const root = this.tmp;
     for (const t of this.tentacles) {
+      if (free <= 0) return;
       if (t.phase !== 'idle' || t.cooldown > 0) continue;
       this.tentacleRoot(t, this.playerReach(), root);
       let best: Creature | null = null;
@@ -1230,6 +1233,7 @@ export class World {
       }
       if (!best) return;
       best.claimed = true;
+      free -= 1;
       t.target = best;
       t.phase = 'reach';
       t.t = 0;

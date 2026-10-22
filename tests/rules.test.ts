@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canEat, escapeRate, isThreat, tentacleCount, tentaclePullSpeed, tentacleReach, threatContact } from '../src/sim/rules';
+import { busyArms, canEat, escapeRate, isThreat, tentacleCount, tentaclePullSpeed, tentacleReach, threatContact } from '../src/sim/rules';
 import { SPECIES_BY_ID } from '../src/content/species';
 
 const krill = SPECIES_BY_ID['glimmer-krill'];
@@ -37,10 +37,23 @@ describe('feeding rules', () => {
 });
 
 describe('tentacle rules', () => {
-  it('starts short and lengthens faster than the bell grows', () => {
-    expect(tentacleReach(10)).toBeLessThan(40);
-    expect(tentacleReach(10)).toBeGreaterThan(10 * 2.5);
-    expect(tentacleReach(40) / 40).toBeGreaterThan(tentacleReach(10) / 10 * 1.3);
+  it('starts short and grows a little with every meal', () => {
+    expect(tentacleReach(10)).toBeLessThan(30);
+    expect(tentacleReach(10)).toBeGreaterThan(10 * 2);
+    for (const n of [0, 10, 50, 200]) {
+      const step = tentacleReach(10, n + 1) - tentacleReach(10, n);
+      expect(step).toBeGreaterThan(0);
+      expect(step).toBeLessThan(1.1);
+    }
+    expect(tentacleReach(10, 100)).toBeGreaterThan(tentacleReach(10) + 40);
+    expect(tentacleReach(40)).toBeGreaterThan(tentacleReach(10));
+  });
+
+  it('keeps only one or two arms busy at once', () => {
+    expect(busyArms(1)).toBe(1);
+    expect(busyArms(2)).toBe(1);
+    expect(busyArms(3)).toBe(2);
+    expect(busyArms(4)).toBe(2);
   });
 
   it('grows arms with size stages, capped at five', () => {

@@ -21,10 +21,15 @@ export function threatContact(dist: number, playerR: number, hunterR: number): b
 
 /**
  * Full tentacle length, which is also how far an arm can reach from the bell.
- * Short on a fresh ephyra, and it lengthens faster than the bell grows.
+ * Short on a fresh ephyra; every meal lengthens the arms a little, tapering off over a run.
  */
-export function tentacleReach(playerR: number): number {
-  return playerR * 3 + playerR * playerR * 0.04;
+export function tentacleReach(playerR: number, meals = 0): number {
+  return playerR * 1.8 + 6 + 70 * (1 - Math.exp(-Math.max(0, meals) / 70));
+}
+
+/** How many arms may be busy catching at once: one, then two from Bloom. Arms snag, they don't swarm. */
+export function busyArms(stage: number): number {
+  return 1 + Math.floor(Math.max(1, stage) / 3);
 }
 
 /** Arms only reach into this forward arc (cosine of the half-angle from the heading). */
@@ -35,9 +40,9 @@ export function tentacleCount(stage: number): number {
   return Math.min(5, 3 + Math.floor(Math.max(1, stage) / 2));
 }
 
-/** Tip speed while reaching. Big jellies have big, fast arms. */
+/** Tip speed while reaching: an unhurried flick. Big jellies have bigger, faster arms. */
 export function tentacleReachSpeed(playerR: number): number {
-  return 430 * Math.pow(playerR / 10, 0.35);
+  return 260 * Math.pow(playerR / 10, 0.35);
 }
 
 /** Reel-in speed: heavy prey (relative to the jelly) comes in slower. */
