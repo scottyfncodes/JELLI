@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { World } from '../src/sim/world';
 import { SPECIES_BY_ID } from '../src/content/species';
-import { STAGES, hunterScale } from '../src/content/progression';
+import { EVOLUTION_FOOD, hunterScale } from '../src/content/progression';
 import { mulberry32 } from '../src/core/math';
 
 const idle = { ax: 0, ay: 0, burst: false };
@@ -27,20 +27,46 @@ describe('world simulation', () => {
     expect(w.hasSeen('glimmer-krill')).toBe(true);
   });
 
-  it('crossing a stage threshold queues an evolution choice', () => {
+  it('feeding past a milestone queues an evolution choice', () => {
     const w = makeWorld();
     const p = w.player;
-    p.mass = STAGES[1].mass - 0.1;
+    p.food = EVOLUTION_FOOD[0] - 0.1;
     w.creatures.length = 0;
     w.spawn(SPECIES_BY_ID['sea-butterfly'], p.x + 2, p.y);
     w.update(1 / 60, idle);
-    expect(p.stage).toBe(2);
     expect(w.pendingEvolutions).toBe(1);
     w.applyEvolution('surge');
     expect(p.tiers.surge).toBe(1);
     expect(p.stats.burstCooldown).toBeLessThan(3);
     expect(w.pendingEvolutions).toBe(0);
     expect(w.run.evolutions).toBe(1);
+  });
+
+  it('allows nine evolutions in total, then stops offering more', () => {
+    const w = makeWorld();
+    const p = w.player;
+    w.creatures.length = 0;
+    p.food = EVOLUTION_FOOD[EVOLUTION_FOOD.length - 1] + 500;
+    w.spawn(SPECIES_BY_ID['glimmer-krill'], p.x + 2, p.y);
+    w.update(1 / 60, idle);
+    expect(w.pendingEvolutions).toBe(9);
+    for (const path of ['glow', 'surge', 'sting'] as const) for (let i = 0; i < 3; i++) w.applyEvolution(path);
+    expect(p.tiers).toEqual({ glow: 3, surge: 3, sting: 3 });
+    expect(w.tiersLeft()).toBe(0);
+    expect(w.pendingEvolutions).toBe(0);
+    // Applying past the cap changes nothing.
+    w.applyEvolution('glow');
+    expect(p.tiers.glow).toBe(3);
+  });
+
+  it('a starting trait leaves eight evolutions to earn', () => {
+    const w = makeWorld({ tiers: { sting: 1 } });
+    const p = w.player;
+    w.creatures.length = 0;
+    p.food = 5000;
+    w.spawn(SPECIES_BY_ID['glimmer-krill'], p.x + 2, p.y);
+    w.update(1 / 60, idle);
+    expect(w.pendingEvolutions).toBe(8);
   });
 
   it('a hunter catches an unprotected jelly', () => {

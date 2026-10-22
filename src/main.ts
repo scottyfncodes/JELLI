@@ -9,7 +9,7 @@ import { AudioEngine } from './audio/audio';
 import { SaveStore, type SaveData } from './persistence/save';
 import { applyRun, recordDiscoveries } from './core/progress';
 import { PATHS, type Tiers } from './content/evolutions';
-import { STAGES, stageProgress } from './content/progression';
+import { STAGES, evolutionProgress } from './content/progression';
 import { RARITY_LABEL, SPECIES_BY_ID } from './content/species';
 import { SKINS_BY_ID, TRAITS_BY_ID } from './content/unlocks';
 import { WORLD } from './content/world';
@@ -670,7 +670,9 @@ class Game {
       c.tide = tide;
       ui.tideText.textContent = mmss(tide);
     }
-    const g = Math.round(stageProgress(p.mass) * 200) / 200;
+    // The bar fills toward the next evolution; it turns gold once every path is maxed.
+    const maxed = w.tiersLeft() === 0;
+    const g = maxed ? 1 : Math.round(evolutionProgress(p.food) * 200) / 200;
     if (g !== c.growth) {
       c.growth = g;
       ui.growth.style.transform = `scaleX(${g})`;
@@ -678,11 +680,12 @@ class Game {
     if (p.stage !== c.stage) {
       c.stage = p.stage;
       ui.stage.textContent = STAGES[p.stage - 1].name;
-      ui.growthBar.classList.toggle('apex', p.stage >= STAGES.length);
+
     }
     const tiersKey = `${p.tiers.glow}${p.tiers.surge}${p.tiers.sting}`;
     if (tiersKey !== c.tiers) {
       c.tiers = tiersKey;
+      ui.growthBar.classList.toggle('apex', maxed);
       renderPathPips(ui.paths, p.tiers);
     }
     const max = p.stats.burstCharges;
@@ -756,7 +759,7 @@ class Game {
       TOUCH ? 'Drag anywhere to swim' : 'Swim with <kbd>WASD</kbd> or <kbd>Arrows</kbd>',
       'Eat creatures with a <b style="color:#8cfaff">glowing ring</b>',
       TOUCH ? 'Tap the ⚡ button to burst' : 'Press <kbd>Space</kbd> to burst',
-      'Red eyes mean danger · Grow to evolve',
+      'Red eyes mean danger · Fill the bar to evolve',
     ];
     const text = steps[this.tutorial.step];
     this.ui.hint.classList.toggle('show', !!text);

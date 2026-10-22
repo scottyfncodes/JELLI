@@ -13,7 +13,7 @@ You're a thimble-sized moon jelly in Lantern Reef. Eat anything clearly smaller 
 ## Features
 
 - **Core loop:** buoyant, pulse-driven movement with momentum. Food grows you, growth reveals bigger prey, and size works both ways: bigger jellies spot more food, but hunters notice them from further away and they can't slip through tight coral gaps.
-- **Evolution:** each stage (Drifter, Bloom, Apex) offers a tier in one of three paths:
+- **Evolution:** feeding fills an evolution meter. Each time it fills you pick a tier in one of three paths, up to 9 choices (every path maxed):
   - **Glow:** wider light in the dark, pulls in plankton, more rare spawns, a rare-species compass, and hunters notice you later.
   - **Surge:** faster, stronger bursts, riding currents, then two charges and a wider maw while bursting.
   - **Sting:** stuns the first hunter that bites, recharging faster with each tier, then a stinging nova on every burst.

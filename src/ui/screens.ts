@@ -187,7 +187,8 @@ export function renderPowers(el: HTMLElement, powers: PowerTimers): void {
 // ------------------------------------------------------------------ evolve
 
 export function renderEvolve(ui: Binds, tiers: Tiers, stage: number): void {
-  ui.evolveStage.textContent = `Stage ${stage} · ${STAGES[stage - 1]?.name ?? ''}`;
+  const n = tiers.glow + tiers.surge + tiers.sting + 1;
+  ui.evolveStage.textContent = `Evolution ${n} of ${MAX_TIER * 3} · ${STAGES[stage - 1]?.name ?? ''}`;
   ui.cards.innerHTML = PATH_ORDER.map((id) => {
     const p = PATHS[id];
     const level = tiers[id];

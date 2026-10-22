@@ -1,12 +1,13 @@
 import { SPECIES, PLAYER_SPECIES } from '../content/species';
 import type { PathId, PlayerStats, SpeciesDef, ZoneId } from '../content/types';
 import { WORLD, ZONES, darknessAt, zoneAt, type ZoneDef } from '../content/world';
-import { computeStats, emptyTiers, type Tiers } from '../content/evolutions';
+import { MAX_TIER, computeStats, emptyTiers, type Tiers } from '../content/evolutions';
 import {
   MAX_MASS,
   START_MASS,
   STAGES,
   detectionScale,
+  evolutionsEarned,
   extraHunters,
   hunterScale,
   growthGain,
@@ -95,6 +96,8 @@ export interface Player {
   stats: PlayerStats;
   /** Seconds remaining on each power-up. */
   powers: PowerTimers;
+  /** Total food eaten this run (untapered, uncapped); drives evolutions. */
+  food: number;
 }
 
 export interface SimInput {
@@ -162,6 +165,8 @@ export class World {
   time = 0;
   ended: RunEnd = null;
   pendingEvolutions = 0;
+  /** Evolution milestones already reached this run. */
+  evolutionsReached = 0;
   zone: ZoneDef = ZONES[0];
   viewRadius = 500;
   /** Half extents of the visible area; hunters only notice the jelly from on screen. */
@@ -201,6 +206,7 @@ export class World {
       tiers,
       stats: computeStats(tiers),
       powers: emptyPowers(),
+      food: 0,
     };
     this.player.charges = this.player.stats.burstCharges;
     this.generate(mulberry32(seed));
@@ -338,13 +344,20 @@ export class World {
   applyEvolution(path: PathId): void {
     const p = this.player;
     if (this.pendingEvolutions <= 0) return;
-    p.tiers[path] = Math.min(3, p.tiers[path] + 1);
+    if (p.tiers[path] >= MAX_TIER) return;
+    p.tiers[path] += 1;
     const before = p.stats.burstCharges;
     p.stats = computeStats(p.tiers);
     p.charges = Math.min(p.stats.burstCharges, p.charges + (p.stats.burstCharges - before));
     if (path === 'sting') p.stingCd = 0;
     this.pendingEvolutions -= 1;
     this.run.evolutions += 1;
+  }
+
+  /** Path tiers still available to evolve into. */
+  tiersLeft(): number {
+    const t = this.player.tiers;
+    return 3 * MAX_TIER - t.glow - t.surge - t.sting;
   }
 
   /** Visible radius around the player, shrinking from the full view to the light radius as water darkens. */
@@ -911,6 +924,7 @@ export class World {
     c.dead = true;
     const sizeK = (c.r / c.def.radius) ** 2;
     p.mass = Math.min(MAX_MASS, p.mass + growthGain(c.def.growth * sizeK, p.mass));
+    p.food += c.def.growth;
     p.r = radiusForMass(p.mass);
     this.run.score += c.def.score * (p.powers.frenzy > 0 ? 2 : 1);
     this.run.eaten += 1;
@@ -923,10 +937,13 @@ export class World {
     const stage = stageForMass(p.mass);
     while (p.stage < stage) {
       p.stage += 1;
-      if (p.stage <= STAGES.length) {
-        this.pendingEvolutions += 1;
-        this.events.push({ type: 'stage', stage: p.stage });
-      }
+      if (p.stage <= STAGES.length) this.events.push({ type: 'stage', stage: p.stage });
+    }
+    // Feeding earns evolution choices until every path is maxed.
+    const earned = evolutionsEarned(p.food);
+    while (this.evolutionsReached < earned) {
+      this.evolutionsReached += 1;
+      if (this.tiersLeft() > this.pendingEvolutions) this.pendingEvolutions += 1;
     }
   }
 
