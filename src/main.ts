@@ -758,7 +758,7 @@ class Game {
     const steps = [
       TOUCH ? 'Drag anywhere to swim' : 'Swim with <kbd>WASD</kbd> or <kbd>Arrows</kbd>',
       'Eat creatures with a <b style="color:#8cfaff">glowing ring</b>',
-      TOUCH ? 'Tap the ⚡ button to burst' : 'Press <kbd>Space</kbd> to burst',
+      TOUCH ? 'Tap <b>Burst</b> for a quick dash' : 'Press <kbd>Space</kbd> to burst',
       'Red eyes mean danger · Fill the bar to evolve',
     ];
     const text = steps[this.tutorial.step];
