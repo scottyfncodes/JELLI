@@ -698,9 +698,11 @@ export class Renderer {
       const taut =
         tt.phase === 'reach' ? 0.3 + 0.4 * Math.min(1, tt.t / 0.35) : tt.phase === 'grab' || tt.phase === 'pull' ? 0.75 : tt.phase === 'eat' ? 0.5 : 0;
 
-      // Leave the rim heading back and out to the arm's own side, then swing toward the tip.
-      let ox = -fx * 0.9 - fy * side * 0.7 + ux * 0.8;
-      let oy = -fy * 0.9 + fx * side * 0.7 + uy * 0.8;
+      // Leave the rim out to the arm's own side, then run straight at the tip. A trailing arm
+      // also hangs back; one striking forward drops that, so it reaches ahead past the bell.
+      const back = clamp(0.45 - (ux * fx + uy * fy) * 0.9, 0, 0.9);
+      let ox = -fx * back - fy * side * 0.6 + ux;
+      let oy = -fy * back + fx * side * 0.6 + uy;
       const om = Math.hypot(ox, oy) || 1;
       ox /= om;
       oy /= om;

@@ -19,10 +19,16 @@ export function threatContact(dist: number, playerR: number, hunterR: number): b
   return dist < hunterR * 0.68 + playerR * 0.5;
 }
 
-/** How far a hunting tentacle can reach from the bell, in world units. Grows with the jelly. */
+/**
+ * Full tentacle length, which is also how far an arm can reach from the bell.
+ * Short on a fresh ephyra, and it lengthens faster than the bell grows.
+ */
 export function tentacleReach(playerR: number): number {
-  return 38 + playerR * 3.1;
+  return playerR * 3 + playerR * playerR * 0.04;
 }
+
+/** Arms only reach into this forward arc (cosine of the half-angle from the heading). */
+export const REACH_ARC = -0.17;
 
 /** Hunting tentacles by size stage: three to start, four from Drifter, five at Apex. */
 export function tentacleCount(stage: number): number {
