@@ -470,6 +470,138 @@ export function drawCreatureShape(ctx: CanvasRenderingContext2D, def: SpeciesDef
       }
       break;
     }
+    case 'moray': {
+      // Thick spotted body trailing back into the reef, big hinged jaw up front.
+      const open = 0.12 + pose.alert * 0.45 + Math.sin(t * 1.6) * 0.04;
+      ctx.fillStyle = rgba(look.body, a(1));
+      ctx.beginPath();
+      const segs = 10;
+      const len = r * 2.6;
+      for (let i = 0; i <= segs; i++) {
+        const k = i / segs;
+        const x = -r * 0.2 - k * len;
+        const y = Math.sin(t * 2 - k * 4) * r * 0.18 * k;
+        if (i === 0) ctx.moveTo(x, y - r * 0.42);
+        else ctx.lineTo(x, y - r * 0.42 * (1 - k * 0.5));
+      }
+      for (let i = segs; i >= 0; i--) {
+        const k = i / segs;
+        const x = -r * 0.2 - k * len;
+        const y = Math.sin(t * 2 - k * 4) * r * 0.18 * k;
+        ctx.lineTo(x, y + r * 0.42 * (1 - k * 0.5));
+      }
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.3, -r * 0.45);
+      ctx.quadraticCurveTo(r * 0.5, -r * 0.55, r * 1.05, -r * (0.08 + open * 0.4));
+      ctx.lineTo(r * 0.25, r * 0.02);
+      ctx.lineTo(r * 0.95, r * (0.12 + open * 0.35));
+      ctx.quadraticCurveTo(r * 0.45, r * 0.5, -r * 0.3, r * 0.45);
+      ctx.closePath();
+      ctx.fill();
+      if (!look.flat) {
+        ctx.fillStyle = rgba(look.accent, 0.55);
+        for (let i = 0; i < 9; i++) {
+          const k = i / 9;
+          ellipse(ctx, r * 0.4 - k * r * 2.6, ((i % 3) - 1) * r * 0.18 + Math.sin(t * 2 - k * 4) * r * 0.18 * k, r * 0.08, r * 0.06);
+          ctx.fill();
+        }
+        ctx.fillStyle = '#3a1020';
+        ctx.beginPath();
+        ctx.moveTo(r * 1.0, -r * (0.06 + open * 0.38));
+        ctx.lineTo(r * 0.3, r * 0.02);
+        ctx.lineTo(r * 0.9, r * (0.1 + open * 0.33));
+        ctx.fill();
+        ctx.fillStyle = '#f7f2d0';
+        for (let i = 1; i <= 3; i++) {
+          const jx = r * 0.3 + i * r * 0.18;
+          ctx.beginPath();
+          ctx.moveTo(jx, -r * open * 0.3 * (i / 3) - r * 0.02);
+          ctx.lineTo(jx + r * 0.05, r * 0.08);
+          ctx.lineTo(jx + r * 0.1, -r * open * 0.3 * (i / 3) - r * 0.02);
+          ctx.fill();
+        }
+        ctx.fillStyle = pose.alert > 0.1 ? '#ff5d5d' : '#f2f6c8';
+        ellipse(ctx, r * 0.55, -r * 0.3, r * 0.08, r * 0.08);
+        ctx.fill();
+      }
+      break;
+    }
+    case 'razorfin': {
+      const wag = Math.sin(t * 13) * 0.3;
+      ctx.fillStyle = rgba(look.body, a(1));
+      ctx.beginPath();
+      ctx.moveTo(r * 1.2, r * 0.05);
+      ctx.lineTo(r * 0.7, -r * 0.4);
+      ctx.lineTo(r * 0.3, -r * 0.85);
+      ctx.lineTo(r * 0.1, -r * 0.45);
+      ctx.lineTo(-r * 0.2, -r * 0.75);
+      ctx.lineTo(-r * 0.4, -r * 0.35);
+      ctx.lineTo(-r * 0.9, -r * 0.1);
+      ctx.lineTo(-r * 1.4, -r * 0.55 + wag * r * 0.4);
+      ctx.lineTo(-r * 1.25, wag * r * 0.2);
+      ctx.lineTo(-r * 1.4, r * 0.55 + wag * r * 0.4);
+      ctx.lineTo(-r * 0.9, r * 0.15);
+      ctx.quadraticCurveTo(r * 0.1, r * 0.75, r * 1.2, r * 0.05);
+      ctx.fill();
+      if (!look.flat) {
+        ctx.fillStyle = rgba(look.accent, 0.7);
+        ctx.beginPath();
+        ctx.moveTo(r * 1.05, r * 0.15);
+        ctx.quadraticCurveTo(r * 0.2, r * 0.6, -r * 0.8, r * 0.18);
+        ctx.quadraticCurveTo(r * 0.2, r * 0.3, r * 1.05, r * 0.15);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.moveTo(r * 1.15, r * 0.08);
+        ctx.lineTo(r * 1.0, r * 0.22);
+        ctx.lineTo(r * 0.9, r * 0.1);
+        ctx.fill();
+        ctx.fillStyle = pose.alert > 0.1 ? '#ffe066' : '#1a1030';
+        ellipse(ctx, r * 0.7, -r * 0.08, r * 0.1, r * 0.1);
+        ctx.fill();
+      }
+      break;
+    }
+    case 'shark': {
+      const wag = Math.sin(t * 5) * 0.2 * (1 - pose.alert * 0.6);
+      ctx.fillStyle = rgba(look.body, a(1));
+      ctx.beginPath();
+      ctx.moveTo(r * 1.4, r * 0.05);
+      ctx.quadraticCurveTo(r * 1.1, -r * 0.4, r * 0.2, -r * 0.42);
+      ctx.lineTo(-r * 0.05, -r * 0.95);
+      ctx.lineTo(-r * 0.35, -r * 0.4);
+      ctx.quadraticCurveTo(-r * 1.0, -r * 0.3, -r * 1.3, -r * 0.08);
+      ctx.lineTo(-r * 1.85, -r * 0.7 + wag * r);
+      ctx.lineTo(-r * 1.65, r * 0.05 + wag * r * 0.5);
+      ctx.lineTo(-r * 1.8, r * 0.45 + wag * r);
+      ctx.lineTo(-r * 1.3, r * 0.12);
+      ctx.quadraticCurveTo(-r * 0.4, r * 0.42, r * 0.1, r * 0.4);
+      ctx.lineTo(-r * 0.2, r * 0.75);
+      ctx.lineTo(r * 0.4, r * 0.38);
+      ctx.quadraticCurveTo(r * 1.1, r * 0.35, r * 1.4, r * 0.05);
+      ctx.fill();
+      if (!look.flat) {
+        // Belly photophores.
+        ctx.fillStyle = rgba(look.accent, 0.95);
+        for (let i = 0; i < 8; i++) {
+          ellipse(ctx, r * 0.9 - i * r * 0.28, r * 0.28 - Math.abs(i - 3) * r * 0.02, r * 0.045, r * 0.045);
+          ctx.fill();
+        }
+        ctx.strokeStyle = rgba('#000000', 0.35);
+        ctx.lineWidth = Math.max(0.6, r * 0.03);
+        ctx.beginPath();
+        for (let i = 0; i < 3; i++) {
+          ctx.moveTo(r * (0.55 - i * 0.1), -r * 0.2);
+          ctx.lineTo(r * (0.5 - i * 0.1), r * 0.15);
+        }
+        ctx.stroke();
+        ctx.fillStyle = pose.alert > 0.1 ? '#ff5d5d' : '#cfe8ff';
+        ellipse(ctx, r * 0.9, -r * 0.14, r * 0.07, r * 0.07);
+        ctx.fill();
+      }
+      break;
+    }
     case 'jelly':
       break;
   }

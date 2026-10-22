@@ -10,9 +10,10 @@ import { SaveStore, type SaveData } from './persistence/save';
 import { applyRun, recordDiscoveries } from './core/progress';
 import { PATHS, type Tiers } from './content/evolutions';
 import { STAGES, stageProgress } from './content/progression';
-import { RARITY_LABEL } from './content/species';
+import { RARITY_LABEL, SPECIES_BY_ID } from './content/species';
 import { SKINS_BY_ID, TRAITS_BY_ID } from './content/unlocks';
 import { WORLD } from './content/world';
+import { POWERS } from './content/powerups';
 import type { PathId } from './content/types';
 import { clamp } from './core/math';
 import { PKind } from './render/particles';
@@ -27,6 +28,7 @@ import {
   renderGuide,
   renderLineage,
   renderPathPips,
+  renderPowers,
   renderResults,
   renderTitle,
   type Binds,
@@ -55,7 +57,7 @@ class Game {
   private runNew: string[] = [];
   private demoT = 0;
   private resultsTimer = 0;
-  private hudCache = { score: -1, tide: -1, growth: -1, stage: -1, cd: -1, charges: -1, maxCharges: -1, sting: '', tiers: '' };
+  private hudCache = { score: -1, tide: -1, growth: -1, stage: -1, cd: -1, charges: -1, maxCharges: -1, sting: '', tiers: '', powers: '' };
   private tutorial = { step: 0, t: 0, eats: 0 };
   private noticeCooldown = 0;
 
@@ -345,7 +347,7 @@ class Game {
     for (const s of ['title', 'pause', 'evolve', 'results']) this.show(s, false);
     this.show('hud', true);
     this.ui.toasts.innerHTML = '';
-    this.hudCache = { score: -1, tide: -1, growth: -1, stage: -1, cd: -1, charges: -1, maxCharges: -1, sting: '', tiers: '' };
+    this.hudCache = { score: -1, tide: -1, growth: -1, stage: -1, cd: -1, charges: -1, maxCharges: -1, sting: '', tiers: '', powers: '' };
     this.tutorial = { step: this.save.tutorialDone ? 99 : 0, t: 0, eats: 0 };
     this.updateHint();
     this.zoneToast(this.world.zone.name, 'Eat smaller creatures to grow');
@@ -500,6 +502,17 @@ class Game {
     if (Math.random() < 0.04 + p.thrust * 0.04) {
       ps.emit(PKind.Bubble, p.x + (Math.random() - 0.5) * p.r, p.y + (Math.random() - 0.5) * p.r, (Math.random() - 0.5) * 10, -10, 1.6, 1.2 + Math.random() * 2, '#fff', 0.5, 0.6);
     }
+    const pw = p.powers;
+    if (pw.overcharge > 0 && Math.random() < 0.5) {
+      const a = Math.random() * Math.PI * 2;
+      ps.emit(PKind.Spark, p.x + Math.cos(a) * p.r * 1.3, p.y + Math.sin(a) * p.r * 1.3, Math.cos(a) * 60, Math.sin(a) * 60, 0.25, p.r * 0.15, POWERS.overcharge.color);
+    }
+    if (pw.frenzy > 0 && Math.random() < 0.4) {
+      ps.emit(PKind.Spark, p.x + (Math.random() - 0.5) * p.r * 3, p.y + (Math.random() - 0.5) * p.r * 3, 0, -20, 0.8, p.r * 0.14, Math.random() < 0.5 ? '#ff9ff3' : '#7ff0ff');
+    }
+    if (pw.titan > 0 && Math.random() < 0.35) {
+      ps.emit(PKind.Spark, p.x + (Math.random() - 0.5) * p.r * 2.5, p.y + (Math.random() - 0.5) * p.r * 2.5, 0, -15, 0.6, p.r * 0.2, POWERS.titan.color);
+    }
     if (p.tiers.glow >= 3 && Math.random() < 0.25) {
       ps.emit(PKind.Spark, p.x + (Math.random() - 0.5) * p.r * 3, p.y + (Math.random() - 0.5) * p.r * 3, 0, -8, 1, p.r * 0.12, '#ffd27a');
     }
@@ -582,6 +595,22 @@ class Game {
       }
       case 'rare':
         if (!this.world.hasSeen(e.def.id)) this.toast('<b>Something rare stirs nearby…</b>', '#ffd27a', p.stats.rareCompass ? 'Follow the gold' : '');
+        break;
+      case 'power': {
+        const pd = POWERS[e.id];
+        ps.burst(e.x, e.y, 34, 240, 5, pd.color, 1);
+        ps.emit(PKind.Ring, e.x, e.y, 0, 0, 0.8, p.r, pd.color, 260, 0);
+        this.audio.discover(true);
+        this.flash();
+        this.toast(`<b>${pd.name}!</b> ${pd.desc}`, pd.color, 'Power-up');
+        break;
+      }
+      case 'shield':
+        ps.burst(e.x, e.y, 30, 240, 5, POWERS.shield.color, 0.7);
+        ps.emit(PKind.Ring, e.x, e.y, 0, 0, 0.6, p.r * 1.7, POWERS.shield.color, 220, 0);
+        this.renderer.addShake(0.4);
+        this.audio.sting();
+        this.toast('<b>Shield blocked a bite!</b>', POWERS.shield.color, `${e.def.name} stunned`);
         break;
       case 'notice':
         if (this.noticeCooldown <= 0) {
@@ -669,6 +698,14 @@ class Game {
       renderCharges(ui.charges, p.charges, max);
     }
     c.cd = cd;
+    const pw = p.powers;
+    const powersKey = `${Math.ceil(pw.titan)},${Math.ceil(pw.overcharge)},${Math.ceil(pw.shield)},${Math.ceil(pw.frenzy)},${Math.ceil(pw.veil)},${Math.round(
+      (pw.titan + pw.overcharge + pw.shield + pw.frenzy + pw.veil) * 4,
+    )}`;
+    if (powersKey !== c.powers) {
+      c.powers = powersKey;
+      renderPowers(ui.powers, pw);
+    }
     let sting = '';
     if (p.stats.stingCooldown > 0) sting = w.stingReady() ? 'ready' : `${Math.ceil(p.stingCd)}`;
     if (sting !== c.sting) {
@@ -731,7 +768,7 @@ function boot(): void {
   try {
     const game = new Game();
     // Opt-in handle for automated playtesting: ?debug
-    if (new URLSearchParams(location.search).has('debug')) (window as unknown as { jelli: Game }).jelli = game;
+    if (new URLSearchParams(location.search).has('debug')) Object.assign(window, { jelli: game, jelliSpecies: SPECIES_BY_ID });
   } catch (err) {
     console.error(err);
     const ui = document.getElementById('ui');

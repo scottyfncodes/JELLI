@@ -10,6 +10,7 @@ export type ChallengeMetric =
   | 'run.stage'
   | 'run.stings'
   | 'run.score'
+  | 'run.powerups'
   | 'life.discovered'
   | 'life.rareDiscovered'
   | 'life.legendaryDiscovered';
@@ -34,5 +35,6 @@ export const CHALLENGES: ChallengeDef[] = [
   { id: 'apex', title: 'Apex Jelli', desc: 'Reach Apex size in a single run.', metric: 'run.stage', goal: 4, reward: 'skin:gilded' },
   { id: 'rare-sighting', title: 'Rare Sighting', desc: 'Discover a rare species.', metric: 'life.rareDiscovered', goal: 1 },
   { id: 'legend', title: 'Living Legend', desc: 'Witness a legendary species.', metric: 'life.legendaryDiscovered', goal: 1 },
+  { id: 'power-surge', title: 'Power Surge', desc: 'Collect 3 power-ups in a single run.', metric: 'run.powerups', goal: 3 },
   { id: 'high-tide', title: 'High Tide', desc: 'Score 12,000 in a single run.', metric: 'run.score', goal: 12000 },
 ];

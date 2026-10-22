@@ -332,6 +332,41 @@ h2 {
   color: var(--ink-dim);
 }
 
+.powers {
+  position: absolute;
+  left: calc(var(--sal) + var(--gutter));
+  bottom: calc(var(--sab) + var(--gutter) + 44px);
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.power-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 5px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: rgba(10, 20, 58, 0.7);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 55%, transparent) inset, 0 0 14px color-mix(in srgb, var(--c) 30%, transparent);
+}
+
+.power-chip i {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: conic-gradient(var(--c) calc(var(--p) * 360deg), rgba(255, 255, 255, 0.12) 0);
+}
+
+.power-chip b {
+  font-variant-numeric: tabular-nums;
+  color: var(--c);
+}
+
 .hud-growth {
   display: flex;
   flex-direction: column;
@@ -547,6 +582,7 @@ h2 {
 }
 
 .toast .rarity {
+  white-space: nowrap;
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;

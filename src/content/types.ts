@@ -1,3 +1,5 @@
+import type { PowerId } from './powerups';
+
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'legendary';
 export type ZoneId = 'shallows' | 'twilight' | 'abyss';
 export type PathId = 'glow' | 'surge' | 'sting';
@@ -18,7 +20,10 @@ export type Shape =
   | 'seahorse'
   | 'nautilus'
   | 'siphonophore'
-  | 'ray';
+  | 'ray'
+  | 'moray'
+  | 'razorfin'
+  | 'shark';
 
 export type Behavior =
   | 'drift'
@@ -31,7 +36,10 @@ export type Behavior =
   | 'chain'
   | 'lunge'
   | 'stalk'
-  | 'lure';
+  | 'lure'
+  | 'ambush'
+  | 'pack'
+  | 'circle';
 
 export interface RareRule {
   /** Chance per rare roll (every few seconds) before Glow multipliers. */
@@ -81,6 +89,10 @@ export interface SpeciesDef {
   hint: string;
   rare?: RareRule;
   hunter?: HunterDef;
+  /** Eating this creature grants a timed power-up. */
+  power?: PowerId;
+  /** Regular spawns tuck in against coral (ambush hunters). */
+  spawnNearCoral?: boolean;
 }
 
 export interface PlayerStats {

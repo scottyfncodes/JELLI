@@ -6,6 +6,7 @@ import { TAU, clamp, damp, hexToRgb, lerp, rgba } from '../core/math';
 import { drawCreatureShape, drawJelly, jellyStyleForSpecies, lookFor, type JellyStyle } from './creatures';
 import { drawGlow } from './sprites';
 import { Particles } from './particles';
+import { POWERS, TITAN_SCALE } from '../content/powerups';
 
 export interface JoystickView {
   active: boolean;
@@ -125,6 +126,7 @@ export class Renderer {
   private lastHeading = 0;
   private sway = 0;
   private time = 0;
+  private titanK = 1;
 
   constructor(private canvas: HTMLCanvasElement, style: JellyStyle) {
     const ctx = canvas.getContext('2d', { alpha: false });
@@ -499,7 +501,7 @@ export class Renderer {
 
   private drawCreatures(world: World): void {
     const ctx = this.ctx;
-    const p = world.player;
+    const reachR = world.playerReach();
     const z = this.zoom;
     for (const c of world.creatures) {
       if (c.dead) continue;
@@ -511,10 +513,22 @@ export class Renderer {
         continue;
       }
       if (!this.onScreen(x, y, reach)) continue;
-      const edible = canEat(p.r, c.r, c.def);
-      const threat = isThreat(p.r, c.r, c.def);
+      const edible = canEat(reachR, c.r, c.def);
+      const threat = isThreat(reachR, c.r, c.def);
+      const alert = c.state === 'notice' || c.state === 'chase' || c.state === 'orbit' ? 1 : 0;
 
-      if (edible && c.r > p.r * 0.4) {
+      if (c.def.power) {
+        // Power-up fish: a turning dashed ring in the power's color.
+        const pc = POWERS[c.def.power].color;
+        drawGlow(ctx, pc, x, y, c.r * z * 4, 0.22 + 0.12 * Math.sin(this.time * 5));
+        ctx.strokeStyle = rgba(pc, 0.75);
+        ctx.lineWidth = Math.max(1.2, 1.8 * z);
+        ctx.setLineDash([3 * z, 4 * z]);
+        ctx.beginPath();
+        ctx.arc(x, y, c.r * z * 1.9, this.time * 2, this.time * 2 + TAU);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      } else if (edible && c.r > reachR * 0.4) {
         // Readability: edible creatures wear a soft cyan halo.
         ctx.strokeStyle = 'rgba(140,250,255,0.28)';
         ctx.lineWidth = Math.max(1, 1.5 * z);
@@ -522,10 +536,9 @@ export class Renderer {
         ctx.arc(x, y, c.r * z * 1.35, 0, TAU);
         ctx.stroke();
       } else if (threat) {
-        drawGlow(ctx, '#ff4d6d', x, y, c.r * z * 2.2, 0.12 + (c.state === 'chase' || c.state === 'notice' ? 0.12 : 0));
+        drawGlow(ctx, '#ff4d6d', x, y, c.r * z * 2.2, 0.12 + alert * 0.12);
       }
 
-      const alert = c.state === 'notice' || c.state === 'chase' ? 1 : 0;
       ctx.save();
       ctx.translate(x, y);
       ctx.scale(z, z);
@@ -598,8 +611,32 @@ export class Renderer {
     }
     if (alpha <= 0) return;
 
+    const pw = p.powers;
+    this.titanK = damp(this.titanK, pw.titan > 0 ? TITAN_SCALE : 1, 6, dt);
+    const tr = p.r * this.titanK;
+    if (pw.veil > 0 && p.alive) alpha *= 0.4 + 0.15 * Math.sin(this.time * 6);
+    if (p.alive) {
+      ctx.globalCompositeOperation = 'lighter';
+      if (pw.titan > 0) drawGlow(ctx, POWERS.titan.color, x, y, tr * z * 3.2, 0.4 + 0.1 * Math.sin(this.time * 8));
+      if (pw.frenzy > 0) drawGlow(ctx, POWERS.frenzy.color, x, y, tr * z * 2.8, 0.25 + 0.1 * Math.sin(this.time * 10));
+      if (pw.overcharge > 0) drawGlow(ctx, POWERS.overcharge.color, x, y, tr * z * 2.6, 0.25 + 0.2 * Math.random());
+      if (pw.veil > 0) drawGlow(ctx, POWERS.veil.color, x, y, tr * z * 3, 0.2);
+      ctx.globalCompositeOperation = 'source-over';
+      if (pw.shield > 0) {
+        // Golden bubble that blinks out as the shield expires.
+        const fading = pw.shield < 3 ? 0.5 + 0.5 * Math.sin(this.time * 18) : 1;
+        ctx.strokeStyle = rgba(POWERS.shield.color, 0.7 * fading);
+        ctx.lineWidth = Math.max(1.5, 2.4 * z);
+        ctx.beginPath();
+        ctx.arc(x, y, tr * z * 1.7, 0, TAU);
+        ctx.stroke();
+        ctx.fillStyle = rgba(POWERS.shield.color, 0.08 * fading);
+        ctx.fill();
+      }
+    }
+
     if (world.stingReady() && p.alive) {
-      const pr = p.r * z * (1.55 + 0.06 * Math.sin(this.time * 4));
+      const pr = tr * z * (1.55 + 0.06 * Math.sin(this.time * 4));
       ctx.strokeStyle = 'rgba(197,155,255,0.45)';
       ctx.lineWidth = Math.max(1, 1.6 * z);
       ctx.setLineDash([4 * z, 5 * z]);
@@ -614,7 +651,7 @@ export class Renderer {
     ctx.translate(x, y);
     ctx.scale(z * scale, z * scale);
     ctx.rotate(p.heading + Math.PI / 2);
-    drawJelly(ctx, p.r, world.time, p.thrust, this.playerStyle, p.tiers, false, this.sway);
+    drawJelly(ctx, tr, world.time, p.thrust, this.playerStyle, p.tiers, false, this.sway);
     ctx.restore();
   }
 
@@ -651,11 +688,11 @@ export class Renderer {
         drawGlow(ctx, c.def.colors.glow, x, y, c.r * z * 2.4, (0.18 + dark * 0.55) * tw);
       }
       if (c.def.role === 'predator') {
-        const alert = c.state === 'notice' || c.state === 'chase';
-        const fwd = c.def.shape === 'needlefin' ? 1.05 : c.def.shape === 'eel' ? 0.3 : 0.3;
+        const alert = c.state === 'notice' || c.state === 'chase' || c.state === 'orbit';
+        const fwd = c.def.shape === 'needlefin' ? 1.05 : c.def.shape === 'shark' ? 0.8 : c.def.shape === 'moray' ? 0.75 : 0.3;
         const ex = c.x + Math.cos(c.heading) * c.r * fwd;
         const ey = c.y + Math.sin(c.heading) * c.r * fwd - c.r * 0.2;
-        const threat = isThreat(p.r, c.r, c.def);
+        const threat = isThreat(world.playerReach(), c.r, c.def);
         drawGlow(ctx, threat ? '#ff5d5d' : '#b8c8ff', this.sx(ex), this.sy(ey), c.r * z * (alert ? 0.7 : 0.4), (alert ? 0.9 : 0.3 + dark * 0.4));
         if (c.def.behavior === 'lure') {
           const lx = c.x + Math.cos(c.heading) * c.r * 1.25;
@@ -677,13 +714,13 @@ export class Renderer {
     if (!p.alive) return;
 
     for (const c of world.creatures) {
-      if (c.dead || c.def.role !== 'predator' || !isThreat(p.r, c.r, c.def)) continue;
+      if (c.dead || c.def.role !== 'predator' || !isThreat(world.playerReach(), c.r, c.def)) continue;
       const x = this.sx(c.x);
       const y = this.sy(c.y);
       if (c.state === 'notice') {
         // Telegraph: a warning mark and the lunge line, before any attack.
         const pulse = 0.7 + 0.3 * Math.sin(this.time * 18);
-        if (c.def.behavior !== 'stalk') {
+        if (c.def.behavior !== 'stalk' && c.def.behavior !== 'pack') {
           const dx = p.x - c.x;
           const dy = p.y - c.y;
           const d = Math.hypot(dx, dy) || 1;
