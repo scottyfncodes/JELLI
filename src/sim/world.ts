@@ -18,7 +18,16 @@ import {
 import { TAU, angleLerp, clamp, lerp, mulberry32 } from '../core/math';
 import { FRENZY_MAGNET, OVERCHARGE_RATE, POWERS, TITAN_SCALE, emptyPowers, type PowerId, type PowerTimers } from '../content/powerups';
 import { emptyRunStats, type RunStats } from '../core/progress';
-import { canEat, eatContact, isThreat, threatContact } from './rules';
+import {
+  canEat,
+  escapeRate,
+  isThreat,
+  tentacleCount,
+  tentaclePullSpeed,
+  tentacleReach,
+  tentacleReachSpeed,
+  threatContact,
+} from './rules';
 
 export interface Coral {
   x: number;
@@ -71,6 +80,34 @@ export interface Creature {
   lockX: number;
   lockY: number;
   chain: { x: number; y: number }[] | null;
+  /** A tentacle is reaching for this creature; no other arm may claim it. */
+  claimed: boolean;
+  /** Held by a tentacle: it no longer swims, the arm carries it. */
+  held: boolean;
+  /** Seconds before tentacles may target it again (after slipping free). */
+  slip: number;
+  /** 0..1 how far it has been swallowed. */
+  consume: number;
+}
+
+/**
+ * idle: trailing behind the bell. reach: tip homing on a target. grab: wrapped around it.
+ * pull: reeling the catch to the mouth. eat: feeding it in. retract: returning empty.
+ */
+export type TentaclePhase = 'idle' | 'reach' | 'grab' | 'pull' | 'eat' | 'retract';
+
+export interface Tentacle {
+  /** 0..1 position across the bell rim, left to right. */
+  slot: number;
+  phase: TentaclePhase;
+  target: Creature | null;
+  /** Tip position in world space. */
+  x: number;
+  y: number;
+  /** Seconds spent in the current phase. */
+  t: number;
+  cooldown: number;
+  seed: number;
 }
 
 export interface Player {
@@ -118,11 +155,19 @@ export type SimEvent =
   | { type: 'rare'; def: SpeciesDef }
   | { type: 'notice'; def: SpeciesDef; x: number; y: number }
   | { type: 'power'; id: PowerId; x: number; y: number }
-  | { type: 'shield'; x: number; y: number; def: SpeciesDef };
+  | { type: 'shield'; x: number; y: number; def: SpeciesDef }
+  | { type: 'grab'; x: number; y: number; def: SpeciesDef }
+  | { type: 'escape'; x: number; y: number; def: SpeciesDef };
 
 export type RunEnd = 'caught' | null;
 
 const DESPAWN_PAD = 380;
+/** A reach that hasn't connected by then gives up. */
+const REACH_TIME = 0.9;
+/** How long the arm clings before reeling in. */
+const GRAB_TIME = 0.12;
+/** How long swallowing takes at the bell. */
+export const EAT_TIME = 0.22;
 const START_X = WORLD.width / 2;
 const START_Y = 430;
 
@@ -157,6 +202,8 @@ export class World {
   readonly coralGrid = new Map<number, Coral[]>();
   readonly currents: Current[] = [];
   readonly creatures: Creature[] = [];
+  /** Hunting tentacles: the only way the jelly catches food. */
+  readonly tentacles: Tentacle[] = [];
   readonly events: SimEvent[] = [];
   readonly player: Player;
   readonly run: RunStats = emptyRunStats();
@@ -209,6 +256,8 @@ export class World {
       food: 0,
     };
     this.player.charges = this.player.stats.burstCharges;
+    this.syncTentacles();
+    for (const t of this.tentacles) this.restPoint(t, this.player.r, t);
     this.generate(mulberry32(seed));
     this.markSeen(PLAYER_SPECIES);
   }
@@ -225,7 +274,7 @@ export class World {
         const d = i === 0 ? 0 : rng() * spread;
         circles.push({ x: cx + Math.cos(a) * d, y: cy + Math.sin(a) * d * 0.8, r: lerp(minR, maxR, rng()) });
       }
-      this.addCoral(circles, rng);
+      return this.addCoral(circles, rng);
     };
 
     // Reef walls hugging both edges and the seabed.
@@ -237,18 +286,31 @@ export class World {
       addCluster(x, H + 20, 3, 60, 130, 80);
     }
 
+    // Large reef mounds: landmarks to navigate by and cover for hiding prey.
+    for (let y = 1400; y < H - 600; y += 1100 + rng() * 500) {
+      for (let x = 700 + rng() * 600; x < W - 500; x += 1700 + rng() * 900) {
+        if (Math.hypot(x - START_X, y - START_Y) < 900) continue;
+        addCluster(x, y, 7 + Math.floor(rng() * 5), 40, 120, 190);
+      }
+    }
+
     // Open-water outcrops, some paired with a tight gap only small jellies fit through.
+    // Rows hold more outcrops the wider the reef, so open water keeps the same density.
+    const perRow = W / 2400;
     for (let y = 700; y < H - 200; y += 230 + rng() * 120) {
-      const n = 1 + (rng() < 0.55 ? 1 : 0);
+      const n = Math.round((1 + (rng() < 0.55 ? 1 : 0)) * perRow);
       for (let k = 0; k < n; k++) {
         const x = 260 + rng() * (W - 520);
         if (Math.hypot(x - START_X, y - START_Y) < 420) continue;
         const r = 40 + rng() * 45;
-        addCluster(x, y, 3 + Math.floor(rng() * 4), 22, r, 70);
+        // Keep outcrops apart so every gap stays a real, readable passage.
+        if (this.coralWithin(x, y, r + 150)) continue;
+        const cl = addCluster(x, y, 3 + Math.floor(rng() * 4), 22, r, 70);
         if (rng() < 0.45) {
           const gap = 30 + rng() * 22;
           const r2 = 40 + rng() * 30;
           const side = rng() < 0.5 ? -1 : 1;
+          if (this.coralWithin(x + side * (r + gap + r2), y, r2 + 40, cl)) continue;
           this.addCoral([{ x: x + side * (r + gap + r2), y: y + (rng() - 0.5) * 30, r: r2 }], rng);
         }
       }
@@ -256,14 +318,17 @@ export class World {
 
     const cur = (x: number, y: number, w: number, h: number, fx: number, fy: number) =>
       this.currents.push({ x, y, w, h, fx, fy });
-    cur(W * 0.08, 1150, W * 0.84, 150, 95, 0);
-    cur(W * 0.06, 2450, W * 0.88, 160, -115, 0);
-    cur(W * 0.2, 2000, 170, 1300, 0, -95);
-    cur(W * 0.08, 4250, W * 0.84, 170, 125, 0);
-    cur(W * 0.1, 4950, W * 0.8, 170, -110, 0);
+    cur(W * 0.08, 2450, W * 0.84, 160, 95, 0);
+    cur(W * 0.55, 1300, W * 0.38, 140, -80, 0);
+    cur(W * 0.06, 5250, W * 0.88, 170, -115, 0);
+    cur(W * 0.2, 4300, 180, 2800, 0, -95);
+    cur(W * 0.78, 3600, 180, 2200, 0, 90);
+    cur(W * 0.1, 6900, W * 0.5, 160, 105, 0);
+    cur(W * 0.08, 9100, W * 0.84, 180, 125, 0);
+    cur(W * 0.1, 10600, W * 0.8, 180, -110, 0);
   }
 
-  private addCoral(circles: Coral[], rng: () => number): void {
+  private addCoral(circles: Coral[], rng: () => number): CoralCluster {
     let minX = Infinity;
     let minY = Infinity;
     let maxX = -Infinity;
@@ -283,7 +348,27 @@ export class World {
         }
       }
     }
-    this.corals.push({ circles, minX, minY, maxX, maxY, hue: rng(), seed: Math.floor(rng() * 1e6) });
+    const cluster = { circles, minX, minY, maxX, maxY, hue: rng(), seed: Math.floor(rng() * 1e6) };
+    this.corals.push(cluster);
+    return cluster;
+  }
+
+  /** True when any coral (outside `skip`) comes within `pad` of a point, across grid cells. */
+  private coralWithin(x: number, y: number, pad: number, skip?: CoralCluster): boolean {
+    const span = Math.ceil(pad / 200);
+    const gx = Math.floor(x / 200);
+    const gy = Math.floor(y / 200);
+    for (let i = gx - span; i <= gx + span; i++) {
+      for (let j = gy - span; j <= gy + span; j++) {
+        const cell = this.coralGrid.get(i * 1000 + j);
+        if (!cell) continue;
+        for (const c of cell) {
+          if (skip && skip.circles.includes(c)) continue;
+          if (Math.hypot(x - c.x, y - c.y) < c.r + pad) return true;
+        }
+      }
+    }
+    return false;
   }
 
   coralNear(x: number, y: number): Coral[] | undefined {
@@ -300,10 +385,11 @@ export class World {
       const dy = e.y - c.y;
       const min = c.r + r * 0.85;
       const d2 = dx * dx + dy * dy;
-      if (d2 < min * min && d2 > 0.0001) {
+      if (d2 < min * min) {
+        // Dead centre has no direction to push along: pop out upward.
         const d = Math.sqrt(d2);
-        const nx = dx / d;
-        const ny = dy / d;
+        const nx = d > 0.01 ? dx / d : 0;
+        const ny = d > 0.01 ? dy / d : -1;
         e.x = c.x + nx * min;
         e.y = c.y + ny * min;
         const vn = e.vx * nx + e.vy * ny;
@@ -390,12 +476,14 @@ export class World {
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       this.updateCreatures(dt);
+      this.updateTentacles(dt);
       if (p.deathT > 1.5) this.ended = 'caught';
       return;
     }
 
     this.updatePlayer(dt, input);
     this.updateCreatures(dt);
+    this.updateTentacles(dt);
     this.resolveContacts(dt);
     this.updateSpawning(dt);
     this.updateDiscovery();
@@ -557,6 +645,14 @@ export class World {
       if (c.dead) continue;
       c.phase += dt;
       c.timer -= dt;
+      c.slip = Math.max(0, c.slip - dt);
+      // A caught creature goes where the tentacle takes it, wriggling.
+      if (c.held) {
+        c.vx = 0;
+        c.vy = 0;
+        c.heading = Math.atan2(p.y - c.y, p.x - c.x) + Math.PI + Math.sin(c.phase * 18) * 0.5;
+        continue;
+      }
       if (c.stunned > 0) {
         c.stunned -= dt;
         c.vx *= Math.exp(-2.5 * dt);
@@ -732,7 +828,7 @@ export class World {
 
   /** Formation swimming behind a group leader. Returns false when there is no leader. */
   private followLeader(c: Creature, dt: number): boolean {
-    const lead = c.leader && !c.leader.dead ? c.leader : null;
+    const lead = c.leader && !c.leader.dead && !c.leader.held ? c.leader : null;
     if (!lead) return false;
     const cos = Math.cos(lead.heading);
     const sin = Math.sin(lead.heading);
@@ -856,26 +952,298 @@ export class World {
     }
   }
 
+  // ---------------------------------------------------------------- tentacles
+
+  /** Current hunting reach (Comet's wide maw flings the arms further while bursting). */
+  tentacleReach(): number {
+    const p = this.player;
+    const maw = p.burstT > 0 ? p.stats.burstMaw : 1;
+    return tentacleReach(this.playerReach()) * maw;
+  }
+
+  /** Where a tentacle joins the bell rim, for a bell of radius r. */
+  tentacleRoot(t: Tentacle, r: number, out: { x: number; y: number }): { x: number; y: number } {
+    return this.bellPoint((t.slot - 0.5) * r * 1.3, r * 0.2, out);
+  }
+
+  /** The mouth under the bell, where caught food is fed in. */
+  mouth(out: { x: number; y: number }): { x: number; y: number } {
+    return this.bellPoint(0, this.playerReach() * 0.2, out);
+  }
+
+  /** Jelly-local point (bell facing -y) to world space. */
+  private bellPoint(lx: number, ly: number, out: { x: number; y: number }): { x: number; y: number } {
+    const p = this.player;
+    const a = p.heading + Math.PI / 2;
+    const cos = Math.cos(a);
+    const sin = Math.sin(a);
+    out.x = p.x + lx * cos - ly * sin;
+    out.y = p.y + lx * sin + ly * cos;
+    return out;
+  }
+
+  /** Where an idle arm hangs: trailing behind the bell, swaying on its own rhythm. */
+  private restPoint(t: Tentacle, r: number, out: { x: number; y: number }): { x: number; y: number } {
+    this.tentacleRoot(t, r, out);
+    const h = this.player.heading;
+    const len = r * 2.6;
+    const sway = Math.sin(this.time * 1.7 + t.seed) * r * 0.55;
+    const side = (t.slot - 0.5) * r * 1.2;
+    out.x += -Math.cos(h) * len - Math.sin(h) * (sway + side);
+    out.y += -Math.sin(h) * len + Math.cos(h) * (sway + side);
+    return out;
+  }
+
+  /** Grows the set of arms to match the jelly's stage and spreads them across the rim. */
+  private syncTentacles(): void {
+    const want = tentacleCount(this.player.stage);
+    while (this.tentacles.length < want) {
+      const p = this.player;
+      this.tentacles.push({ slot: 0.5, phase: 'idle', target: null, x: p.x, y: p.y, t: 0, cooldown: 0, seed: this.tentacles.length * 2.39 });
+    }
+    const n = this.tentacles.length;
+    this.tentacles.forEach((t, i) => (t.slot = (i + 0.5) / n));
+  }
+
+  /** True when coral stands between two points. */
+  private blocked(x0: number, y0: number, x1: number, y1: number): boolean {
+    const d = Math.hypot(x1 - x0, y1 - y0);
+    const steps = Math.max(1, Math.ceil(d / 18));
+    for (let i = 1; i < steps; i++) {
+      const k = i / steps;
+      if (this.insideCoral(x0 + (x1 - x0) * k, y0 + (y1 - y0) * k, 0)) return true;
+    }
+    return false;
+  }
+
+  /** Whether a creature is a valid, live tentacle target right now. */
+  private huntable(c: Creature): boolean {
+    return !c.dead && c.def.role !== 'ambient' && canEat(this.playerReach(), c.r, c.def) && this.creatures.includes(c);
+  }
+
+  /** Drops whatever the arm holds or reaches for and sends it home. */
+  private letGo(t: Tentacle, escaped: boolean): void {
+    const c = t.target;
+    if (c) {
+      c.claimed = false;
+      if (c.held) {
+        c.held = false;
+        c.consume = 0;
+        c.slip = 1.2;
+        if (escaped) {
+          const p = this.player;
+          const dx = c.x - p.x;
+          const dy = c.y - p.y;
+          const d = Math.hypot(dx, dy) || 1;
+          c.vx = (dx / d) * (c.def.speed * 2 + 120);
+          c.vy = (dy / d) * (c.def.speed * 2 + 120);
+          this.events.push({ type: 'escape', x: c.x, y: c.y, def: c.def });
+        }
+      } else if (escaped) c.slip = 0.6;
+    }
+    t.target = null;
+    if (t.phase !== 'idle') {
+      t.phase = 'retract';
+      t.t = 0;
+    }
+  }
+
+  private tmp = { x: 0, y: 0 };
+  private tmp2 = { x: 0, y: 0 };
+
+  /** Moves a point toward a goal at a capped speed. Returns the remaining distance. */
+  private static approach(t: { x: number; y: number }, gx: number, gy: number, speed: number, dt: number): number {
+    const dx = gx - t.x;
+    const dy = gy - t.y;
+    const d = Math.hypot(dx, dy);
+    const step = speed * dt;
+    if (d <= step || d < 1e-6) {
+      t.x = gx;
+      t.y = gy;
+      return 0;
+    }
+    t.x += (dx / d) * step;
+    t.y += (dy / d) * step;
+    return d - step;
+  }
+
+  /**
+   * The hunting cycle. Each arm detects edible prey in reach, reaches for it,
+   * grabs it, reels it to the mouth and feeds it in, then hangs idle again.
+   */
+  private updateTentacles(dt: number): void {
+    const p = this.player;
+    const R = this.playerReach();
+    const reach = this.tentacleReach();
+    const speed = tentacleReachSpeed(R) * (p.burstT > 0 ? 1.3 : 1);
+    this.syncTentacles();
+    const rest = this.tmp;
+    const mouth = this.mouth(this.tmp2);
+    let picking = false;
+
+    for (const t of this.tentacles) {
+      t.t += dt;
+      t.cooldown = Math.max(0, t.cooldown - dt);
+      const c = t.target;
+      switch (t.phase) {
+        case 'idle': {
+          this.restPoint(t, R, rest);
+          // Ease toward the rest pose so the arm trails and lags organically.
+          const k = 1 - Math.exp(-7 * dt);
+          t.x += (rest.x - t.x) * k;
+          t.y += (rest.y - t.y) * k;
+          // Never let a trailing arm stretch into a hunting-length line.
+          this.tentacleRoot(t, R, rest);
+          const dx = t.x - rest.x;
+          const dy = t.y - rest.y;
+          const d = Math.hypot(dx, dy);
+          const max = R * 4;
+          if (d > max) {
+            t.x = rest.x + (dx / d) * max;
+            t.y = rest.y + (dy / d) * max;
+          }
+          if (t.cooldown <= 0 && p.alive) picking = true;
+          break;
+        }
+        case 'reach': {
+          if (!c || !p.alive || !this.huntable(c) || c.held) {
+            this.letGo(t, false);
+            break;
+          }
+          const away = Math.hypot(c.x - p.x, c.y - p.y) - c.r * 0.5;
+          if (away > reach * 1.2 || t.t > REACH_TIME || this.blocked(t.x, t.y, c.x, c.y)) {
+            // Out of range, too slow, or it ducked behind coral: it got away.
+            this.letGo(t, true);
+            t.cooldown = 0.35;
+            break;
+          }
+          const left = World.approach(t, c.x, c.y, speed, dt);
+          if (left <= c.r * 0.9 + 2) {
+            t.phase = 'grab';
+            t.t = 0;
+            c.held = true;
+            c.x = t.x;
+            c.y = t.y;
+            this.events.push({ type: 'grab', x: c.x, y: c.y, def: c.def });
+          }
+          break;
+        }
+        case 'grab':
+        case 'pull': {
+          if (!c || !p.alive || c.dead || !this.creatures.includes(c)) {
+            this.letGo(t, false);
+            break;
+          }
+          if (t.phase === 'grab') {
+            if (t.t >= GRAB_TIME) {
+              t.phase = 'pull';
+              t.t = 0;
+            }
+          } else {
+            // Prey close to the jelly's size can wriggle free; anything it outgrew mid-catch slips out.
+            const fight = escapeRate(R, c.r, c.def.role === 'predator');
+            if (!canEat(R, c.r, c.def) || (fight > 0 && this.rand() < fight * dt)) {
+              this.letGo(t, true);
+              t.cooldown = 0.5;
+              break;
+            }
+            const left = World.approach(t, mouth.x, mouth.y, tentaclePullSpeed(R, c.r), dt);
+            if (left <= R * 0.35) {
+              t.phase = 'eat';
+              t.t = 0;
+            }
+          }
+          c.x = t.x;
+          c.y = t.y;
+          break;
+        }
+        case 'eat': {
+          if (!c || c.dead || !this.creatures.includes(c)) {
+            this.letGo(t, false);
+            break;
+          }
+          const k = Math.min(1, t.t / EAT_TIME);
+          const f = 1 - Math.exp(-14 * dt);
+          t.x += (mouth.x - t.x) * f;
+          t.y += (mouth.y - t.y) * f;
+          c.x = t.x;
+          c.y = t.y;
+          c.consume = k;
+          if (k >= 1) {
+            if (p.alive) this.eat(c);
+            else c.dead = true;
+            c.held = false;
+            c.claimed = false;
+            t.target = null;
+            t.phase = 'idle';
+            t.t = 0;
+            t.cooldown = 0.5;
+          }
+          break;
+        }
+        case 'retract': {
+          this.restPoint(t, R, rest);
+          if (World.approach(t, rest.x, rest.y, speed * 0.8, dt) < R * 0.6) {
+            t.phase = 'idle';
+            t.t = 0;
+          }
+          break;
+        }
+      }
+    }
+
+    if (picking) this.pickTargets(reach);
+  }
+
+  /** Detect: hand each ready arm the nearest free prey on its side with a clear line to it. */
+  private pickTargets(reach: number): void {
+    const p = this.player;
+    const cands: Creature[] = [];
+    for (const c of this.creatures) {
+      if (c.claimed || c.held || c.slip > 0 || !this.huntable(c)) continue;
+      if (Math.hypot(c.x - p.x, c.y - p.y) - c.r * 0.5 > reach) continue;
+      if (this.blocked(p.x, p.y, c.x, c.y)) continue;
+      cands.push(c);
+    }
+    if (!cands.length) return;
+    const root = this.tmp;
+    for (const t of this.tentacles) {
+      if (t.phase !== 'idle' || t.cooldown > 0) continue;
+      this.tentacleRoot(t, this.playerReach(), root);
+      let best: Creature | null = null;
+      let bd = Infinity;
+      for (const c of cands) {
+        if (c.claimed) continue;
+        const d = Math.hypot(c.x - root.x, c.y - root.y);
+        if (d < bd) {
+          bd = d;
+          best = c;
+        }
+      }
+      if (!best) return;
+      best.claimed = true;
+      t.target = best;
+      t.phase = 'reach';
+      t.t = 0;
+    }
+  }
+
   // ---------------------------------------------------------------- contacts
 
   private resolveContacts(dt: number): void {
     const p = this.player;
     const st = p.stats;
-    const maw = p.burstT > 0 ? st.burstMaw : 1;
     const R = this.playerReach();
     const magnet = Math.max(st.magnet, p.powers.frenzy > 0 ? FRENZY_MAGNET : 0);
     for (const c of this.creatures) {
-      if (c.dead) continue;
+      if (c.dead || c.held) continue;
       const dx = c.x - p.x;
       const dy = c.y - p.y;
       const dist = Math.hypot(dx, dy);
       if (dist > R + c.r + magnet + 40) continue;
 
+      // Food is never eaten by touch: the tentacles catch it (see updateTentacles).
       if (canEat(R, c.r, c.def)) {
-        if (eatContact(dist, R, c.r, maw)) {
-          this.eat(c);
-          continue;
-        }
         if (magnet > 0 && c.r < R * 0.55 && dist < magnet + R) {
           const pull = (p.powers.frenzy > 0 ? 180 : 110) * (1 - dist / (magnet + R));
           c.x -= (dx / (dist || 1)) * pull * dt;
@@ -949,6 +1317,7 @@ export class World {
 
   private catchPlayer(c: Creature): void {
     const p = this.player;
+    for (const t of this.tentacles) this.letGo(t, false);
     p.alive = false;
     p.deathT = 0;
     p.vx = (p.x - c.x) * 0.5;
@@ -1000,7 +1369,7 @@ export class World {
     // Despawn far-away and eaten creatures.
     for (let i = this.creatures.length - 1; i >= 0; i--) {
       const c = this.creatures[i];
-      if (c.dead || Math.hypot(c.x - p.x, c.y - p.y) > this.viewRadius + DESPAWN_PAD) {
+      if (c.dead || (!c.held && !c.claimed && Math.hypot(c.x - p.x, c.y - p.y) > this.viewRadius + DESPAWN_PAD)) {
         this.creatures.splice(i, 1);
       }
     }
@@ -1134,6 +1503,10 @@ export class World {
       lockX: 0,
       lockY: 0,
       chain: null,
+      claimed: false,
+      held: false,
+      slip: 0,
+      consume: 0,
     };
     if (def.behavior === 'chain') {
       c.chain = [];

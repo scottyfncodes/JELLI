@@ -12,6 +12,7 @@ export class AudioEngine {
   private muted = false;
   readonly supported: boolean;
   private lastEat = 0;
+  private lastGrab = 0;
 
   constructor() {
     this.supported = typeof window !== 'undefined' && ('AudioContext' in window || 'webkitAudioContext' in window);
@@ -162,6 +163,14 @@ export class AudioEngine {
     const base = 900 - size01 * 520 + Math.random() * 80;
     this.tone(base, 0.12, 'sine', 0.22, 0, base * 1.5);
     this.tone(base * 2, 0.08, 'triangle', 0.05);
+  }
+
+  grab(): void {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    if (now - this.lastGrab < 0.05) return;
+    this.lastGrab = now;
+    this.tone(420 + Math.random() * 60, 0.07, 'triangle', 0.06, 0, 260);
   }
 
   burst(): void {

@@ -612,6 +612,14 @@ class Game {
         this.audio.sting();
         this.toast('<b>Shield blocked a bite!</b>', POWERS.shield.color, `${e.def.name} stunned`);
         break;
+      case 'grab':
+        // The arm closes on its catch: a tight ring and a soft pluck.
+        ps.emit(PKind.Ring, e.x, e.y, 0, 0, 0.3, Math.max(2, e.def.radius * 0.6), e.def.colors.glow, 70, 0);
+        this.audio.grab();
+        break;
+      case 'escape':
+        ps.burst(e.x, e.y, 6, 70, 1.6, '#bfe9ff', 0.4);
+        break;
       case 'notice':
         if (this.noticeCooldown <= 0) {
           this.audio.notice();
@@ -757,7 +765,7 @@ class Game {
   private updateHint(): void {
     const steps = [
       TOUCH ? 'Drag anywhere to swim' : 'Swim with <kbd>WASD</kbd> or <kbd>Arrows</kbd>',
-      'Eat creatures with a <b style="color:#8cfaff">glowing ring</b>',
+      'Swim near a <b style="color:#8cfaff">glowing ring</b> and your tentacles reel it in',
       TOUCH ? 'Tap <b>Burst</b> for a quick dash' : 'Press <kbd>Space</kbd> to burst',
       'Red eyes mean danger · Fill the bar to evolve',
     ];

@@ -66,7 +66,7 @@ export const PATHS: Record<PathId, PathDef> = {
       },
       {
         title: 'Comet',
-        desc: 'Store two bursts. Bursting widens your bell to swallow more.',
+        desc: 'Store two bursts. Bursting flings your tentacles further.',
         add: { burstCharges: 1, burstMaw: 0.35 },
         mul: { burstPower: 1.15 },
       },

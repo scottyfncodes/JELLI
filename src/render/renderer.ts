@@ -1,6 +1,6 @@
 import type { World, Creature, CoralCluster, Current } from '../sim/world';
 import { canEat, isThreat } from '../sim/rules';
-import { darknessAt } from '../content/world';
+import { WORLD, darknessAt } from '../content/world';
 import { BASE_RADIUS } from '../content/progression';
 import { TAU, clamp, damp, hexToRgb, lerp, rgba } from '../core/math';
 import { drawCreatureShape, drawJelly, jellyStyleForSpecies, lookFor, type JellyStyle } from './creatures';
@@ -16,14 +16,17 @@ export interface JoystickView {
   cy: number;
 }
 
+/** Samples along each hunting tentacle. */
+const TENT_SEGS = 14;
+
 const WATER_STOPS: [number, string][] = [
   [0, '#2b6eaa'],
-  [900, '#1d4f8c'],
-  [1800, '#163674'],
-  [2800, '#10265a'],
-  [3800, '#0b1844'],
-  [4800, '#070e2e'],
-  [5600, '#04081c'],
+  [1900, '#1d4f8c'],
+  [3800, '#163674'],
+  [5900, '#10265a'],
+  [8000, '#0b1844'],
+  [10300, '#070e2e'],
+  [12000, '#04081c'],
 ];
 
 function waterAt(y: number): [number, number, number] {
@@ -147,9 +150,10 @@ export class Renderer {
       }
       return out;
     };
-    this.far = shapes(46, 2400 * 0.35 + 1400, 5600 * 0.35 + 1400, 60, 150);
-    for (let i = 0; i < 70; i++) {
-      this.kelp.push({ x: Math.random() * (2400 * 0.6 + 1200) - 600, y: Math.random() * (3400 * 0.6 + 900) - 200, h: 180 + Math.random() * 320, w: 5 + Math.random() * 6, ph: Math.random() * TAU });
+    // Parallax layers only need to span the world scaled by their scroll factor.
+    this.far = shapes(110, WORLD.width * 0.35 + 1400, WORLD.height * 0.35 + 1400, 60, 150);
+    for (let i = 0; i < 170; i++) {
+      this.kelp.push({ x: Math.random() * (WORLD.width * 0.6 + 1200) - 600, y: Math.random() * (7200 * 0.6 + 900) - 200, h: 180 + Math.random() * 320, w: 5 + Math.random() * 6, ph: Math.random() * TAU });
     }
     for (let i = 0; i < 110; i++) {
       this.snow.push({ u: Math.random(), v: Math.random(), f: 0.25 + Math.random() * 0.9, s: 0.6 + Math.random() * 1.6 });
@@ -272,7 +276,7 @@ export class Renderer {
   }
 
   private drawRays(): void {
-    const k = clamp(1 - this.camY / 1900, 0, 1);
+    const k = clamp(1 - this.camY / 4000, 0, 1);
     if (k <= 0) return;
     const ctx = this.ctx;
     const { w, h } = this;
@@ -303,7 +307,7 @@ export class Renderer {
     const ctx = this.ctx;
     const f = 0.3;
     const z = this.zoom * 0.6;
-    const light = clamp(1 - this.camY / 5200, 0.25, 1);
+    const light = clamp(1 - this.camY / (WORLD.height * 0.93), 0.25, 1);
     ctx.globalCompositeOperation = 'lighter';
     for (const s of this.far) {
       const x = (s.x - this.camX * f) * z + this.w / 2;
@@ -317,7 +321,7 @@ export class Renderer {
 
   /** Swaying kelp silhouettes in a mid parallax layer, fading out with depth. */
   private drawKelp(): void {
-    const k = clamp(1 - (this.camY - 1600) / 1600, 0, 1);
+    const k = clamp(1 - (this.camY - 3400) / 3400, 0, 1);
     if (k <= 0) return;
     const ctx = this.ctx;
     const f = 0.6;
@@ -403,7 +407,7 @@ export class Renderer {
     let look = this.coralLooks.get(cl);
     if (!look) {
       const pal = CORAL_PALETTES[Math.floor(cl.hue * CORAL_PALETTES.length) % CORAL_PALETTES.length];
-      const depth = clamp(((cl.minY + cl.maxY) / 2) / 5600, 0, 1);
+      const depth = clamp(((cl.minY + cl.maxY) / 2) / WORLD.height, 0, 1);
       look = {
         base: mix(pal[0], '#0a0d2c', 0.25 + depth * 0.55),
         lump: mix(pal[1], '#121845', 0.15 + depth * 0.55),
@@ -528,7 +532,7 @@ export class Renderer {
         ctx.arc(x, y, c.r * z * 1.9, this.time * 2, this.time * 2 + TAU);
         ctx.stroke();
         ctx.setLineDash([]);
-      } else if (edible && c.r > reachR * 0.4) {
+      } else if (edible && !c.held && c.r > reachR * 0.4) {
         // Readability: edible creatures wear a soft cyan halo.
         ctx.strokeStyle = 'rgba(140,250,255,0.28)';
         ctx.lineWidth = Math.max(1, 1.5 * z);
@@ -541,7 +545,10 @@ export class Renderer {
 
       ctx.save();
       ctx.translate(x, y);
-      ctx.scale(z, z);
+      // Swallowed food shrinks into the bell.
+      const gulp = 1 - 0.85 * c.consume;
+      ctx.scale(z * gulp, z * gulp);
+      if (c.consume > 0) ctx.globalAlpha = 1 - c.consume * 0.6;
       if (c.def.shape === 'jelly') {
         ctx.rotate(c.heading + Math.PI / 2);
         drawJelly(ctx, c.r, c.phase, Math.pow(Math.max(0, Math.sin(c.phase * 2.2)), 2), jellyStyleForSpecies(c.def), null, false);
@@ -646,6 +653,8 @@ export class Renderer {
       ctx.setLineDash([]);
     }
 
+    this.drawTentacles(world, tr * scale, alpha);
+
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.translate(x, y);
@@ -653,6 +662,117 @@ export class Renderer {
     ctx.rotate(p.heading + Math.PI / 2);
     drawJelly(ctx, tr, world.time, p.thrust, this.playerStyle, p.tiers, false, this.sway);
     ctx.restore();
+  }
+
+  private tentRoot = { x: 0, y: 0 };
+  private ribbon = new Float32Array((TENT_SEGS + 1) * 4);
+
+  /**
+   * Hunting arms, drawn in world space from the bell rim to each simulated tip.
+   * A cubic curve leaves the rim sideways and back, then bends toward the tip; a travelling
+   * wave rides on top and calms as the arm pulls taut around a catch.
+   */
+  private drawTentacles(world: World, r: number, alpha: number): void {
+    const ctx = this.ctx;
+    const p = world.player;
+    const z = this.zoom;
+    const time = this.reducedMotion ? world.time * 0.4 : world.time;
+    const color = p.tiers.sting > 0 ? '#c59bff' : this.playerStyle.tentacle;
+    const fx = Math.cos(p.heading);
+    const fy = Math.sin(p.heading);
+    const pts = this.ribbon;
+    const N = TENT_SEGS;
+
+    for (const tt of world.tentacles) {
+      const root = world.tentacleRoot(tt, r, this.tentRoot);
+      const dx = tt.x - root.x;
+      const dy = tt.y - root.y;
+      const len = Math.hypot(dx, dy);
+      if (len < 0.5) continue;
+      const ux = dx / len;
+      const uy = dy / len;
+      const nx = -uy;
+      const ny = ux;
+      const side = tt.slot < 0.5 ? -1 : 1;
+      const active = tt.phase !== 'idle';
+      const taut =
+        tt.phase === 'reach' ? 0.3 + 0.4 * Math.min(1, tt.t / 0.35) : tt.phase === 'grab' || tt.phase === 'pull' ? 0.75 : tt.phase === 'eat' ? 0.5 : 0;
+
+      // Leave the rim heading back and out to the arm's own side, then swing toward the tip.
+      let ox = -fx * 0.9 - fy * side * 0.7 + ux * 0.8;
+      let oy = -fy * 0.9 + fx * side * 0.7 + uy * 0.8;
+      const om = Math.hypot(ox, oy) || 1;
+      ox /= om;
+      oy /= om;
+      const bend = Math.sin(time * 2.1 + tt.seed) * len * 0.2 * (1 - taut);
+      const x1 = root.x + ox * len * 0.38;
+      const y1 = root.y + oy * len * 0.38;
+      const x2 = tt.x - ux * len * 0.3 + nx * bend;
+      const y2 = tt.y - uy * len * 0.3 + ny * bend;
+      const amp = Math.min(r * 0.45, len * 0.09) * (1 - taut * 0.8);
+      const speed = active ? 9 : 3.2;
+
+      for (let i = 0; i <= N; i++) {
+        const s = i / N;
+        const m = 1 - s;
+        const a = m * m * m;
+        const b = 3 * m * m * s;
+        const c = 3 * m * s * s;
+        const d = s * s * s;
+        const wave = Math.sin(s * 7 - time * speed + tt.seed) * amp * Math.sin(Math.PI * s);
+        pts[i * 2] = a * root.x + b * x1 + c * x2 + d * tt.x + nx * wave;
+        pts[i * 2 + 1] = a * root.y + b * y1 + c * y2 + d * tt.y + ny * wave;
+      }
+
+      // Tapered ribbon: thick at the rim, fine at the tip.
+      const base = r * (active ? 0.19 : 0.13);
+      const L = (N + 1) * 2;
+      for (let i = 0; i <= N; i++) {
+        const j0 = Math.max(0, i - 1) * 2;
+        const j1 = Math.min(N, i + 1) * 2;
+        let tx = pts[j1] - pts[j0];
+        let ty = pts[j1 + 1] - pts[j0 + 1];
+        const tm = Math.hypot(tx, ty) || 1;
+        tx /= tm;
+        ty /= tm;
+        const w = (base * (1 - i / N) + r * 0.03) * 0.5;
+        pts[L + i * 2] = -ty * w;
+        pts[L + i * 2 + 1] = tx * w;
+      }
+      ctx.fillStyle = rgba(color, (active ? 0.72 : 0.5) * alpha);
+      ctx.beginPath();
+      for (let i = 0; i <= N; i++) {
+        const X = this.sx(pts[i * 2] + pts[L + i * 2]);
+        const Y = this.sy(pts[i * 2 + 1] + pts[L + i * 2 + 1]);
+        if (i === 0) ctx.moveTo(X, Y);
+        else ctx.lineTo(X, Y);
+      }
+      for (let i = N; i >= 0; i--) ctx.lineTo(this.sx(pts[i * 2] - pts[L + i * 2]), this.sy(pts[i * 2 + 1] - pts[L + i * 2 + 1]));
+      ctx.closePath();
+      ctx.fill();
+
+      if (!active || alpha < 0.3) continue;
+      const tipX = this.sx(tt.x);
+      const tipY = this.sy(tt.y);
+      ctx.globalCompositeOperation = 'lighter';
+      drawGlow(ctx, this.playerStyle.glow, tipX, tipY, r * z * 0.7, 0.55 * alpha);
+      ctx.globalCompositeOperation = 'source-over';
+      const prey = tt.target;
+      if (prey && (tt.phase === 'grab' || tt.phase === 'pull' || tt.phase === 'eat')) {
+        // The tip coils around the catch so the grip reads clearly.
+        const cr = prey.r * (1 - 0.85 * prey.consume) * z * 1.15;
+        const spin = time * 6 + tt.seed;
+        ctx.strokeStyle = rgba(color, 0.85 * alpha);
+        ctx.lineWidth = Math.max(1, r * z * 0.07);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.arc(tipX, tipY, cr, spin, spin + Math.PI * 1.3);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(tipX, tipY, cr * 0.8, spin + Math.PI, spin + Math.PI * 2.1);
+        ctx.stroke();
+      }
+    }
   }
 
   private drawDarkness(world: World): void {

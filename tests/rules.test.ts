@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canEat, eatContact, isThreat, threatContact } from '../src/sim/rules';
+import { canEat, escapeRate, isThreat, tentacleCount, tentaclePullSpeed, tentacleReach, threatContact } from '../src/sim/rules';
 import { SPECIES_BY_ID } from '../src/content/species';
 
 const krill = SPECIES_BY_ID['glimmer-krill'];
@@ -29,17 +29,33 @@ describe('feeding rules', () => {
     expect(isThreat(32, needlefin.radius, needlefin)).toBe(false);
   });
 
-  it('uses a generous mouth and a forgiving bite', () => {
-    // Eating triggers once the bell overlaps roughly half the prey.
-    expect(eatContact(11, 10, 4)).toBe(true);
-    expect(eatContact(13, 10, 4)).toBe(false);
+  it('uses a forgiving bite', () => {
     // A hunter has to reach well inside its own outline to bite.
     expect(threatContact(26, 10, 26)).toBe(false);
     expect(threatContact(20, 10, 26)).toBe(true);
   });
+});
 
-  it('wider maw (Surge: Comet) reaches further during bursts', () => {
-    expect(eatContact(13, 10, 4, 1)).toBe(false);
-    expect(eatContact(13, 10, 4, 1.35)).toBe(true);
+describe('tentacle rules', () => {
+  it('reaches far beyond the bell and further as the jelly grows', () => {
+    expect(tentacleReach(10)).toBeGreaterThan(10 * 6);
+    expect(tentacleReach(40)).toBeGreaterThan(tentacleReach(10) * 2);
+  });
+
+  it('grows arms with size stages, capped at five', () => {
+    expect(tentacleCount(1)).toBe(3);
+    expect(tentacleCount(2)).toBe(4);
+    expect(tentacleCount(4)).toBe(5);
+    expect(tentacleCount(9)).toBe(5);
+  });
+
+  it('reels heavy prey in slower than light prey', () => {
+    expect(tentaclePullSpeed(10, 8)).toBeLessThan(tentaclePullSpeed(10, 3));
+  });
+
+  it('only prey near the jelly size fights back', () => {
+    expect(escapeRate(10, 3, false)).toBe(0);
+    expect(escapeRate(10, 8.5, false)).toBeGreaterThan(0);
+    expect(escapeRate(30, 26, true)).toBeGreaterThan(escapeRate(30, 26, false));
   });
 });

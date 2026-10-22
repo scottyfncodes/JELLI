@@ -72,7 +72,7 @@ describe('content data', () => {
 describe('run outcome and challenges', () => {
   it('records best score, stats and completes challenges with rewards', () => {
     const save = defaultSave();
-    const run = { ...emptyRunStats(), score: 5000, mass: 120, stage: 3, eaten: 50, evolutions: 2, maxDepth: 4000, time: 140 };
+    const run = { ...emptyRunStats(), score: 5000, mass: 120, stage: 3, eaten: 50, evolutions: 2, maxDepth: 8400, time: 140 };
     const out = applyRun(save, run, 1000);
     expect(out.newBest).toBe(true);
     expect(save.best.score).toBe(5000);
