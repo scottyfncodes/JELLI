@@ -93,3 +93,11 @@ export function maxSpeedFor(radius: number, speedMult: number): number {
 export function detectionScale(radius: number): number {
   return 0.72 + 0.28 * Math.pow(radius / BASE_RADIUS, 0.65);
 }
+
+/**
+ * 0..1 how developed the jelly's body looks, from food eaten this run.
+ * Front-loaded so the first few meals already show, reaching full maturity near the last evolution.
+ */
+export function maturity(food: number): number {
+  return Math.min(1, Math.sqrt(Math.max(0, food) / 900));
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EVOLUTION_FOOD, MAX_MASS, STAGES, START_MASS, evolutionProgress, evolutionsEarned, detectionScale, growthGain, radiusForMass, stageForMass, stageProgress } from '../src/content/progression';
+import { EVOLUTION_FOOD, MAX_MASS, STAGES, START_MASS, evolutionProgress, evolutionsEarned, detectionScale, growthGain, radiusForMass, stageForMass, stageProgress, maturity } from '../src/content/progression';
 import { SPECIES } from '../src/content/species';
 import { CHALLENGES } from '../src/content/challenges';
 import { applyRun, emptyRunStats, metricValue, nextChallenge } from '../src/core/progress';
@@ -112,5 +112,14 @@ describe('run outcome and challenges', () => {
   it('points at the first unfinished challenge', () => {
     const save = defaultSave();
     expect(nextChallenge(save)?.id).toBe(CHALLENGES[0].id);
+  });
+});
+
+describe('body maturity', () => {
+  it('starts at zero, shows after a few meals and caps at one', () => {
+    expect(maturity(0)).toBe(0);
+    expect(maturity(EVOLUTION_FOOD[0])).toBeGreaterThan(0.15);
+    expect(maturity(400)).toBeGreaterThan(maturity(100));
+    expect(maturity(5000)).toBe(1);
   });
 });

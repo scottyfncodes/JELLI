@@ -479,6 +479,7 @@ class Game {
     if (p.mass > 30) {
       p.mass = 10;
       p.r = 10;
+      p.food = 0;
     }
   }
 
@@ -530,6 +531,7 @@ class Game {
   private onEvent(e: SimEvent, ps: Renderer['particles'], p: World['player']): void {
     switch (e.type) {
       case 'eat':
+        this.renderer.feed(e.def.colors.glow);
         ps.burst(e.x, e.y, 6 + Math.min(18, e.r), 60 + e.r * 4, Math.max(2, e.r * 0.35), e.def.colors.glow, 0.6);
         this.audio.eat(clamp(e.r / 40, 0, 1));
         this.tutorialSignal('eat');

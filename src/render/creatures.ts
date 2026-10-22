@@ -623,9 +623,20 @@ export function jellyStyleForSkin(skin: SkinDef): JellyStyle {
   return skin;
 }
 
+/** How well fed the jelly is: drives body development and the after-meal swell. */
+export interface JellyBody {
+  /** 0..1 long-term development from everything eaten this run. */
+  maturity: number;
+  /** 0..1 fades out after each meal. */
+  gulp: number;
+  /** Glow color of the last meal, seen through the bell while it digests. */
+  gut: string;
+}
+
 /**
  * Draws a jellyfish with its bell facing local -y (callers rotate so the bell leads).
- * `contraction` 0..1 squeezes the bell; `tiers` add evolution features.
+ * `contraction` 0..1 squeezes the bell; `tiers` add evolution features; `body` adds
+ * the growth that comes from feeding (fuller bell, more tentacles, canals, longer arms).
  */
 export function drawJelly(
   ctx: CanvasRenderingContext2D,
@@ -636,9 +647,13 @@ export function drawJelly(
   tiers: Tiers | null,
   flat: boolean,
   sway = 0,
+  body: JellyBody | null = null,
 ): void {
-  const w = r * (1.02 - 0.16 * contraction);
-  const h = r * (0.82 + 0.16 * contraction);
+  const m = body?.maturity ?? 0;
+  const gulp = body?.gulp ?? 0;
+  // A well-fed bell domes higher; a fresh meal makes it bulge for a moment.
+  const w = r * (1.02 - 0.16 * contraction) * (1 + 0.06 * m + 0.1 * gulp);
+  const h = r * (0.82 + 0.16 * contraction) * (1 + 0.14 * m + 0.06 * gulp);
   const rimY = r * 0.2;
   const glow = tiers?.glow ?? 0;
   const surge = tiers?.surge ?? 0;
@@ -651,9 +666,10 @@ export function drawJelly(
   }
 
   // Tentacles trail behind the bell.
-  const count = 7 + sting * 2;
+  // Feeding sprouts more and longer marginal tentacles.
+  const count = 7 + Math.floor(m * 10) + sting * 2;
   const tentColor = sting > 0 && !flat ? '#c59bff' : style.tentacle;
-  const lenBase = r * (1.9 + surge * 0.45);
+  const lenBase = r * (1.9 + surge * 0.45) * (1 + 0.5 * m);
   ctx.lineCap = 'round';
   ctx.strokeStyle = rgba(tentColor, al(0.5));
   ctx.lineWidth = Math.max(0.6, r * (0.055 + sting * 0.008));
@@ -690,18 +706,36 @@ export function drawJelly(
     }
   }
 
-  // Oral arms: frilly ribbons under the bell.
+  // Oral arms: frilly ribbons under the bell, growing long and ruffled with feeding.
+  const armLen = r * (0.9 + surge * 0.2 + 0.8 * m);
   ctx.strokeStyle = rgba(style.organ, al(0.55));
-  ctx.lineWidth = Math.max(1, r * 0.14);
+  ctx.lineWidth = Math.max(1, r * (0.14 + 0.05 * m));
   ctx.beginPath();
   for (let i = 0; i < 4; i++) {
     const x0 = (i - 1.5) * r * 0.18;
-    const len = r * (0.9 + surge * 0.2);
     const s = Math.sin(t * 2 + i * 1.7) * r * 0.15 + sway * r * 0.3;
     ctx.moveTo(x0, rimY - r * 0.05);
-    ctx.quadraticCurveTo(x0 + s, rimY + len * 0.5, x0 * 1.3 + s * 1.5, rimY + len);
+    ctx.quadraticCurveTo(x0 + s, rimY + armLen * 0.5, x0 * 1.3 + s * 1.5, rimY + armLen);
   }
   ctx.stroke();
+  if (m > 0.4 && !flat) {
+    // Ruffled frills along mature oral arms.
+    ctx.strokeStyle = rgba(style.organ, 0.3 * Math.min(1, (m - 0.4) * 3));
+    ctx.lineWidth = Math.max(0.6, r * 0.05);
+    ctx.beginPath();
+    for (let i = 0; i < 4; i++) {
+      const x0 = (i - 1.5) * r * 0.18;
+      const s = Math.sin(t * 2 + i * 1.7) * r * 0.15 + sway * r * 0.3;
+      for (let k = 0; k <= 8; k++) {
+        const f = k / 8;
+        const x = x0 + s * f * 1.4 + Math.sin(f * 14 + t * 3 + i) * r * 0.12 * f + (i < 2 ? -1 : 1) * r * 0.06;
+        const y = rimY + armLen * f * 0.95;
+        if (k === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+    }
+    ctx.stroke();
+  }
 
   if (surge > 0 && !flat) {
     // Streamlined side vanes.
@@ -720,8 +754,8 @@ export function drawJelly(
   ctx.moveTo(-w, rimY);
   ctx.bezierCurveTo(-w * 1.05, -h * 0.55, -w * 0.55, -h, 0, -h);
   ctx.bezierCurveTo(w * 0.55, -h, w * 1.05, -h * 0.55, w, rimY);
-  // Scalloped margin
-  const lobes = 8;
+  // Scalloped margin: more, finer lobes as the bell matures.
+  const lobes = 8 + 2 * Math.floor(m * 5);
   for (let i = lobes - 1; i >= 0; i--) {
     const xa = -w + ((i + 0.5) / lobes) * w * 2;
     const xb = -w + (i / lobes) * w * 2;
@@ -742,16 +776,49 @@ export function drawJelly(
     ctx.lineWidth = Math.max(0.8, r * 0.06);
     ctx.stroke();
 
-    // Four-leaf gonads, the moon jelly signature.
-    ctx.strokeStyle = rgba(style.organ, 0.8);
-    ctx.lineWidth = Math.max(0.8, r * 0.09);
     const cy = -h * 0.38;
+    if (m >= 0.2) {
+      // Radial canals branch through the bell as it matures: 4, then 8, then 16.
+      const canals = m >= 0.85 ? 16 : m >= 0.5 ? 8 : 4;
+      ctx.strokeStyle = rgba(style.organ, 0.18 + 0.25 * m);
+      ctx.lineWidth = Math.max(0.6, r * 0.035);
+      ctx.beginPath();
+      for (let i = 0; i < canals; i++) {
+        const k = (i + 0.5) / canals;
+        const ex = -w + k * w * 2;
+        const ey = rimY - Math.sin(k * Math.PI) * r * 0.08;
+        ctx.moveTo(ex * 0.18, cy);
+        ctx.quadraticCurveTo(ex * 0.6, cy + (ey - cy) * 0.35 - Math.sin(k * Math.PI) * h * 0.25, ex * 0.94, ey);
+      }
+      ctx.stroke();
+    }
+    if (m >= 0.35) {
+      // Ring canal: a thick band just inside the margin.
+      ctx.strokeStyle = rgba(style.organ, 0.2 + 0.3 * m);
+      ctx.lineWidth = Math.max(0.8, r * (0.03 + 0.04 * m));
+      ctx.beginPath();
+      ctx.moveTo(-w * 0.93, rimY - r * 0.04);
+      ctx.bezierCurveTo(-w * 0.75, rimY - r * 0.12, w * 0.75, rimY - r * 0.12, w * 0.93, rimY - r * 0.04);
+      ctx.stroke();
+    }
+
+    if (gulp > 0.02 && body) {
+      // The last meal glows through the bell while it digests.
+      drawGlow(ctx, body.gut, 0, cy + r * 0.05, r * (0.5 + 0.5 * gulp), 0.7 * gulp);
+    }
+
+    // Four-leaf gonads, the moon jelly signature: fuller and filled in on a well-fed jelly.
+    const gr = r * (0.15 + 0.06 * m);
+    ctx.strokeStyle = rgba(style.organ, 0.8);
+    ctx.lineWidth = Math.max(0.8, r * (0.09 + 0.03 * m));
+    ctx.fillStyle = rgba(style.organ, 0.4 * m);
     for (let i = 0; i < 4; i++) {
       const ang = (i / 4) * TAU + Math.PI / 4;
-      const ox = Math.cos(ang) * r * 0.24;
-      const oy = Math.sin(ang) * r * 0.16;
+      const ox = Math.cos(ang) * r * (0.24 + 0.04 * m);
+      const oy = Math.sin(ang) * r * (0.16 + 0.03 * m);
       ctx.beginPath();
-      ctx.arc(ox, cy + oy, r * 0.15, ang + 0.6, ang + TAU - 0.6);
+      ctx.arc(ox, cy + oy, gr, ang + 0.6, ang + TAU - 0.6);
+      if (m > 0.05) ctx.fill();
       ctx.stroke();
     }
 
