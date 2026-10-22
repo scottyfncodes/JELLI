@@ -2,7 +2,7 @@
 
 **Eat. Grow. Evolve. Discover.** A luminous, mobile-first underwater arcade game for the HaveAnApp portfolio.
 
-You're a thimble-sized moon jelly in Lantern Reef. Eat anything clearly smaller than you, dodge the hunters, evolve along three paths, and fill the Field Guide with 16 species before the night tide turns (3 minutes).
+You're a thimble-sized moon jelly in Lantern Reef. Eat anything clearly smaller than you, dodge the hunters, evolve along three paths, and fill the Field Guide with 16 species. Runs are endless: you swim until something catches you, and the longer you survive, the bigger and more numerous the hunters get.
 
 ## Play
 

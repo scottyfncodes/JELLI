@@ -1,4 +1,4 @@
-/** Size, stages and the night tide. */
+/** Size, stages and endless-run escalation. */
 
 export const START_MASS = 10;
 export const MAX_MASS = 320;
@@ -17,7 +17,24 @@ export const STAGES: StageDef[] = [
   { mass: 165, name: 'Apex' },
 ];
 
-export const RUN_SECONDS = 180;
+/** Runs have no clock; after a grace period hunters slowly grow in size and number. */
+export const ESCALATION_START = 120;
+export const ESCALATION_SECONDS = 300;
+
+/** 0..1 how far a run has escalated. */
+export function escalation(time: number): number {
+  return Math.max(0, Math.min(1, (time - ESCALATION_START) / ESCALATION_SECONDS));
+}
+
+/** Newly spawned hunters grow up to 70% bigger, so even an Apex jelly stays hunted. */
+export function hunterScale(time: number): number {
+  return 1 + 0.7 * escalation(time);
+}
+
+/** Up to two extra hunters on top of each zone's base count. */
+export function extraHunters(time: number): number {
+  return Math.round(2 * escalation(time));
+}
 
 export function radiusForMass(mass: number): number {
   return BASE_RADIUS * Math.sqrt(Math.max(START_MASS * 0.5, mass) / START_MASS);

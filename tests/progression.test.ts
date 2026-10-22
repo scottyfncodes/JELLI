@@ -64,6 +64,9 @@ describe('run outcome and challenges', () => {
     expect(ids).toContain('feast');
     expect(ids).toContain('deep-diver');
     expect(ids).not.toContain('tide-rider');
+    expect(save.stats.longest).toBe(140);
+    const long = applyRun(save, { ...emptyRunStats(), time: 200 });
+    expect(long.completed.map((c) => c.id)).toContain('tide-rider');
     expect(save.unlocks).toContain('skin:coral');
     expect(save.unlocks).toContain('trait:seed-glow');
   });

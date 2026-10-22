@@ -194,10 +194,6 @@ export class AudioEngine {
     this.whoosh(0.8, 900, 120, 0.4);
   }
 
-  tide(): void {
-    [392, 523.25, 659.25, 783.99, 1046.5].forEach((f, i) => this.tone(f, 1.1, 'sine', 0.12, i * 0.12));
-  }
-
   click(): void {
     this.tone(1200, 0.05, 'sine', 0.06);
   }

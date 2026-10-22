@@ -332,10 +332,6 @@ h2 {
   color: var(--ink-dim);
 }
 
-.tide.low {
-  color: var(--gold);
-}
-
 .hud-growth {
   display: flex;
   flex-direction: column;

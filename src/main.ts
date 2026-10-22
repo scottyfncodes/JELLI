@@ -9,7 +9,7 @@ import { AudioEngine } from './audio/audio';
 import { SaveStore, type SaveData } from './persistence/save';
 import { applyRun, recordDiscoveries } from './core/progress';
 import { PATHS, type Tiers } from './content/evolutions';
-import { RUN_SECONDS, STAGES, stageProgress } from './content/progression';
+import { STAGES, stageProgress } from './content/progression';
 import { RARITY_LABEL } from './content/species';
 import { SKINS_BY_ID, TRAITS_BY_ID } from './content/unlocks';
 import { WORLD } from './content/world';
@@ -439,12 +439,8 @@ class Game {
       if (this.world.pendingEvolutions > 0 && this.world.player.alive && !this.world.ended) this.openEvolve();
       if (this.world.ended) {
         this.resultsTimer += dt;
-        if (this.world.ended === 'survived' || this.resultsTimer > 0.2) {
+        if (this.resultsTimer > 0.2) {
           this.resultsTimer = 0;
-          if (this.world.ended === 'survived') {
-            this.audio.tide();
-            this.flash();
-          }
           this.finishRun();
         }
       }
@@ -639,11 +635,11 @@ class Game {
       c.score = score;
       ui.score.textContent = fmt(score);
     }
-    const tide = Math.ceil(RUN_SECONDS - w.time);
+    // Elapsed time: runs are endless, so this counts up.
+    const tide = Math.floor(w.time);
     if (tide !== c.tide) {
       c.tide = tide;
       ui.tideText.textContent = mmss(tide);
-      ui.tide.classList.toggle('low', tide <= 20);
     }
     const g = Math.round(stageProgress(p.mass) * 200) / 200;
     if (g !== c.growth) {
