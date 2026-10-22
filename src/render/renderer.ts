@@ -1,0 +1,770 @@
+import type { World, Creature, CoralCluster, Current } from '../sim/world';
+import { canEat, isThreat } from '../sim/rules';
+import { darknessAt } from '../content/world';
+import { BASE_RADIUS } from '../content/progression';
+import { TAU, clamp, damp, hexToRgb, lerp, rgba } from '../core/math';
+import { drawCreatureShape, drawJelly, jellyStyleForSpecies, lookFor, type JellyStyle } from './creatures';
+import { drawGlow } from './sprites';
+import { Particles } from './particles';
+
+export interface JoystickView {
+  active: boolean;
+  ax: number;
+  ay: number;
+  cx: number;
+  cy: number;
+}
+
+const WATER_STOPS: [number, string][] = [
+  [0, '#2b6eaa'],
+  [900, '#1d4f8c'],
+  [1800, '#163674'],
+  [2800, '#10265a'],
+  [3800, '#0b1844'],
+  [4800, '#070e2e'],
+  [5600, '#04081c'],
+];
+
+function waterAt(y: number): [number, number, number] {
+  for (let i = 1; i < WATER_STOPS.length; i++) {
+    if (y <= WATER_STOPS[i][0]) {
+      const [y0, c0] = WATER_STOPS[i - 1];
+      const [y1, c1] = WATER_STOPS[i];
+      const t = clamp((y - y0) / (y1 - y0), 0, 1);
+      const a = hexToRgb(c0);
+      const b = hexToRgb(c1);
+      return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+    }
+  }
+  return hexToRgb(WATER_STOPS[WATER_STOPS.length - 1][1]);
+}
+
+function rgbStr(c: [number, number, number], a = 1): string {
+  return `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+}
+
+function hash(n: number): number {
+  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+const CORAL_PALETTES: [string, string, string][] = [
+  ['#4b2f7c', '#7a52b8', '#ff9fd8'],
+  ['#17606c', '#2a9696', '#7ff0ff'],
+  ['#6a2a52', '#b04f7b', '#ffd27a'],
+];
+
+function mix(a: string, b: string, t: number): string {
+  const x = hexToRgb(a);
+  const y = hexToRgb(b);
+  return `#${[0, 1, 2].map((i) => Math.round(lerp(x[i], y[i], t)).toString(16).padStart(2, '0')).join('')}`;
+}
+
+interface CoralLook {
+  base: string;
+  lump: string;
+  polyp: string;
+  /** Circles whose crown isn't buried inside a neighbour get rim light and lumps. */
+  exposed: boolean[];
+}
+
+interface Streak {
+  x: number;
+  y: number;
+  len: number;
+}
+
+interface BgShape {
+  x: number;
+  y: number;
+  r: number[];
+  ox: number[];
+  oy: number[];
+}
+
+interface Kelp {
+  x: number;
+  y: number;
+  h: number;
+  w: number;
+  ph: number;
+}
+
+interface Snow {
+  u: number;
+  v: number;
+  f: number;
+  s: number;
+}
+
+export class Renderer {
+  readonly ctx: CanvasRenderingContext2D;
+  readonly particles = new Particles();
+  w = 1;
+  h = 1;
+  dpr = 1;
+  camX = 0;
+  camY = 0;
+  zoom = 1;
+  /** Shifts the subject up the screen (title screen framing). */
+  focusOffset = 0;
+  /** Shifts the subject left (title screen framing in landscape). */
+  focusOffsetX = 0;
+  /** Extra magnification for the title showcase. */
+  zoomBoost = 1;
+  reducedMotion = false;
+  shake = 0;
+  playerStyle: JellyStyle;
+
+  private coralLooks = new WeakMap<CoralCluster, CoralLook>();
+  private streaks = new WeakMap<Current, Streak[]>();
+  private far: BgShape[] = [];
+  private kelp: Kelp[] = [];
+  private snow: Snow[] = [];
+  private vignette: CanvasGradient | null = null;
+  private lastHeading = 0;
+  private sway = 0;
+  private time = 0;
+
+  constructor(private canvas: HTMLCanvasElement, style: JellyStyle) {
+    const ctx = canvas.getContext('2d', { alpha: false });
+    if (!ctx) throw new Error('Canvas 2D is not supported');
+    this.ctx = ctx;
+    this.playerStyle = style;
+    const shapes = (n: number, spanX: number, spanY: number, minR: number, maxR: number) => {
+      const out: BgShape[] = [];
+      for (let i = 0; i < n; i++) {
+        const k = 2 + Math.floor(Math.random() * 3);
+        const s: BgShape = { x: Math.random() * spanX - 400, y: Math.random() * spanY - 400, r: [], ox: [], oy: [] };
+        for (let j = 0; j < k; j++) {
+          s.r.push(lerp(minR, maxR, Math.random()) * (j === 0 ? 1 : 0.7));
+          s.ox.push(j === 0 ? 0 : (Math.random() - 0.5) * maxR * 1.6);
+          s.oy.push(j === 0 ? 0 : (Math.random() - 0.5) * maxR * 0.9);
+        }
+        out.push(s);
+      }
+      return out;
+    };
+    this.far = shapes(46, 2400 * 0.35 + 1400, 5600 * 0.35 + 1400, 60, 150);
+    for (let i = 0; i < 70; i++) {
+      this.kelp.push({ x: Math.random() * (2400 * 0.6 + 1200) - 600, y: Math.random() * (3400 * 0.6 + 900) - 200, h: 180 + Math.random() * 320, w: 5 + Math.random() * 6, ph: Math.random() * TAU });
+    }
+    for (let i = 0; i < 110; i++) {
+      this.snow.push({ u: Math.random(), v: Math.random(), f: 0.25 + Math.random() * 0.9, s: 0.6 + Math.random() * 1.6 });
+    }
+  }
+
+  resize(w: number, h: number, dpr: number): void {
+    this.w = Math.max(1, w);
+    this.h = Math.max(1, h);
+    this.dpr = dpr;
+    this.canvas.width = Math.round(this.w * dpr);
+    this.canvas.height = Math.round(this.h * dpr);
+    const g = this.ctx.createRadialGradient(this.w / 2, this.h / 2, Math.min(this.w, this.h) * 0.35, this.w / 2, this.h / 2, Math.hypot(this.w, this.h) * 0.6);
+    g.addColorStop(0, 'rgba(2,4,20,0)');
+    g.addColorStop(1, 'rgba(2,4,20,0.55)');
+    this.vignette = g;
+  }
+
+  /** World units visible across the screen's short side; grows with the jelly. */
+  targetZoom(r: number): number {
+    const visible = 300 * Math.pow(r / BASE_RADIUS, 0.62);
+    return (Math.min(this.w, this.h) / visible) * this.zoomBoost;
+  }
+
+  viewRadius(): number {
+    return Math.hypot(this.w, this.h) / 2 / this.zoom;
+  }
+
+  viewHalf(): { hw: number; hh: number } {
+    return { hw: this.w / 2 / this.zoom, hh: this.h / 2 / this.zoom };
+  }
+
+  snapCamera(world: World): void {
+    const p = world.player;
+    this.zoom = this.targetZoom(p.r);
+    this.camX = p.x + this.focusOffsetX / this.zoom;
+    this.camY = p.y + this.focusOffset / this.zoom;
+  }
+
+  updateCamera(world: World, dt: number): void {
+    const p = world.player;
+    this.zoom = damp(this.zoom, this.targetZoom(p.r), 1.5, dt);
+    const lead = this.reducedMotion ? 0.1 : 0.22;
+    const tx = p.x + p.vx * lead + this.focusOffsetX / this.zoom;
+    const ty = p.y + p.vy * lead + this.focusOffset / this.zoom;
+    this.camX = damp(this.camX, tx, 4, dt);
+    this.camY = damp(this.camY, ty, 4, dt);
+    const { hw, hh } = this.viewHalf();
+    this.camX = clamp(this.camX, Math.min(hw, world.width / 2), Math.max(world.width - hw, world.width / 2));
+    this.camY = clamp(this.camY, -40 + hh * 0.3, world.height - hh + 60);
+    this.shake = Math.max(0, this.shake - dt * 2.5);
+  }
+
+  addShake(v: number): void {
+    if (!this.reducedMotion) this.shake = Math.min(1, this.shake + v);
+  }
+
+  private sx(x: number): number {
+    return (x - this.camX) * this.zoom + this.w / 2;
+  }
+
+  private sy(y: number): number {
+    return (y - this.camY) * this.zoom + this.h / 2;
+  }
+
+  // ------------------------------------------------------------------ frame
+
+  render(world: World, dt: number, joystick: JoystickView | null): void {
+    this.time += dt;
+    const ctx = this.ctx;
+    const { w, h } = this;
+    const sh = this.shake * this.shake * 10;
+    const ox = sh ? (Math.random() - 0.5) * sh : 0;
+    const oy = sh ? (Math.random() - 0.5) * sh : 0;
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, ox * this.dpr, oy * this.dpr);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+
+    this.drawWater(world);
+    this.drawRays();
+    this.drawFar();
+    this.drawSnow(0.5);
+    this.drawKelp();
+    this.drawCurrents(world, dt);
+    this.drawCorals(world);
+    this.drawCreatures(world);
+    this.drawPlayer(world, dt);
+    this.particles.update(dt);
+    this.particles.draw(ctx, this.camX, this.camY, this.zoom, w, h);
+    this.drawDarkness(world);
+    this.drawLights(world);
+    this.drawSnow(1.1);
+    if (this.vignette) {
+      ctx.fillStyle = this.vignette;
+      ctx.fillRect(0, 0, w, h);
+    }
+    this.drawIndicators(world);
+    if (joystick?.active) this.drawJoystick(joystick);
+  }
+
+  private drawWater(world: World): void {
+    const ctx = this.ctx;
+    const top = this.camY - this.h / 2 / this.zoom;
+    const bottom = this.camY + this.h / 2 / this.zoom;
+    const g = ctx.createLinearGradient(0, 0, 0, this.h);
+    g.addColorStop(0, rgbStr(waterAt(top)));
+    g.addColorStop(1, rgbStr(waterAt(bottom)));
+    ctx.fillStyle = g;
+    ctx.fillRect(-20, -20, this.w + 40, this.h + 40);
+    if (top < 0) {
+      // Surface shimmer above the shallows.
+      const sy = this.sy(0);
+      const sg = ctx.createLinearGradient(0, sy - 80, 0, sy + 30);
+      sg.addColorStop(0, 'rgba(160,230,255,0.35)');
+      sg.addColorStop(1, 'rgba(160,230,255,0)');
+      ctx.fillStyle = sg;
+      ctx.fillRect(0, 0, this.w, Math.max(0, sy + 30));
+    }
+    void world;
+  }
+
+  private drawRays(): void {
+    const k = clamp(1 - this.camY / 1900, 0, 1);
+    if (k <= 0) return;
+    const ctx = this.ctx;
+    const { w, h } = this;
+    const g = ctx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, `rgba(170,230,255,${0.12 * k})`);
+    g.addColorStop(1, 'rgba(170,230,255,0)');
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = g;
+    const t = this.reducedMotion ? 0 : this.time;
+    for (let i = 0; i < 5; i++) {
+      const base = ((i + 0.5) / 5) * w + Math.sin(t * 0.15 + i * 2) * w * 0.06 - this.camX * this.zoom * 0.05;
+      const x = ((base % (w + 200)) + w + 200) % (w + 200) - 100;
+      const tw = 30 + hash(i) * 60;
+      const skew = w * 0.18;
+      ctx.beginPath();
+      ctx.moveTo(x - tw, -10);
+      ctx.lineTo(x + tw, -10);
+      ctx.lineTo(x + tw * 2.6 + skew, h);
+      ctx.lineTo(x - tw * 0.6 + skew, h);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  /** Distant pools of light drifting slowly behind everything. */
+  private drawFar(): void {
+    const ctx = this.ctx;
+    const f = 0.3;
+    const z = this.zoom * 0.6;
+    const light = clamp(1 - this.camY / 5200, 0.25, 1);
+    ctx.globalCompositeOperation = 'lighter';
+    for (const s of this.far) {
+      const x = (s.x - this.camX * f) * z + this.w / 2;
+      const y = (s.y - this.camY * f) * z + this.h / 2;
+      const rr = s.r[0] * z * 2.4;
+      if (x < -rr || x > this.w + rr || y < -rr || y > this.h + rr) continue;
+      drawGlow(ctx, '#6fb6ff', x, y, rr, 0.07 * light);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  /** Swaying kelp silhouettes in a mid parallax layer, fading out with depth. */
+  private drawKelp(): void {
+    const k = clamp(1 - (this.camY - 1600) / 1600, 0, 1);
+    if (k <= 0) return;
+    const ctx = this.ctx;
+    const f = 0.6;
+    const z = this.zoom * 0.8;
+    const t = this.reducedMotion ? 0 : this.time;
+    ctx.fillStyle = `rgba(6,26,52,${0.4 * k})`;
+    for (const kp of this.kelp) {
+      const bx = (kp.x - this.camX * f) * z + this.w / 2;
+      const by = (kp.y - this.camY * f) * z + this.h / 2;
+      const hh = kp.h * z;
+      if (bx < -120 || bx > this.w + 120 || by < -20 || by - hh > this.h + 20) continue;
+      const segs = 6;
+      ctx.beginPath();
+      for (let i = 0; i <= segs; i++) {
+        const q = i / segs;
+        const x = bx + Math.sin(t * 0.7 + kp.ph + q * 2.2) * 26 * z * q - kp.w * z * (1 - q * 0.85);
+        ctx[i === 0 ? 'moveTo' : 'lineTo'](x, by - hh * q);
+      }
+      for (let i = segs; i >= 0; i--) {
+        const q = i / segs;
+        const x = bx + Math.sin(t * 0.7 + kp.ph + q * 2.2) * 26 * z * q + kp.w * z * (1 - q * 0.85);
+        ctx.lineTo(x, by - hh * q);
+      }
+      ctx.fill();
+    }
+  }
+
+  private drawSnow(layer: number): void {
+    const ctx = this.ctx;
+    const W = this.w + 40;
+    const H = this.h + 40;
+    const t = this.reducedMotion ? 0 : this.time;
+    ctx.fillStyle = layer > 1 ? 'rgba(220,240,255,0.35)' : 'rgba(200,230,255,0.22)';
+    for (let i = layer > 1 ? 0 : 1; i < this.snow.length; i += 2) {
+      const s = this.snow[i];
+      const f = s.f * layer;
+      let x = (s.u * W - this.camX * this.zoom * f + Math.sin(t * 0.3 + i) * 8) % W;
+      let y = (s.v * H - this.camY * this.zoom * f + t * 6 * s.f) % H;
+      if (x < 0) x += W;
+      if (y < 0) y += H;
+      const size = s.s * (layer > 1 ? 1.4 : 1);
+      ctx.fillRect(x - 20, y - 20, size, size);
+    }
+  }
+
+  private drawCurrents(world: World, dt: number): void {
+    const ctx = this.ctx;
+    const { hw, hh } = this.viewHalf();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = 'rgba(160,235,255,0.13)';
+    ctx.lineWidth = Math.max(1, 1.6 * this.zoom);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (const c of world.currents) {
+      if (c.x > this.camX + hw || c.x + c.w < this.camX - hw || c.y > this.camY + hh || c.y + c.h < this.camY - hh) continue;
+      let list = this.streaks.get(c);
+      if (!list) {
+        list = [];
+        const n = Math.min(70, Math.floor((c.w * c.h) / 7000));
+        for (let i = 0; i < n; i++) list.push({ x: c.x + Math.random() * c.w, y: c.y + Math.random() * c.h, len: 0.15 + Math.random() * 0.25 });
+        this.streaks.set(c, list);
+      }
+      const move = this.reducedMotion ? 0.4 : 1.4;
+      for (const s of list) {
+        s.x += c.fx * dt * move;
+        s.y += c.fy * dt * move;
+        if (s.x > c.x + c.w) s.x -= c.w;
+        if (s.x < c.x) s.x += c.w;
+        if (s.y > c.y + c.h) s.y -= c.h;
+        if (s.y < c.y) s.y += c.h;
+        const x = this.sx(s.x);
+        const y = this.sy(s.y);
+        if (x < -40 || x > this.w + 40 || y < -40 || y > this.h + 40) continue;
+        ctx.moveTo(x, y);
+        ctx.lineTo(x - c.fx * s.len * this.zoom, y - c.fy * s.len * this.zoom);
+      }
+    }
+    ctx.stroke();
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  private coralLook(cl: CoralCluster): CoralLook {
+    let look = this.coralLooks.get(cl);
+    if (!look) {
+      const pal = CORAL_PALETTES[Math.floor(cl.hue * CORAL_PALETTES.length) % CORAL_PALETTES.length];
+      const depth = clamp(((cl.minY + cl.maxY) / 2) / 5600, 0, 1);
+      look = {
+        base: mix(pal[0], '#0a0d2c', 0.25 + depth * 0.55),
+        lump: mix(pal[1], '#121845', 0.15 + depth * 0.55),
+        polyp: depth > 0.55 ? '#7ff0ff' : pal[2],
+        exposed: cl.circles.map((c) => !cl.circles.some((o) => o !== c && Math.hypot(c.x - o.x, c.y - c.r * 0.8 - o.y) < o.r * 0.95)),
+      };
+      this.coralLooks.set(cl, look);
+    }
+    return look;
+  }
+
+  private drawCorals(world: World): void {
+    const ctx = this.ctx;
+    const { hw, hh } = this.viewHalf();
+    const z = this.zoom;
+    const t = this.reducedMotion ? 0 : this.time;
+    for (const cl of world.corals) {
+      if (cl.maxX < this.camX - hw - 20 || cl.minX > this.camX + hw + 20 || cl.maxY < this.camY - hh - 20 || cl.minY > this.camY + hh + 20) continue;
+      const look = this.coralLook(cl);
+      // Sea fans behind the rock.
+      ctx.strokeStyle = rgba(look.polyp, 0.28);
+      ctx.lineWidth = Math.max(1, 2 * z);
+      ctx.beginPath();
+      cl.circles.forEach((c, i) => {
+        if (c.r < 34 || hash(cl.seed + i) > 0.45) return;
+        const bx = this.sx(c.x);
+        const by = this.sy(c.y - c.r * 0.7);
+        for (let b = 0; b < 3; b++) {
+          const a = -Math.PI / 2 + (b - 1) * 0.5 + Math.sin(t * 0.8 + i + b) * 0.06;
+          const len = c.r * (0.8 + hash(cl.seed + i * 3 + b) * 0.6) * z;
+          ctx.moveTo(bx, by);
+          ctx.quadraticCurveTo(bx + Math.cos(a) * len * 0.4 - 6 * z, by + Math.sin(a) * len * 0.5, bx + Math.cos(a) * len, by + Math.sin(a) * len);
+        }
+      });
+      ctx.stroke();
+
+      const top = this.sy(cl.minY);
+      const bottom = this.sy(cl.maxY);
+      const g = ctx.createLinearGradient(0, top, 0, bottom);
+      g.addColorStop(0, look.lump);
+      g.addColorStop(0.45, look.base);
+      g.addColorStop(1, '#060a24');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      for (const c of cl.circles) {
+        const x = this.sx(c.x);
+        const y = this.sy(c.y);
+        ctx.moveTo(x + c.r * z, y);
+        ctx.arc(x, y, c.r * z, 0, TAU);
+      }
+      ctx.fill();
+      // Small knobbly bumps along exposed crowns.
+      ctx.fillStyle = rgba(look.lump, 0.55);
+      ctx.beginPath();
+      cl.circles.forEach((c, i) => {
+        if (!look.exposed[i]) return;
+        for (let k = 0; k < 4; k++) {
+          const a = Math.PI * (1.2 + hash(cl.seed + i * 7 + k) * 0.6);
+          const lr = c.r * (0.1 + hash(cl.seed + i * 11 + k) * 0.12);
+          const x = this.sx(c.x + Math.cos(a) * c.r * 0.88);
+          const y = this.sy(c.y + Math.sin(a) * c.r * 0.88);
+          ctx.moveTo(x + lr * z, y);
+          ctx.arc(x, y, lr * z, 0, TAU);
+        }
+      });
+      ctx.fill();
+      ctx.strokeStyle = rgba(look.polyp, 0.25);
+      ctx.lineWidth = Math.max(1, 2 * z);
+      ctx.beginPath();
+      cl.circles.forEach((c, i) => {
+        if (!look.exposed[i]) return;
+        const x = this.sx(c.x);
+        const y = this.sy(c.y);
+        ctx.moveTo(x + Math.cos(Math.PI * 1.2) * c.r * z, y + Math.sin(Math.PI * 1.2) * c.r * z);
+        ctx.arc(x, y, c.r * z, Math.PI * 1.2, Math.PI * 1.8);
+      });
+      ctx.stroke();
+      ctx.globalCompositeOperation = 'lighter';
+      cl.circles.forEach((c, i) => {
+        for (let k = 0; k < 3; k++) {
+          const a = Math.PI + 0.3 + hash(cl.seed + i * 13 + k) * (Math.PI - 0.6);
+          const x = this.sx(c.x + Math.cos(a) * c.r * 0.92);
+          const y = this.sy(c.y + Math.sin(a) * c.r * 0.92);
+          const tw = 0.55 + 0.45 * Math.sin(t * 1.5 + i * 3 + k);
+          drawGlow(ctx, look.polyp, x, y, Math.max(2, 7 * z), 0.6 * tw);
+        }
+      });
+      ctx.globalCompositeOperation = 'source-over';
+    }
+  }
+
+  private onScreen(x: number, y: number, pad: number): boolean {
+    return x > -pad && x < this.w + pad && y > -pad && y < this.h + pad;
+  }
+
+  private drawCreatures(world: World): void {
+    const ctx = this.ctx;
+    const p = world.player;
+    const z = this.zoom;
+    for (const c of world.creatures) {
+      if (c.dead) continue;
+      const x = this.sx(c.x);
+      const y = this.sy(c.y);
+      const reach = c.r * z * (c.def.shape === 'eel' ? 4.5 : c.def.shape === 'ray' ? 2.5 : 2);
+      if (c.chain) {
+        this.drawChain(c);
+        continue;
+      }
+      if (!this.onScreen(x, y, reach)) continue;
+      const edible = canEat(p.r, c.r, c.def);
+      const threat = isThreat(p.r, c.r, c.def);
+
+      if (edible && c.r > p.r * 0.4) {
+        // Readability: edible creatures wear a soft cyan halo.
+        ctx.strokeStyle = 'rgba(140,250,255,0.28)';
+        ctx.lineWidth = Math.max(1, 1.5 * z);
+        ctx.beginPath();
+        ctx.arc(x, y, c.r * z * 1.35, 0, TAU);
+        ctx.stroke();
+      } else if (threat) {
+        drawGlow(ctx, '#ff4d6d', x, y, c.r * z * 2.2, 0.12 + (c.state === 'chase' || c.state === 'notice' ? 0.12 : 0));
+      }
+
+      const alert = c.state === 'notice' || c.state === 'chase' ? 1 : 0;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(z, z);
+      if (c.def.shape === 'jelly') {
+        ctx.rotate(c.heading + Math.PI / 2);
+        drawJelly(ctx, c.r, c.phase, Math.pow(Math.max(0, Math.sin(c.phase * 2.2)), 2), jellyStyleForSpecies(c.def), null, false);
+      } else {
+        ctx.rotate(c.heading);
+        if (Math.cos(c.heading) < 0 && c.def.shape !== 'seahorse') ctx.scale(1, -1);
+        if (c.stunned > 0) ctx.globalAlpha = 0.6 + 0.4 * Math.sin(this.time * 20);
+        drawCreatureShape(ctx, c.def, lookFor(c.def), { r: c.r, t: c.phase, alert, puffed: c.state === 'puffed' ? 1 : 0 });
+      }
+      ctx.restore();
+
+      if (c.stunned > 0) {
+        ctx.strokeStyle = 'rgba(197,155,255,0.7)';
+        ctx.lineWidth = Math.max(1, 2 * z);
+        for (let i = 0; i < 3; i++) {
+          const a = this.time * 4 + (i * TAU) / 3;
+          ctx.beginPath();
+          ctx.arc(x + Math.cos(a) * c.r * z * 0.8, y - c.r * z * 0.9 + Math.sin(a) * c.r * z * 0.25, 2.5 * z, 0, TAU);
+          ctx.stroke();
+        }
+      }
+    }
+  }
+
+  private drawChain(c: Creature): void {
+    const ctx = this.ctx;
+    const z = this.zoom;
+    const pts = c.chain!;
+    const hx = this.sx(c.x);
+    const hy = this.sy(c.y);
+    if (!this.onScreen(hx, hy, 300 * z)) return;
+    ctx.strokeStyle = rgba(c.def.colors.body, 0.35);
+    ctx.lineWidth = Math.max(1, 2 * z);
+    ctx.beginPath();
+    ctx.moveTo(hx, hy);
+    for (const s of pts) ctx.lineTo(this.sx(s.x), this.sy(s.y));
+    ctx.stroke();
+    ctx.globalCompositeOperation = 'lighter';
+    drawGlow(ctx, c.def.colors.glow, hx, hy, 22 * z, 0.9);
+    pts.forEach((s, i) => {
+      const tw = 0.5 + 0.5 * Math.sin(this.time * 3 - i * 0.6);
+      drawGlow(ctx, i % 3 === 0 ? c.def.colors.accent : c.def.colors.glow, this.sx(s.x), this.sy(s.y), (10 + (i % 3) * 3) * z, 0.5 + tw * 0.5);
+    });
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  private drawPlayer(world: World, dt: number): void {
+    const ctx = this.ctx;
+    const p = world.player;
+    const z = this.zoom;
+    const x = this.sx(p.x);
+    const y = this.sy(p.y);
+
+    let dh = p.heading - this.lastHeading;
+    if (dh > Math.PI) dh -= TAU;
+    if (dh < -Math.PI) dh += TAU;
+    this.lastHeading = p.heading;
+    this.sway = damp(this.sway, clamp((-dh / Math.max(dt, 1e-3)) * 0.25, -1, 1), 4, dt);
+
+    let alpha = 1;
+    let scale = 1;
+    if (!p.alive) {
+      alpha = clamp(1 - p.deathT / 1.2, 0, 1);
+      scale = 1 - p.deathT * 0.3;
+    } else if (p.invuln > 0 && world.time > 2.6) {
+      alpha = 0.55 + 0.45 * Math.sin(this.time * 28);
+    }
+    if (alpha <= 0) return;
+
+    if (world.stingReady() && p.alive) {
+      const pr = p.r * z * (1.55 + 0.06 * Math.sin(this.time * 4));
+      ctx.strokeStyle = 'rgba(197,155,255,0.45)';
+      ctx.lineWidth = Math.max(1, 1.6 * z);
+      ctx.setLineDash([4 * z, 5 * z]);
+      ctx.beginPath();
+      ctx.arc(x, y, pr, this.time * 0.6, this.time * 0.6 + TAU);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(x, y);
+    ctx.scale(z * scale, z * scale);
+    ctx.rotate(p.heading + Math.PI / 2);
+    drawJelly(ctx, p.r, world.time, p.thrust, this.playerStyle, p.tiers, false, this.sway);
+    ctx.restore();
+  }
+
+  private drawDarkness(world: World): void {
+    const p = world.player;
+    const dark = darknessAt(this.camY);
+    if (dark <= 0.01) return;
+    const ctx = this.ctx;
+    const x = this.sx(p.x);
+    const y = this.sy(p.y);
+    const light = p.stats.lightRadius * this.zoom * (1 + 0.03 * Math.sin(this.time * 2));
+    const g = ctx.createRadialGradient(x, y, light * 0.15, x, y, light);
+    g.addColorStop(0, 'rgba(2,4,18,0)');
+    g.addColorStop(0.5, `rgba(2,4,18,${dark * 0.25})`);
+    g.addColorStop(1, `rgba(2,4,18,${dark})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(-20, -20, this.w + 40, this.h + 40);
+  }
+
+  /** Bioluminescence and hunters' eyes shine through the darkness. */
+  private drawLights(world: World): void {
+    const ctx = this.ctx;
+    const dark = darknessAt(this.camY);
+    const p = world.player;
+    const z = this.zoom;
+    ctx.globalCompositeOperation = 'lighter';
+    for (const c of world.creatures) {
+      if (c.dead || c.chain) continue;
+      const x = this.sx(c.x);
+      const y = this.sy(c.y);
+      if (!this.onScreen(x, y, c.r * z * 3)) continue;
+      if (c.def.glows) {
+        const tw = 0.75 + 0.25 * Math.sin(c.phase * 3);
+        drawGlow(ctx, c.def.colors.glow, x, y, c.r * z * 2.4, (0.18 + dark * 0.55) * tw);
+      }
+      if (c.def.role === 'predator') {
+        const alert = c.state === 'notice' || c.state === 'chase';
+        const fwd = c.def.shape === 'needlefin' ? 1.05 : c.def.shape === 'eel' ? 0.3 : 0.3;
+        const ex = c.x + Math.cos(c.heading) * c.r * fwd;
+        const ey = c.y + Math.sin(c.heading) * c.r * fwd - c.r * 0.2;
+        const threat = isThreat(p.r, c.r, c.def);
+        drawGlow(ctx, threat ? '#ff5d5d' : '#b8c8ff', this.sx(ex), this.sy(ey), c.r * z * (alert ? 0.7 : 0.4), (alert ? 0.9 : 0.3 + dark * 0.4));
+        if (c.def.behavior === 'lure') {
+          const lx = c.x + Math.cos(c.heading) * c.r * 1.25;
+          const ly = c.y + Math.sin(c.heading) * c.r * 1.25 - c.r * 0.95;
+          drawGlow(ctx, c.def.colors.accent, this.sx(lx), this.sy(ly), c.r * z * 1.3, 0.85);
+        }
+      }
+    }
+    if (p.alive) drawGlow(ctx, this.playerStyle.glow, this.sx(p.x), this.sy(p.y), p.r * z * 2.4, 0.12 + dark * 0.12);
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  private drawIndicators(world: World): void {
+    const ctx = this.ctx;
+    const p = world.player;
+    const z = this.zoom;
+    const px = this.sx(p.x);
+    const py = this.sy(p.y);
+    if (!p.alive) return;
+
+    for (const c of world.creatures) {
+      if (c.dead || c.def.role !== 'predator' || !isThreat(p.r, c.r, c.def)) continue;
+      const x = this.sx(c.x);
+      const y = this.sy(c.y);
+      if (c.state === 'notice') {
+        // Telegraph: a warning mark and the lunge line, before any attack.
+        const pulse = 0.7 + 0.3 * Math.sin(this.time * 18);
+        if (c.def.behavior !== 'stalk') {
+          const dx = p.x - c.x;
+          const dy = p.y - c.y;
+          const d = Math.hypot(dx, dy) || 1;
+          const len = (c.def.hunter!.chaseSpeed * c.def.hunter!.chaseTime + c.r) * z;
+          ctx.strokeStyle = `rgba(255,93,93,${0.28 * pulse})`;
+          ctx.lineWidth = Math.max(2, c.r * z * 0.35);
+          ctx.lineCap = 'round';
+          ctx.setLineDash([6, 8]);
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.lineTo(x + (dx / d) * len, y + (dy / d) * len);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+        this.drawAlert(x, y - c.r * z * 1.1 - 14, pulse);
+      }
+      if (!this.onScreen(x, y, -c.r * z * 0.3) && Math.hypot(c.x - p.x, c.y - p.y) < world.viewRadius * 1.25) {
+        const a = Math.atan2(y - py, x - px);
+        const ex = clamp(px + Math.cos(a) * 2000, 26, this.w - 26);
+        const ey = clamp(py + Math.sin(a) * 2000, 26, this.h - 26);
+        const chasing = c.state === 'chase' || c.state === 'notice';
+        this.drawChevron(ex, ey, a, chasing ? '#ff5d5d' : 'rgba(255,140,140,0.6)');
+      }
+    }
+
+    if (p.stats.rareCompass > 0) {
+      const rare = world.nearestRare();
+      if (rare) {
+        const d = Math.hypot(rare.x - p.x, rare.y - p.y);
+        if (d > p.r * 4) {
+          const a = Math.atan2(rare.y - p.y, rare.x - p.x);
+          const rr = p.r * z * 2.4 + 26;
+          const pulse = 0.6 + 0.4 * Math.sin(this.time * 4);
+          ctx.globalCompositeOperation = 'lighter';
+          drawGlow(ctx, '#ffd27a', px + Math.cos(a) * rr, py + Math.sin(a) * rr, 16, pulse);
+          ctx.globalCompositeOperation = 'source-over';
+          this.drawChevron(px + Math.cos(a) * rr, py + Math.sin(a) * rr, a, '#ffe2a3');
+        }
+      }
+    }
+  }
+
+  private drawAlert(x: number, y: number, pulse: number): void {
+    const ctx = this.ctx;
+    ctx.fillStyle = `rgba(255,93,93,${0.85 * pulse})`;
+    ctx.beginPath();
+    ctx.arc(x, y, 11, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = '700 15px Outfit Variable, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('!', x, y + 1);
+  }
+
+  private drawChevron(x: number, y: number, a: number, color: string): void {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(a);
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(10, 0);
+    ctx.lineTo(-6, -8);
+    ctx.lineTo(-2, 0);
+    ctx.lineTo(-6, 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  private drawJoystick(j: JoystickView): void {
+    const ctx = this.ctx;
+    ctx.strokeStyle = 'rgba(200,240,255,0.22)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(j.cx, j.cy, 52, 0, TAU);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(200,240,255,0.22)';
+    ctx.beginPath();
+    ctx.arc(j.cx + j.ax * 52, j.cy + j.ay * 52, 20, 0, TAU);
+    ctx.fill();
+  }
+}
