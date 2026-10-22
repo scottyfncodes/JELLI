@@ -9,7 +9,7 @@ export interface StageDef {
   name: string;
 }
 
-/** Crossing into stages 2–4 triggers an evolution choice. */
+/** Size stages: names for how big the jelly has grown. */
 export const STAGES: StageDef[] = [
   { mass: 0, name: 'Ephyra' },
   { mass: 34, name: 'Drifter' },
@@ -34,6 +34,27 @@ export function hunterScale(time: number): number {
 /** Up to two extra hunters on top of each zone's base count. */
 export function extraHunters(time: number): number {
   return Math.round(2 * escalation(time));
+}
+
+/**
+ * Food totals (untapered growth eaten this run) that earn each evolution choice.
+ * Nine choices fill all three paths; the first three land near the old stage timings.
+ */
+export const EVOLUTION_FOOD = [26, 62, 115, 190, 290, 410, 560, 740, 950];
+
+/** Evolutions earned for a food total. */
+export function evolutionsEarned(food: number): number {
+  let n = 0;
+  while (n < EVOLUTION_FOOD.length && food >= EVOLUTION_FOOD[n]) n++;
+  return n;
+}
+
+/** 0..1 progress toward the next evolution (1 once all are earned). */
+export function evolutionProgress(food: number): number {
+  const n = evolutionsEarned(food);
+  if (n >= EVOLUTION_FOOD.length) return 1;
+  const lo = n === 0 ? 0 : EVOLUTION_FOOD[n - 1];
+  return Math.max(0, Math.min(1, (food - lo) / (EVOLUTION_FOOD[n] - lo)));
 }
 
 export function radiusForMass(mass: number): number {

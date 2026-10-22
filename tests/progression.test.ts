@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_MASS, STAGES, START_MASS, detectionScale, growthGain, radiusForMass, stageForMass, stageProgress } from '../src/content/progression';
+import { EVOLUTION_FOOD, MAX_MASS, STAGES, START_MASS, evolutionProgress, evolutionsEarned, detectionScale, growthGain, radiusForMass, stageForMass, stageProgress } from '../src/content/progression';
 import { SPECIES } from '../src/content/species';
 import { CHALLENGES } from '../src/content/challenges';
 import { applyRun, emptyRunStats, metricValue, nextChallenge } from '../src/core/progress';
@@ -17,6 +17,15 @@ describe('growth and stages', () => {
     expect(stageForMass(MAX_MASS)).toBe(STAGES.length);
     expect(stageProgress(STAGES[1].mass)).toBe(0);
     expect(stageProgress((STAGES[1].mass + STAGES[2].mass) / 2)).toBeCloseTo(0.5);
+  });
+
+  it('evolution milestones increase and report progress', () => {
+    expect(EVOLUTION_FOOD).toHaveLength(9);
+    for (let i = 1; i < EVOLUTION_FOOD.length; i++) expect(EVOLUTION_FOOD[i]).toBeGreaterThan(EVOLUTION_FOOD[i - 1]);
+    expect(evolutionsEarned(0)).toBe(0);
+    expect(evolutionsEarned(EVOLUTION_FOOD[2])).toBe(3);
+    expect(evolutionProgress(EVOLUTION_FOOD[0] / 2)).toBeCloseTo(0.5);
+    expect(evolutionProgress(99999)).toBe(1);
   });
 
   it('food is worth a little less as the jelly grows', () => {
