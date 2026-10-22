@@ -37,9 +37,10 @@ describe('feeding rules', () => {
 });
 
 describe('tentacle rules', () => {
-  it('reaches far beyond the bell and further as the jelly grows', () => {
-    expect(tentacleReach(10)).toBeGreaterThan(10 * 6);
-    expect(tentacleReach(40)).toBeGreaterThan(tentacleReach(10) * 2);
+  it('starts short and lengthens faster than the bell grows', () => {
+    expect(tentacleReach(10)).toBeLessThan(40);
+    expect(tentacleReach(10)).toBeGreaterThan(10 * 2.5);
+    expect(tentacleReach(40) / 40).toBeGreaterThan(tentacleReach(10) / 10 * 1.3);
   });
 
   it('grows arms with size stages, capped at five', () => {

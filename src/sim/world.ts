@@ -19,6 +19,7 @@ import { TAU, angleLerp, clamp, lerp, mulberry32 } from '../core/math';
 import { FRENZY_MAGNET, OVERCHARGE_RATE, POWERS, TITAN_SCALE, emptyPowers, type PowerId, type PowerTimers } from '../content/powerups';
 import { emptyRunStats, type RunStats } from '../core/progress';
 import {
+  REACH_ARC,
   canEat,
   escapeRate,
   isThreat,
@@ -986,7 +987,8 @@ export class World {
   private restPoint(t: Tentacle, r: number, out: { x: number; y: number }): { x: number; y: number } {
     this.tentacleRoot(t, r, out);
     const h = this.player.heading;
-    const len = r * 2.6;
+    // A relaxed arm hangs at about half its full length, so longer arms read as longer reach.
+    const len = tentacleReach(r) * 0.55;
     const sway = Math.sin(this.time * 1.7 + t.seed) * r * 0.55;
     const side = (t.slot - 0.5) * r * 1.2;
     out.x += -Math.cos(h) * len - Math.sin(h) * (sway + side);
@@ -1097,7 +1099,7 @@ export class World {
           const dx = t.x - rest.x;
           const dy = t.y - rest.y;
           const d = Math.hypot(dx, dy);
-          const max = R * 4;
+          const max = tentacleReach(R) * 0.9;
           if (d > max) {
             t.x = rest.x + (dx / d) * max;
             t.y = rest.y + (dy / d) * max;
@@ -1201,7 +1203,13 @@ export class World {
     const cands: Creature[] = [];
     for (const c of this.creatures) {
       if (c.claimed || c.held || c.slip > 0 || !this.huntable(c)) continue;
-      if (Math.hypot(c.x - p.x, c.y - p.y) - c.r * 0.5 > reach) continue;
+      const dx = c.x - p.x;
+      const dy = c.y - p.y;
+      const d = Math.hypot(dx, dy) || 1;
+      if (d - c.r * 0.5 > reach) continue;
+      // Arms strike forward, toward where the jelly is heading; only food brushing the bell is taken from behind.
+      const ahead = (dx * Math.cos(p.heading) + dy * Math.sin(p.heading)) / d;
+      if (ahead < REACH_ARC && d > this.playerReach() * 1.6 + c.r) continue;
       if (this.blocked(p.x, p.y, c.x, c.y)) continue;
       cands.push(c);
     }
