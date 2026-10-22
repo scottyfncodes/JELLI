@@ -1,8 +1,8 @@
 import type { ZoneId } from './types';
 
 export const WORLD = {
-  width: 2400,
-  height: 5600,
+  width: 6000,
+  height: 12000,
 };
 
 export interface ZoneDef {
@@ -19,9 +19,9 @@ export interface ZoneDef {
 }
 
 export const ZONES: ZoneDef[] = [
-  { id: 'shallows', name: 'Sunlit Shallows', top: 0, bottom: 1800, water: ['#1c4f86', '#163a72'], darkness: 0, predators: 1, prey: 50 },
-  { id: 'twilight', name: 'Twilight Reef', top: 1800, bottom: 3800, water: ['#14306a', '#0f1f52'], darkness: 0.62, predators: 3, prey: 44 },
-  { id: 'abyss', name: 'The Abyss', top: 3800, bottom: 5600, water: ['#0b1640', '#060a24'], darkness: 0.9, predators: 3, prey: 36 },
+  { id: 'shallows', name: 'Sunlit Shallows', top: 0, bottom: 3800, water: ['#1c4f86', '#163a72'], darkness: 0, predators: 1, prey: 50 },
+  { id: 'twilight', name: 'Twilight Reef', top: 3800, bottom: 8000, water: ['#14306a', '#0f1f52'], darkness: 0.62, predators: 3, prey: 44 },
+  { id: 'abyss', name: 'The Abyss', top: 8000, bottom: 12000, water: ['#0b1640', '#060a24'], darkness: 0.9, predators: 3, prey: 36 },
 ];
 
 export function zoneAt(y: number): ZoneDef {
@@ -33,11 +33,11 @@ export function zoneAt(y: number): ZoneDef {
 export function darknessAt(y: number): number {
   const stops: [number, number][] = [
     [0, 0],
-    [1300, 0],
-    [2300, 0.6],
-    [3600, 0.72],
-    [4300, 0.9],
-    [5600, 0.94],
+    [2800, 0],
+    [4900, 0.6],
+    [7700, 0.72],
+    [9200, 0.9],
+    [12000, 0.94],
   ];
   for (let i = 1; i < stops.length; i++) {
     const [y1, d1] = stops[i];

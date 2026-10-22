@@ -1,4 +1,5 @@
 import type { UnlockId } from './unlocks';
+import { ZONES } from './world';
 
 /** Metrics a challenge can measure. `run.*` resets each run; `life.*` is lifetime. */
 export type ChallengeMetric =
@@ -27,7 +28,7 @@ export interface ChallengeDef {
 export const CHALLENGES: ChallengeDef[] = [
   { id: 'first-bloom', title: 'First Bloom', desc: 'Evolve for the first time.', metric: 'run.evolutions', goal: 1, reward: 'skin:coral' },
   { id: 'feast', title: 'Feeding Frenzy', desc: 'Eat 45 creatures in a single run.', metric: 'run.eaten', goal: 45, reward: 'trait:seed-surge' },
-  { id: 'deep-diver', title: 'Deep Diver', desc: 'Reach the Abyss.', metric: 'run.maxDepth', goal: 3800, reward: 'trait:seed-glow' },
+  { id: 'deep-diver', title: 'Deep Diver', desc: 'Reach the Abyss.', metric: 'run.maxDepth', goal: ZONES[2].top, reward: 'trait:seed-glow' },
   { id: 'tide-rider', title: 'Tide Rider', desc: 'Survive for 3 minutes in a single run.', metric: 'run.time', goal: 180, reward: 'trait:seed-sting' },
   { id: 'stinger', title: 'Nettle Dance', desc: 'Sting 3 hunters in a single run.', metric: 'run.stings', goal: 3, reward: 'skin:nettle' },
   { id: 'naturalist', title: 'Naturalist', desc: 'Discover 10 species in the Field Guide.', metric: 'life.discovered', goal: 10, reward: 'skin:aurora' },

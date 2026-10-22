@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { World } from '../src/sim/world';
+import { World, type Creature } from '../src/sim/world';
 import { SPECIES_BY_ID } from '../src/content/species';
 import { EVOLUTION_FOOD, hunterScale } from '../src/content/progression';
 import { mulberry32 } from '../src/core/math';
@@ -12,14 +12,19 @@ function makeWorld(opts: ConstructorParameters<typeof World>[0] = {}) {
   return w;
 }
 
+/** Steps until the creature has been reeled in and eaten (or time runs out). */
+function feed(w: World, c: Creature, seconds = 3) {
+  for (let i = 0; i < seconds * 60 && !c.dead; i++) w.update(1 / 60, idle);
+}
+
 describe('world simulation', () => {
   it('eating prey grows the jelly, scores and records the species', () => {
     const w = makeWorld();
     const p = w.player;
     w.creatures.length = 0;
-    w.spawn(SPECIES_BY_ID['glimmer-krill'], p.x + 3, p.y);
+    const krill = w.spawn(SPECIES_BY_ID['glimmer-krill'], p.x + 3, p.y);
     const mass = p.mass;
-    w.update(1 / 60, idle);
+    feed(w, krill);
     expect(p.mass).toBeGreaterThan(mass);
     expect(w.run.eaten).toBe(1);
     expect(w.run.score).toBeGreaterThan(0);
@@ -32,8 +37,7 @@ describe('world simulation', () => {
     const p = w.player;
     p.food = EVOLUTION_FOOD[0] - 0.1;
     w.creatures.length = 0;
-    w.spawn(SPECIES_BY_ID['sea-butterfly'], p.x + 2, p.y);
-    w.update(1 / 60, idle);
+    feed(w, w.spawn(SPECIES_BY_ID['sea-butterfly'], p.x + 2, p.y));
     expect(w.pendingEvolutions).toBe(1);
     w.applyEvolution('surge');
     expect(p.tiers.surge).toBe(1);
@@ -47,8 +51,7 @@ describe('world simulation', () => {
     const p = w.player;
     w.creatures.length = 0;
     p.food = EVOLUTION_FOOD[EVOLUTION_FOOD.length - 1] + 500;
-    w.spawn(SPECIES_BY_ID['glimmer-krill'], p.x + 2, p.y);
-    w.update(1 / 60, idle);
+    feed(w, w.spawn(SPECIES_BY_ID['glimmer-krill'], p.x + 2, p.y));
     expect(w.pendingEvolutions).toBe(9);
     for (const path of ['glow', 'surge', 'sting'] as const) for (let i = 0; i < 3; i++) w.applyEvolution(path);
     expect(p.tiers).toEqual({ glow: 3, surge: 3, sting: 3 });
@@ -64,8 +67,7 @@ describe('world simulation', () => {
     const p = w.player;
     w.creatures.length = 0;
     p.food = 5000;
-    w.spawn(SPECIES_BY_ID['glimmer-krill'], p.x + 2, p.y);
-    w.update(1 / 60, idle);
+    feed(w, w.spawn(SPECIES_BY_ID['glimmer-krill'], p.x + 2, p.y));
     expect(w.pendingEvolutions).toBe(8);
   });
 
@@ -124,7 +126,9 @@ describe('world simulation', () => {
     w.creatures.length = 0;
     const minnow = w.spawn(SPECIES_BY_ID['ribbon-minnow'], p.x + 8, p.y);
     w.update(1 / 60, idle);
+    // Too big for a fresh jelly: no tentacle even tries.
     expect(minnow.dead).toBe(false);
+    expect(minnow.claimed).toBe(false);
     w.grantPower('titan');
     // A razorfin pack hunter is no longer a threat at Titan size.
     w.creatures.length = 0;
@@ -132,7 +136,8 @@ describe('world simulation', () => {
     p.mass = 20;
     p.r = 10 * Math.sqrt(2);
     const fish = w.spawn(SPECIES_BY_ID['ribbon-minnow'], p.x + 4, p.y);
-    w.update(1 / 60, idle);
+    fish.stunned = 5;
+    feed(w, fish);
     expect(fish.dead).toBe(true);
     expect(p.alive).toBe(true);
   });
@@ -141,8 +146,9 @@ describe('world simulation', () => {
     const w = makeWorld();
     const p = w.player;
     w.creatures.length = 0;
-    w.spawn(SPECIES_BY_ID['spark-minnow'], p.x + 3, p.y);
-    w.update(1 / 60, idle);
+    const spark = w.spawn(SPECIES_BY_ID['spark-minnow'], p.x + 3, p.y);
+    feed(w, spark);
+    expect(spark.dead).toBe(true);
     expect(p.powers.overcharge).toBeGreaterThan(7);
     expect(w.run.powerups).toBe(1);
     expect(w.events.some((e) => e.type === 'power' && e.id === 'overcharge')).toBe(true);
@@ -196,7 +202,7 @@ describe('world simulation', () => {
     const w = makeWorld();
     const p = w.player;
     p.invuln = 0;
-    p.y = 2600;
+    p.y = 5000;
     w.creatures.length = 0;
     const s = w.spawn(SPECIES_BY_ID['lanternshark'], p.x + 160, p.y);
     w.update(1 / 60, idle);
@@ -261,12 +267,12 @@ describe('world simulation', () => {
     ids = w.eligibleRares().map((d) => d.id);
     expect(ids).toContain('aurora-jelly');
     // Nautilus only appears in the twilight after some time.
-    p.y = 2600;
+    p.y = 5000;
     expect(w.eligibleRares().map((d) => d.id)).not.toContain('golden-nautilus');
     w.time = 60;
     expect(w.eligibleRares().map((d) => d.id)).toContain('golden-nautilus');
     // Ghost Ray needs the abyss, stage 2 and a current.
-    p.y = 4300;
+    p.y = 9000;
     p.stage = 2;
     p.inCurrent = false;
     expect(w.eligibleRares().map((d) => d.id)).not.toContain('ghost-ray');
