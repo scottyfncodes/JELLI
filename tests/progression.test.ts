@@ -30,9 +30,9 @@ describe('growth and stages', () => {
 });
 
 describe('content data', () => {
-  it('has 12–16 species with unique ids, including the player', () => {
+  it('has a healthy roster of species with unique ids, including the player', () => {
     expect(SPECIES.length).toBeGreaterThanOrEqual(12);
-    expect(SPECIES.length).toBeLessThanOrEqual(16);
+    expect(SPECIES.length).toBeLessThanOrEqual(24);
     expect(new Set(SPECIES.map((s) => s.id)).size).toBe(SPECIES.length);
     expect(SPECIES.some((s) => s.role === 'player')).toBe(true);
   });
@@ -41,6 +41,15 @@ describe('content data', () => {
     const prey = new Set(SPECIES.filter((s) => s.role === 'prey' && s.weight > 0).map((s) => s.radius));
     expect(prey.size).toBeGreaterThanOrEqual(3);
     expect(SPECIES.filter((s) => s.role === 'predator' && s.weight > 0).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('has at least five distinct hunter behaviors and five power-up fish', () => {
+    const behaviors = new Set(SPECIES.filter((s) => s.role === 'predator').map((s) => s.behavior));
+    expect(behaviors.size).toBeGreaterThanOrEqual(5);
+    const powers = new Set(SPECIES.filter((s) => s.power).map((s) => s.power));
+    expect(powers.size).toBe(5);
+    // Regular power fish are small enough for a brand-new jelly to eat.
+    for (const s of SPECIES.filter((s) => s.power && s.weight > 0)) expect(s.radius).toBeLessThan(START_MASS * 0.88);
   });
 
   it('every hunter has hunting data and every rare has rules', () => {

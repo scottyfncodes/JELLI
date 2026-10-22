@@ -15,6 +15,7 @@ import {
   stageForMass,
 } from '../content/progression';
 import { TAU, angleLerp, clamp, lerp, mulberry32 } from '../core/math';
+import { FRENZY_MAGNET, OVERCHARGE_RATE, POWERS, TITAN_SCALE, emptyPowers, type PowerId, type PowerTimers } from '../content/powerups';
 import { emptyRunStats, type RunStats } from '../core/progress';
 import { canEat, eatContact, isThreat, threatContact } from './rules';
 
@@ -43,7 +44,7 @@ export interface Current {
   fy: number;
 }
 
-export type CreatureState = 'wander' | 'notice' | 'chase' | 'rest' | 'flee' | 'puffed';
+export type CreatureState = 'wander' | 'notice' | 'chase' | 'rest' | 'flee' | 'puffed' | 'orbit';
 
 export interface Creature {
   id: number;
@@ -92,6 +93,8 @@ export interface Player {
   inCurrent: boolean;
   tiers: Tiers;
   stats: PlayerStats;
+  /** Seconds remaining on each power-up. */
+  powers: PowerTimers;
 }
 
 export interface SimInput {
@@ -110,7 +113,9 @@ export type SimEvent =
   | { type: 'stage'; stage: number }
   | { type: 'zone'; zone: ZoneDef }
   | { type: 'rare'; def: SpeciesDef }
-  | { type: 'notice'; def: SpeciesDef; x: number; y: number };
+  | { type: 'notice'; def: SpeciesDef; x: number; y: number }
+  | { type: 'power'; id: PowerId; x: number; y: number }
+  | { type: 'shield'; x: number; y: number; def: SpeciesDef };
 
 export type RunEnd = 'caught' | null;
 
@@ -195,6 +200,7 @@ export class World {
       inCurrent: false,
       tiers,
       stats: computeStats(tiers),
+      powers: emptyPowers(),
     };
     this.player.charges = this.player.stats.burstCharges;
     this.generate(mulberry32(seed));
@@ -418,7 +424,7 @@ export class World {
 
     // Burst
     if (p.charges < st.burstCharges) {
-      p.recharge += dt;
+      p.recharge += dt * (p.powers.overcharge > 0 ? OVERCHARGE_RATE : 1);
       if (p.recharge >= st.burstCooldown) {
         p.charges += 1;
         p.recharge = 0;
@@ -475,6 +481,36 @@ export class World {
 
     p.invuln = Math.max(0, p.invuln - dt);
     p.stingCd = Math.max(0, p.stingCd - dt);
+    for (const k in p.powers) {
+      const id = k as PowerId;
+      p.powers[id] = Math.max(0, p.powers[id] - dt);
+    }
+  }
+
+  /** Size the jelly counts as for eating and threats (Titan makes it bigger). */
+  playerReach(): number {
+    const p = this.player;
+    return p.powers.titan > 0 ? p.r * TITAN_SCALE : p.r;
+  }
+
+  grantPower(id: PowerId): void {
+    const p = this.player;
+    p.powers[id] = POWERS[id].duration;
+    this.run.powerups += 1;
+    if (id === 'overcharge') {
+      p.charges = p.stats.burstCharges;
+      p.recharge = 0;
+    }
+    if (id === 'veil') {
+      // Hunters lose track instantly.
+      for (const c of this.creatures) {
+        if (c.def.hunter && (c.state === 'notice' || c.state === 'orbit' || c.state === 'chase')) {
+          c.state = 'rest';
+          c.stateT = 0.8;
+        }
+      }
+    }
+    this.events.push({ type: 'power', id, x: p.x, y: p.y });
   }
 
   private stingNova(radius: number): void {
@@ -487,7 +523,7 @@ export class World {
     }
   }
 
-  private stun(c: Creature, seconds: number): void {
+  private stun(c: Creature, seconds: number, countsAsSting = true): void {
     const p = this.player;
     const dx = c.x - p.x;
     const dy = c.y - p.y;
@@ -497,7 +533,7 @@ export class World {
     c.stateT = seconds + (c.def.hunter?.rest ?? 1);
     c.vx = (dx / d) * 260;
     c.vy = (dy / d) * 260;
-    this.run.stings += 1;
+    if (countsAsSting) this.run.stings += 1;
   }
 
   // ---------------------------------------------------------------- creatures
@@ -586,11 +622,12 @@ export class World {
     const dist = Math.hypot(dx, dy) || 1;
     const nx = dx / dist;
     const ny = dy / dist;
-    const playerCanEat = p.alive && canEat(p.r, c.r, def);
-    const threatened = playerCanEat && dist < 110 + def.speed * 1.2 + p.r * 2;
+    const reach = this.playerReach();
+    const playerCanEat = p.alive && canEat(reach, c.r, def);
+    const threatened = playerCanEat && dist < 110 + def.speed * 1.2 + reach * 2;
 
     if (def.hunter) {
-      if (playerCanEat || !isThreat(p.r, c.r, def)) {
+      if (playerCanEat || !isThreat(reach, c.r, def)) {
         // Outgrown hunters keep their distance.
         if (threatened) this.steer(c, -nx, -ny, def.speed * 2.2, 2.5, dt);
         else this.wander(c, dt, def.speed);
@@ -622,21 +659,8 @@ export class World {
         break;
       }
       case 'school': {
-        const lead = c.leader && !c.leader.dead ? c.leader : null;
-        if (threatened) {
-          this.steer(c, -nx, -ny, def.speed * 1.5, 3, dt);
-        } else if (lead) {
-          const cos = Math.cos(lead.heading);
-          const sin = Math.sin(lead.heading);
-          const tx = lead.x + c.homeX * cos - c.homeY * sin;
-          const ty = lead.y + c.homeX * sin + c.homeY * cos;
-          const ddx = tx - c.x;
-          const ddy = ty - c.y;
-          const dd = Math.hypot(ddx, ddy) || 1;
-          this.steer(c, ddx / dd, ddy / dd, def.speed * Math.min(1.6, 0.6 + dd / 60), 3, dt);
-        } else {
-          this.wander(c, dt, def.speed * 0.8, 1.2);
-        }
+        if (threatened) this.steer(c, -nx, -ny, def.speed * 1.5, 3, dt);
+        else if (!this.followLeader(c, dt)) this.wander(c, dt, def.speed * 0.8, 1.2);
         break;
       }
       case 'puff': {
@@ -693,24 +717,87 @@ export class World {
     }
   }
 
+  /** Formation swimming behind a group leader. Returns false when there is no leader. */
+  private followLeader(c: Creature, dt: number): boolean {
+    const lead = c.leader && !c.leader.dead ? c.leader : null;
+    if (!lead) return false;
+    const cos = Math.cos(lead.heading);
+    const sin = Math.sin(lead.heading);
+    const tx = lead.x + c.homeX * cos - c.homeY * sin;
+    const ty = lead.y + c.homeX * sin + c.homeY * cos;
+    const ddx = tx - c.x;
+    const ddy = ty - c.y;
+    const dd = Math.hypot(ddx, ddy) || 1;
+    this.steer(c, ddx / dd, ddy / dd, c.def.speed * Math.min(1.6, 0.6 + dd / 60), 3, dt);
+    return true;
+  }
+
+  private goHome(c: Creature, dt: number, speed: number): void {
+    const hx = c.homeX - c.x;
+    const hy = c.homeY - c.y;
+    const hd = Math.hypot(hx, hy);
+    if (hd > 6) this.steer(c, hx / hd, hy / hd, Math.min(speed, hd * 3), 3, dt);
+    else {
+      c.vx *= Math.exp(-4 * dt);
+      c.vy *= Math.exp(-4 * dt);
+    }
+  }
+
   private hunt(c: Creature, dt: number, p: Player, dist: number, nx: number, ny: number): void {
     const h = c.def.hunter!;
+    const b = c.def.behavior;
     const detect = h.detect * detectionScale(p.r) * p.stats.detectMult;
+    const veiled = p.powers.veil > 0;
     c.stateT -= dt;
+    if (veiled && (c.state === 'notice' || c.state === 'orbit' || (c.state === 'chase' && (b === 'stalk' || b === 'pack')))) {
+      c.state = 'rest';
+      c.stateT = 0.8;
+    }
     switch (c.state) {
       case 'wander':
       case 'flee':
       case 'puffed': {
-        if (c.def.behavior === 'lure') {
+        if (b === 'lure') {
           // Anglers hover in place, letting the lure do the work.
           this.steer(c, Math.cos(c.phase * 0.4), Math.sin(c.phase * 0.3), c.def.speed * 0.5, 1, dt);
           c.heading = angleLerp(c.heading, Math.atan2(ny, nx), 1 - Math.exp(-1.2 * dt));
+        } else if (b === 'ambush') {
+          // Morays wait at their coral hole, head turning to follow passers-by.
+          this.goHome(c, dt, c.def.speed);
+          const out = c.offY;
+          const look = dist < detect * 1.6 ? Math.atan2(ny, nx) : out + Math.sin(c.phase * 0.6) * 0.4;
+          c.heading = angleLerp(c.heading, look, 1 - Math.exp(-2 * dt));
+        } else if (b === 'pack') {
+          if (!this.followLeader(c, dt)) this.wander(c, dt, c.def.speed);
         } else this.wander(c, dt, c.def.speed);
         const visible = Math.abs(c.x - p.x) < this.viewHW - c.r * 0.3 && Math.abs(c.y - p.y) < this.viewHH - c.r * 0.3;
-        if (p.alive && p.invuln <= 0 && dist < detect && visible && !this.demo) {
+        if (p.alive && p.invuln <= 0 && !veiled && dist < detect && visible && !this.demo) {
+          this.events.push({ type: 'notice', def: c.def, x: c.x, y: c.y });
+          if (b === 'circle') {
+            c.state = 'orbit';
+            c.stateT = 2.2 + this.rand() * 0.8;
+            c.lockX = this.rand() < 0.5 ? -1 : 1;
+          } else {
+            c.state = 'notice';
+            c.stateT = h.telegraph;
+          }
+        }
+        break;
+      }
+      case 'orbit': {
+        // Lanternsharks circle at a distance before committing to a dash.
+        const dir = c.lockX;
+        const a = Math.atan2(c.y - p.y, c.x - p.x) + dir * 0.9;
+        const ring = 170 + p.r * 2;
+        const tx = p.x + Math.cos(a) * ring - c.x;
+        const ty = p.y + Math.sin(a) * ring - c.y;
+        const tm = Math.hypot(tx, ty) || 1;
+        this.steer(c, tx / tm, ty / tm, 190, 2.5, dt);
+        if (dist > detect * 2) {
+          c.state = 'wander';
+        } else if (c.stateT <= 0) {
           c.state = 'notice';
           c.stateT = h.telegraph;
-          this.events.push({ type: 'notice', def: c.def, x: c.x, y: c.y });
         }
         break;
       }
@@ -731,8 +818,8 @@ export class World {
         break;
       }
       case 'chase': {
-        if (c.def.behavior === 'stalk') {
-          this.steer(c, nx, ny, h.chaseSpeed, 2.2, dt);
+        if (b === 'stalk' || b === 'pack') {
+          this.steer(c, nx, ny, h.chaseSpeed, b === 'pack' ? 3 : 2.2, dt);
           if (dist > detect * 1.9) c.stateT = Math.min(c.stateT, 0);
         } else {
           c.vx = c.lockX * h.chaseSpeed;
@@ -745,8 +832,11 @@ export class World {
         break;
       }
       case 'rest': {
-        c.vx *= Math.exp(-2.2 * dt);
-        c.vy *= Math.exp(-2.2 * dt);
+        if (b === 'ambush' && c.stunned <= 0) this.goHome(c, dt, 140);
+        else {
+          c.vx *= Math.exp(-2.2 * dt);
+          c.vy *= Math.exp(-2.2 * dt);
+        }
         if (c.stateT <= 0) c.state = 'wander';
         break;
       }
@@ -759,30 +849,37 @@ export class World {
     const p = this.player;
     const st = p.stats;
     const maw = p.burstT > 0 ? st.burstMaw : 1;
+    const R = this.playerReach();
+    const magnet = Math.max(st.magnet, p.powers.frenzy > 0 ? FRENZY_MAGNET : 0);
     for (const c of this.creatures) {
       if (c.dead) continue;
       const dx = c.x - p.x;
       const dy = c.y - p.y;
       const dist = Math.hypot(dx, dy);
-      if (dist > p.r + c.r + st.magnet + 40) continue;
+      if (dist > R + c.r + magnet + 40) continue;
 
-      if (canEat(p.r, c.r, c.def)) {
-        if (eatContact(dist, p.r, c.r, maw)) {
+      if (canEat(R, c.r, c.def)) {
+        if (eatContact(dist, R, c.r, maw)) {
           this.eat(c);
           continue;
         }
-        if (st.magnet > 0 && c.r < p.r * 0.55 && dist < st.magnet + p.r) {
-          const pull = 110 * (1 - dist / (st.magnet + p.r));
+        if (magnet > 0 && c.r < R * 0.55 && dist < magnet + R) {
+          const pull = (p.powers.frenzy > 0 ? 180 : 110) * (1 - dist / (magnet + R));
           c.x -= (dx / (dist || 1)) * pull * dt;
           c.y -= (dy / (dist || 1)) * pull * dt;
         }
         continue;
       }
 
-      if (isThreat(p.r, c.r, c.def)) {
+      if (isThreat(R, c.r, c.def)) {
         if (c.stunned > 0 || p.invuln > 0) continue;
-        if (threatContact(dist, p.r, c.r)) {
-          if (this.stingReady()) {
+        if (threatContact(dist, R, c.r)) {
+          if (p.powers.shield > 0) {
+            p.powers.shield = 0;
+            p.invuln = 1.2;
+            this.stun(c, 1.4, false);
+            this.events.push({ type: 'shield', x: p.x, y: p.y, def: c.def });
+          } else if (this.stingReady()) {
             p.stingCd = st.stingCooldown;
             p.invuln = 1.2;
             this.stun(c, st.stingStun);
@@ -797,7 +894,7 @@ export class World {
 
       // Neither can eat the other: soft bump.
       if (c.def.role !== 'ambient') {
-        const min = (p.r + c.r) * 0.8;
+        const min = (R + c.r) * 0.8;
         if (dist < min && dist > 0.01) {
           const push = (min - dist) / dist;
           p.x -= dx * push * 0.5;
@@ -815,12 +912,13 @@ export class World {
     const sizeK = (c.r / c.def.radius) ** 2;
     p.mass = Math.min(MAX_MASS, p.mass + growthGain(c.def.growth * sizeK, p.mass));
     p.r = radiusForMass(p.mass);
-    this.run.score += c.def.score;
+    this.run.score += c.def.score * (p.powers.frenzy > 0 ? 2 : 1);
     this.run.eaten += 1;
     this.run.eatenBySpecies[c.def.id] = (this.run.eatenBySpecies[c.def.id] ?? 0) + 1;
     if (c.def.role === 'predator') this.run.predatorsEaten += 1;
     this.markSeen(c.def);
     this.events.push({ type: 'eat', x: c.x, y: c.y, def: c.def, r: c.r });
+    if (c.def.power) this.grantPower(c.def.power);
 
     const stage = stageForMass(p.mass);
     while (p.stage < stage) {
@@ -898,7 +996,7 @@ export class World {
       let hunters = 0;
       for (const c of this.creatures) {
         if (c.def.role === 'prey') prey++;
-        else if (c.def.role === 'predator' && !c.def.rare) hunters++;
+        else if (c.def.role === 'predator' && !c.def.rare) hunters += c.def.group ? 2 / (c.def.group[0] + c.def.group[1]) : 1;
       }
       const ramp = this.demo ? 0 : clamp((this.time - 14) / 30, 0, 1);
       const hunterTarget = Math.round(zone.predators * ramp + (zone.id === 'shallows' && this.time > 70 ? 1 : 0)) + (this.demo ? 0 : extraHunters(this.time));
@@ -947,7 +1045,8 @@ export class World {
     const pool = SPECIES.filter((s) => s.role === role && s.weight > 0 && s.zones.includes(zoneId) && (!this.demo || s.radius <= 9));
     for (const s of pool) {
       let w = s.weight;
-      if (role === 'prey') {
+      // Power-up fish keep turning up whatever your size.
+      if (role === 'prey' && !s.power) {
         const rel = s.radius / p.r;
         if (rel < 0.3) w *= 0.35;
         else if (rel > 2.2) w *= 0.3;
@@ -966,12 +1065,20 @@ export class World {
         break;
       }
     }
+    if (def.spawnNearCoral) {
+      const spot = this.coralSpot(def.radius, this.viewRadius + 20, this.viewRadius + 320, false);
+      if (!spot) return;
+      const c = this.spawn(def, spot.x, spot.y);
+      c.offY = spot.a;
+      c.heading = spot.a;
+      return;
+    }
     const [lo, hi] = def.group ?? [1, 1];
     const n = lo + Math.floor(this.rand() * (hi - lo + 1));
     let leader: Creature | null = null;
     for (let i = 0; i < n; i++) {
       const c = this.spawn(def, pt.x + (this.rand() - 0.5) * 70, pt.y + (this.rand() - 0.5) * 70);
-      if (def.behavior === 'school') {
+      if (def.behavior === 'school' || def.behavior === 'pack') {
         if (!leader) leader = c;
         else {
           c.leader = leader;
@@ -1053,26 +1160,35 @@ export class World {
     }
   }
 
+  /** A free spot on the open face of a coral circle, between minD and maxD from the jelly. */
+  private coralSpot(radius: number, minD: number, maxD: number, gap: boolean): { x: number; y: number; a: number } | null {
+    const p = this.player;
+    const options: Coral[] = [];
+    for (const cl of this.corals) {
+      for (const c of cl.circles) {
+        const d = Math.hypot(c.x - p.x, c.y - p.y);
+        if (d > minD && d < maxD && c.x > 60 && c.x < this.width - 60 && c.y < this.height - 60) options.push(c);
+      }
+    }
+    for (let tries = 0; tries < 4 && options.length; tries++) {
+      const coral = options[Math.floor(this.rand() * options.length)];
+      const a = Math.atan2(p.y - coral.y, p.x - coral.x) + (this.rand() - 0.5) * 1.4;
+      const off = coral.r + (gap ? radius + 6 : radius * 0.9);
+      const x = coral.x + Math.cos(a) * off;
+      const y = coral.y + Math.sin(a) * off;
+      if (this.insideCoral(x, y, radius * 0.5)) continue;
+      return { x, y, a };
+    }
+    return null;
+  }
+
   private spawnRare(def: SpeciesDef): boolean {
     const p = this.player;
     const rule = def.rare!;
     if (rule.nearCoral) {
-      const min = this.viewRadius * 0.55;
-      const max = this.viewRadius + 380;
-      const options: Coral[] = [];
-      for (const cl of this.corals) {
-        for (const c of cl.circles) {
-          const d = Math.hypot(c.x - p.x, c.y - p.y);
-          if (d > min && d < max && c.x > 60 && c.x < this.width - 60) options.push(c);
-        }
-      }
-      if (!options.length) return false;
-      const coral = options[Math.floor(this.rand() * options.length)];
-      const a = Math.atan2(p.y - coral.y, p.x - coral.x) + (this.rand() - 0.5) * 1.4;
-      const x = coral.x + Math.cos(a) * (coral.r + def.radius + 6);
-      const y = coral.y + Math.sin(a) * (coral.r + def.radius + 6);
-      if (this.insideCoral(x, y, def.radius * 0.5)) return false;
-      this.spawn(def, x, y);
+      const spot = this.coralSpot(def.radius, this.viewRadius * 0.55, this.viewRadius + 380, true);
+      if (!spot) return false;
+      this.spawn(def, spot.x, spot.y);
       return true;
     }
     if (rule.playerInCurrent) {

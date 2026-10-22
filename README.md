@@ -18,8 +18,15 @@ You're a thimble-sized moon jelly in Lantern Reef. Eat anything clearly smaller 
   - **Surge:** faster, stronger bursts, riding currents, then two charges and a wider maw while bursting.
   - **Sting:** stuns the first hunter that bites, recharging faster with each tier, then a stinging nova on every burst.
 - **World:** one biome with three depth bands (Sunlit Shallows, Twilight Reef, The Abyss). It has darkness falloff, bioluminescence, coral, five currents, parallax kelp, light rays and marine snow.
-- **Field Guide:** 16 species across four rarity tiers. Rare encounters depend on conditions: coral in the shallows, the time of night, Glow tier 2, and riding an abyssal current.
-- **Lineage:** 11 challenges that unlock 6 bell colors and 3 starting traits.
+- **Hunters:** six hunting styles. The Needlefin lunges in a straight line, the Gulper Eel stalks, the Lure Angler waits behind its light, the Coral Moray strikes from the reef, Razorfin packs swarm, and the Lanternshark circles before dashing. Every attack is telegraphed.
+- **Power-ups:** the Titan Krill and Spark Minnow sparkle with a dashed ring, and the rare fish grant power-ups too:
+  - **Titan:** swell bigger, eat larger prey, and hunters flee.
+  - **Overcharge:** near-instant burst recharge.
+  - **Shell Shield** (Golden Nautilus): blocks one bite.
+  - **Prism Frenzy** (Prism Seahorse): double points and food drifts to you.
+  - **Aurora Veil** (Aurora Jelly): hunters can't see you.
+- **Field Guide:** 21 species across four rarity tiers. Rare encounters depend on conditions: coral in the shallows, the time of night, Glow tier 2, and riding an abyssal current.
+- **Lineage:** 12 challenges that unlock 6 bell colors and 3 starting traits.
 - **Audio:** synthesized WebAudio ambience and effects, with no audio files. Volume, mute and reduced-motion settings are included.
 
 ## Development

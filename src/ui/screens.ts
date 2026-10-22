@@ -8,6 +8,7 @@ import type { PathId, SpeciesDef } from '../content/types';
 import type { SaveData } from '../persistence/save';
 import { countDiscovered, metricValue, nextChallenge, type RunOutcome, type RunStats } from '../core/progress';
 import { ICONS } from './icons';
+import { POWERS, POWER_ORDER, type PowerTimers } from '../content/powerups';
 import { renderPortrait, renderSkin } from './portrait';
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
@@ -66,6 +67,7 @@ export function buildUI(root: HTMLElement, touch: boolean): void {
     </div>
     <div class="toasts" data-bind="toasts" aria-live="polite"></div>
     <div class="hint" data-bind="hint"></div>
+    <div class="powers" data-bind="powers"></div>
     <div class="sting-chip" data-bind="sting">${ICONS.sting.replace('aria-hidden', 'width="14" height="14" aria-hidden')}<span data-bind="stingText">Sting ready</span></div>
     <div class="burst-label">${touch ? 'Burst' : 'Space'}</div>
     <button class="burst-btn" data-bind="burst" aria-label="Burst">${ICONS.burst}<span class="charges" data-bind="charges"></span></button>
@@ -170,6 +172,17 @@ export function renderCharges(el: HTMLElement, charges: number, max: number): vo
 }
 
 export { mmss, fmt };
+
+/** Active power-up chips with a draining ring. */
+export function renderPowers(el: HTMLElement, powers: PowerTimers): void {
+  el.innerHTML = POWER_ORDER.filter((id) => powers[id] > 0)
+    .map((id) => {
+      const p = POWERS[id];
+      const left = powers[id] / p.duration;
+      return `<span class="power-chip" style="--c:${p.color};--p:${left.toFixed(3)}"><i></i>${esc(p.name)} <b>${Math.ceil(powers[id])}</b></span>`;
+    })
+    .join('');
+}
 
 // ------------------------------------------------------------------ evolve
 
@@ -308,6 +321,7 @@ export function renderDetail(ui: Binds, save: SaveData, id: string): void {
       ${known ? `<span class="chip">Habitat · ${esc(habitat(def))}</span>` : ''}
       ${known && def.role !== 'player' ? `<span class="chip">Seen in ${rec.seen} ${rec.seen === 1 ? 'dive' : 'dives'}</span>` : ''}
       ${known && rec.eaten ? `<span class="chip">Eaten ${rec.eaten}</span>` : ''}
+      ${def.power ? `<span class="chip"><span class="dot" style="--c:${POWERS[def.power].color}"></span>${known ? `${esc(POWERS[def.power].name)} · ${esc(POWERS[def.power].desc)}` : 'Grants a power-up'}</span>` : ''}
     </div>`;
   renderPortrait(ui.detailCard.querySelector('canvas')!, def, known, 240);
   ui.detail.classList.add('is-open');

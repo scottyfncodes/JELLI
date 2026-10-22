@@ -12,6 +12,7 @@ export interface RunStats {
   predatorsEaten: number;
   evolutions: number;
   stings: number;
+  powerups: number;
   maxDepth: number;
   time: number;
   caughtBy: string | null;
@@ -28,6 +29,7 @@ export function emptyRunStats(): RunStats {
     predatorsEaten: 0,
     evolutions: 0,
     stings: 0,
+    powerups: 0,
     maxDepth: 0,
     time: 0,
     caughtBy: null,
@@ -67,6 +69,8 @@ export function metricValue(metric: ChallengeMetric, run: RunStats | null, save:
       return run.stings;
     case 'run.score':
       return run.score;
+    case 'run.powerups':
+      return run.powerups;
   }
   return 0;
 }

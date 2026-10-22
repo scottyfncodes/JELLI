@@ -19,6 +19,9 @@ const FIT: Partial<Record<SpeciesDef['shape'], number>> = {
   siphonophore: 0.34,
   seahorse: 0.28,
   jelly: 0.25,
+  moray: 0.17,
+  razorfin: 0.3,
+  shark: 0.22,
 };
 
 function prep(canvas: HTMLCanvasElement, cssSize: number): CanvasRenderingContext2D {
@@ -54,7 +57,7 @@ export function renderPortrait(canvas: HTMLCanvasElement, def: SpeciesDef, known
     ctx.translate(0, -r * 0.4);
     drawJelly(ctx, r, t, 0.3, known ? jellyStyleForSpecies(def) : { bell: SILHOUETTE, rim: SILHOUETTE, organ: SILHOUETTE, tentacle: SILHOUETTE, glow: SILHOUETTE }, null, !known);
   } else {
-    const shift = def.shape === 'eel' ? r * 1.25 : def.shape === 'needlefin' ? 0 : def.shape === 'shrimp' ? -r * 0.4 : 0;
+    const shift = def.shape === 'eel' ? r * 1.25 : def.shape === 'moray' ? r * 0.9 : def.shape === 'shark' ? r * 0.15 : def.shape === 'needlefin' ? 0 : def.shape === 'shrimp' ? -r * 0.4 : 0;
     ctx.translate(shift, 0);
     drawCreatureShape(ctx, def, lookFor(def, known ? undefined : SILHOUETTE), { r, t, alert: 0, puffed: 0 });
   }

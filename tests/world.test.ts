@@ -91,6 +91,119 @@ describe('world simulation', () => {
     expect(p.charges).toBe(1);
   });
 
+  it('Titan lets the jelly eat bigger prey and turns hunters into food', () => {
+    const w = makeWorld();
+    const p = w.player;
+    p.invuln = 0;
+    w.creatures.length = 0;
+    const minnow = w.spawn(SPECIES_BY_ID['ribbon-minnow'], p.x + 8, p.y);
+    w.update(1 / 60, idle);
+    expect(minnow.dead).toBe(false);
+    w.grantPower('titan');
+    // A razorfin pack hunter is no longer a threat at Titan size.
+    w.creatures.length = 0;
+    w.spawn(SPECIES_BY_ID['razorfin'], p.x + 30, p.y);
+    p.mass = 20;
+    p.r = 10 * Math.sqrt(2);
+    const fish = w.spawn(SPECIES_BY_ID['ribbon-minnow'], p.x + 4, p.y);
+    w.update(1 / 60, idle);
+    expect(fish.dead).toBe(true);
+    expect(p.alive).toBe(true);
+  });
+
+  it('eating a power fish grants its power for a while', () => {
+    const w = makeWorld();
+    const p = w.player;
+    w.creatures.length = 0;
+    w.spawn(SPECIES_BY_ID['spark-minnow'], p.x + 3, p.y);
+    w.update(1 / 60, idle);
+    expect(p.powers.overcharge).toBeGreaterThan(7);
+    expect(w.run.powerups).toBe(1);
+    expect(w.events.some((e) => e.type === 'power' && e.id === 'overcharge')).toBe(true);
+    for (let i = 0; i < 60 * 9; i++) w.update(1 / 60, idle);
+    expect(p.powers.overcharge).toBe(0);
+  });
+
+  it('Overcharge refills bursts much faster', () => {
+    const w = makeWorld();
+    const p = w.player;
+    w.creatures.length = 0;
+    w.grantPower('overcharge');
+    w.update(1 / 60, { ax: 1, ay: 0, burst: true });
+    expect(p.charges).toBe(0);
+    for (let i = 0; i < 45; i++) w.update(1 / 60, idle);
+    expect(p.charges).toBe(1);
+  });
+
+  it('Shell Shield blocks one bite, then is gone', () => {
+    const w = makeWorld();
+    const p = w.player;
+    p.invuln = 0;
+    w.creatures.length = 0;
+    w.grantPower('shield');
+    const h = w.spawn(SPECIES_BY_ID['needlefin'], p.x + 5, p.y);
+    w.update(1 / 60, idle);
+    expect(p.alive).toBe(true);
+    expect(p.powers.shield).toBe(0);
+    expect(h.stunned).toBeGreaterThan(0);
+    expect(w.run.stings).toBe(0);
+  });
+
+  it('Aurora Veil stops hunters noticing the jelly', () => {
+    const w = makeWorld();
+    const p = w.player;
+    p.invuln = 0;
+    w.creatures.length = 0;
+    w.grantPower('veil');
+    const h = w.spawn(SPECIES_BY_ID['needlefin'], p.x + 120, p.y);
+    for (let i = 0; i < 30; i++) w.update(1 / 60, idle);
+    expect(h.state).not.toBe('notice');
+    expect(h.state).not.toBe('chase');
+    p.powers.veil = 0;
+    h.x = p.x + 120;
+    h.y = p.y;
+    for (let i = 0; i < 10; i++) w.update(1 / 60, idle);
+    expect(['notice', 'chase']).toContain(h.state);
+  });
+
+  it('Lanternsharks circle before they telegraph and dash', () => {
+    const w = makeWorld();
+    const p = w.player;
+    p.invuln = 0;
+    p.y = 2600;
+    w.creatures.length = 0;
+    const s = w.spawn(SPECIES_BY_ID['lanternshark'], p.x + 160, p.y);
+    w.update(1 / 60, idle);
+    expect(s.state).toBe('orbit');
+    let sawNotice = false;
+    for (let i = 0; i < 60 * 4 && p.alive; i++) {
+      w.update(1 / 60, idle);
+      if (s.state === 'notice') sawNotice = true;
+    }
+    expect(sawNotice).toBe(true);
+  });
+
+  it('Morays strike from their coral and return home', () => {
+    const w = makeWorld();
+    const p = w.player;
+    p.invuln = 0;
+    w.creatures.length = 0;
+    const m = w.spawn(SPECIES_BY_ID['coral-moray'], p.x + 200, p.y);
+    m.homeX = m.x;
+    m.homeY = m.y;
+    for (let i = 0; i < 60; i++) w.update(1 / 60, idle);
+    // Out of range: it waits at home.
+    expect(Math.hypot(m.x - m.homeX, m.y - m.homeY)).toBeLessThan(20);
+    p.x = m.x - 90;
+    p.y = m.y;
+    let struck = false;
+    for (let i = 0; i < 60 && p.alive; i++) {
+      w.update(1 / 60, idle);
+      if (m.state === 'chase') struck = true;
+    }
+    expect(struck).toBe(true);
+  });
+
   it('runs never time out; only being caught ends them', () => {
     const w = makeWorld();
     w.player.invuln = 1e9;
