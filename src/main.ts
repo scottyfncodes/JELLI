@@ -213,7 +213,7 @@ class Game {
     document.body.classList.toggle('wide', wide);
     r.focusOffset = wide ? 0 : r.h * 0.2;
     r.focusOffsetX = wide ? r.w * 0.22 : 0;
-    r.zoomBoost = wide ? 2 : 2.2;
+    r.zoomBoost = wide ? 1.45 : 1.6;
   }
 
   private openOverlay(o: Exclude<Overlay, null>): void {

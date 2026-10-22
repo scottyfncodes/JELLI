@@ -168,7 +168,7 @@ export class Renderer {
 
   /** World units visible across the screen's short side; grows with the jelly. */
   targetZoom(r: number): number {
-    const visible = 300 * Math.pow(r / BASE_RADIUS, 0.62);
+    const visible = 215 * Math.pow(r / BASE_RADIUS, 0.66);
     return (Math.min(this.w, this.h) / visible) * this.zoomBoost;
   }
 
