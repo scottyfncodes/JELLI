@@ -420,6 +420,7 @@ class Game {
       this.state = 'play';
       this.input.enabled = true;
       this.last = performance.now();
+      this.updateHint();
     }
   }
 
@@ -440,7 +441,7 @@ class Game {
         this.world.update(dt / steps, this.simInput);
         this.simInput.burst = false;
       }
-      this.handleEvents();
+      this.handleEvents(dt);
       this.updateHUD();
       this.updateTutorial(dt);
       this.emitTrail();
@@ -495,6 +496,8 @@ class Game {
     this.input.reset();
     renderEvolve(this.ui, this.world.player.tiers, this.world.player.stage);
     this.ui.toasts.innerHTML = '';
+    // The tutorial pill would show through the cards.
+    this.ui.hint.classList.remove('show');
     this.show('evolve', true);
   }
 
@@ -525,11 +528,11 @@ class Game {
     }
   }
 
-  private handleEvents(): void {
+  private handleEvents(dt: number): void {
     const w = this.world;
     const ps = this.renderer.particles;
     const p = w.player;
-    this.noticeCooldown -= 1 / 60;
+    this.noticeCooldown -= dt;
     for (const e of w.events) this.onEvent(e, ps, p);
     w.events.length = 0;
   }
@@ -686,7 +689,11 @@ class Game {
   private pushToast(el: HTMLElement, ms: number): void {
     const box = this.ui.toasts;
     box.appendChild(el);
-    while (box.children.length > 2) box.firstElementChild?.remove();
+    // Keep the zone banner: when the stack is full, drop the oldest other toast first.
+    while (box.children.length > 2) {
+      const old = [...box.children].find((c) => c !== el && !c.classList.contains('zone')) ?? box.firstElementChild;
+      old?.remove();
+    }
     setTimeout(() => {
       el.classList.add('out');
       setTimeout(() => el.remove(), 320);

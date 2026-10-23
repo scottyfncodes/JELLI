@@ -579,12 +579,12 @@ export class Renderer {
         ctx.arc(x, y, c.r * z * 1.9, this.time * 2, this.time * 2 + TAU);
         ctx.stroke();
         ctx.setLineDash([]);
-      } else if (edible && !c.held && c.r > reachR * 0.4) {
-        // Readability: edible creatures wear a soft cyan halo.
-        ctx.strokeStyle = 'rgba(140,250,255,0.28)';
+      } else if (edible && !c.held) {
+        // Readability: edible creatures wear a soft cyan halo, never too small to spot; tiny snacks get a fainter one.
+        ctx.strokeStyle = c.r > reachR * 0.4 ? 'rgba(140,250,255,0.28)' : 'rgba(140,250,255,0.2)';
         ctx.lineWidth = Math.max(1, 1.5 * z);
         ctx.beginPath();
-        ctx.arc(x, y, c.r * z * 1.35, 0, TAU);
+        ctx.arc(x, y, Math.max(c.r * z * 1.35, 9), 0, TAU);
         ctx.stroke();
       } else if (threat) {
         drawGlow(ctx, '#ff4d6d', x, y, c.r * z * 2.2, 0.12 + alert * 0.12);

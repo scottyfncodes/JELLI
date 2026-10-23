@@ -637,7 +637,10 @@ h2 {
   box-shadow: 0 0 0 1px var(--line-strong) inset;
   font-size: 15px;
   font-weight: 500;
-  white-space: nowrap;
+  width: max-content;
+  max-width: calc(100% - var(--sal) - var(--sar) - 2 * var(--gutter));
+  text-align: center;
+  text-wrap: balance;
   opacity: 0;
   transition: opacity var(--t-med) var(--ease);
 }
