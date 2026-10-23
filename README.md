@@ -60,3 +60,7 @@ Add `?debug` to the URL to expose `window.jelli` for automated playtesting.
 | Orchestration | `src/main.ts` | State machine, loop, input, audio, lifecycle (pause on blur/hide), and resize. |
 
 Stack: Vite + TypeScript + Canvas 2D. There's no game engine, because a hand-rolled loop keeps the bundle around 35 KB gzipped. Fonts (Fraunces, Outfit) are self-hosted via Fontsource. Deployed as a static site on Vercel.
+
+## Analytics
+
+`index.html` loads the HaveAnApp Pulse snippet, which counts page views and two events from `src/core/analytics.ts`: `game_start` and `game_complete` (with the stage reached). It uses no cookies, stores nothing on the device, and sends no personal data. Visits from `localhost` are ignored. To leave your own device out of the counts, open the game once with `?pulse=ignore` on the address.

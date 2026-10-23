@@ -3,6 +3,7 @@ import '@fontsource-variable/outfit';
 import './styles.css';
 
 import { World, type SimEvent, type SimInput } from './sim/world';
+import { track } from './core/analytics';
 import { Renderer } from './render/renderer';
 import { Input } from './core/input';
 import { AudioEngine } from './audio/audio';
@@ -350,6 +351,7 @@ class Game {
       this.persist();
     }
     this.state = 'play';
+    track('game_start');
     this.input.reset();
     this.input.enabled = true;
     for (const s of ['title', 'pause', 'evolve', 'results']) this.show(s, false);
@@ -400,6 +402,7 @@ class Game {
     this.input.enabled = false;
     this.input.reset();
     const run = this.world.run;
+    track('game_complete', { result: 'lose', stage: run.stage });
     // Discoveries were recorded the moment they happened; only eaten counts remain.
     const outcome = applyRun(this.save, { ...run, seen: [] });
     outcome.newDiscoveries = this.runNew;
