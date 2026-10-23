@@ -7,6 +7,7 @@ import {
   START_MASS,
   STAGES,
   detectionScale,
+  escalation,
   evolutionsEarned,
   extraHunters,
   hunterScale,
@@ -23,6 +24,7 @@ import {
   COMBO_WINDOW,
   PEARL_SCORE,
   REACH_ARC,
+  THREAT_RATIO,
   busyArms,
   canEat,
   comboMult,
@@ -1644,7 +1646,12 @@ export class World {
 
   spawn(def: SpeciesDef, x: number, y: number): Creature {
     const grow = def.role === 'predator' && !this.demo ? hunterScale(this.time) : 1;
-    const r = def.radius * (1 + (this.rand() * 2 - 1) * def.radiusVar) * grow;
+    let r = def.radius * (1 + (this.rand() * 2 - 1) * def.radiusVar) * grow;
+    // Later in a run, the odd lone hunter grows to match the jelly, so no zone is ever fully safe.
+    const esc = def.role === 'predator' && !def.group && !this.demo ? escalation(this.time) : 0;
+    if (esc > 0 && this.rand() < 0.3 * esc) {
+      r = Math.max(r, this.player.r * THREAT_RATIO * (1.05 + this.rand() * 0.2));
+    }
     const heading = this.rand() * TAU;
     const c: Creature = {
       id: this.nextId++,

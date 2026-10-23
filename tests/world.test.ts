@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { World, type Creature } from '../src/sim/world';
 import { SPECIES_BY_ID } from '../src/content/species';
-import { EVOLUTION_FOOD, hunterScale } from '../src/content/progression';
+import { EVOLUTION_FOOD, MAX_MASS, hunterScale, radiusForMass } from '../src/content/progression';
+import { isThreat } from '../src/sim/rules';
 import { mulberry32 } from '../src/core/math';
 
 const idle = { ax: 0, ay: 0, burst: false };
@@ -254,6 +255,35 @@ describe('world simulation', () => {
     expect(hunterScale(0)).toBe(1);
     // An apex-size jelly is still prey for a late-run gulper.
     expect(late * SPECIES_BY_ID['gulper-eel'].radius).toBeGreaterThan(60);
+  });
+
+  it('a full-grown jelly is still hunted in every zone late in a run', () => {
+    const w = makeWorld();
+    w.player.mass = MAX_MASS;
+    w.player.r = radiusForMass(MAX_MASS);
+    w.time = 20 * 60;
+    // Packs stay their natural size; lone hunters are the ones that grow to match.
+    for (const id of ['needlefin', 'coral-moray', 'gulper-eel', 'lanternshark']) {
+      let threats = 0;
+      let prey = 0;
+      for (let i = 0; i < 200; i++) {
+        const c = w.spawn(SPECIES_BY_ID[id], 0, 0);
+        if (isThreat(w.playerReach(), c.r, c.def)) threats++;
+        else prey++;
+      }
+      // Some hunters stay dangerous, and some can still be turned on.
+      expect(threats, id).toBeGreaterThan(25);
+      if (id !== 'gulper-eel') expect(prey, id).toBeGreaterThan(100);
+    }
+  });
+
+  it('early hunters keep their natural size', () => {
+    const w = makeWorld();
+    w.time = 60;
+    for (let i = 0; i < 50; i++) {
+      const c = w.spawn(SPECIES_BY_ID['needlefin'], 0, 0);
+      expect(c.r).toBeLessThanOrEqual(SPECIES_BY_ID['needlefin'].radius * 1.09);
+    }
   });
 
   it('rare species respect their conditions', () => {
