@@ -404,6 +404,12 @@ h2 {
   transition: transform 220ms var(--ease);
 }
 
+/* An evolution is earned and waits for a safe moment: the bar holds full and bright. */
+.growth-bar.ready .growth-fill {
+  transform: scaleX(1) !important;
+  background: linear-gradient(90deg, var(--cyan), #ffffff);
+}
+
 .growth-bar.apex .growth-fill {
   background: linear-gradient(90deg, var(--gold), #fff1c9);
 }

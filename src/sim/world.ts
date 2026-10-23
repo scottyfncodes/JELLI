@@ -139,6 +139,8 @@ export interface Tentacle {
   t: number;
   cooldown: number;
   seed: number;
+  /** Reach the arm was launched with, so a strike flung during a burst isn't cut short when it ends. */
+  range: number;
 }
 
 export interface Player {
@@ -565,6 +567,18 @@ export class World {
   visibleRadius(): number {
     const dark = darknessAt(this.player.y);
     return lerp(this.viewRadius, Math.min(this.viewRadius, this.player.stats.lightRadius), clamp(dark / 0.8, 0, 1));
+  }
+
+  /** A hunter that can catch the jelly is sizing it up or closing in. */
+  inDanger(): boolean {
+    const p = this.player;
+    const R = this.playerReach();
+    for (const c of this.creatures) {
+      if (c.dead || c.stunned > 0 || !isThreat(R, c.r, c.def)) continue;
+      if (c.state !== 'notice' && c.state !== 'chase' && c.state !== 'orbit') continue;
+      if (Math.hypot(c.x - p.x, c.y - p.y) < this.viewRadius) return true;
+    }
+    return false;
   }
 
   stingReady(): boolean {
@@ -1126,7 +1140,7 @@ export class World {
     const want = tentacleCount(this.player.stage);
     while (this.tentacles.length < want) {
       const p = this.player;
-      this.tentacles.push({ slot: 0.5, phase: 'idle', target: null, x: p.x, y: p.y, t: 0, cooldown: 0, seed: this.tentacles.length * 2.39 });
+      this.tentacles.push({ slot: 0.5, phase: 'idle', target: null, x: p.x, y: p.y, t: 0, cooldown: 0, seed: this.tentacles.length * 2.39, range: 0 });
     }
     const n = this.tentacles.length;
     this.tentacles.forEach((t, i) => (t.slot = (i + 0.5) / n));
@@ -1238,7 +1252,7 @@ export class World {
             break;
           }
           const away = Math.hypot(c.x - p.x, c.y - p.y) - c.r * 0.5;
-          if (away > reach * 1.2 || t.t > REACH_TIME || this.blocked(p.x, p.y, c.x, c.y)) {
+          if (away > Math.max(reach, t.range) * 1.2 || t.t > REACH_TIME || this.blocked(p.x, p.y, c.x, c.y)) {
             // Out of range, too slow, or it ducked behind coral: it got away.
             this.letGo(t, true);
             t.cooldown = 0.8;
@@ -1361,6 +1375,7 @@ export class World {
       t.target = best;
       t.phase = 'reach';
       t.t = 0;
+      t.range = reach;
     }
   }
 

@@ -3,6 +3,7 @@ import { World, type Creature, type TentaclePhase } from '../src/sim/world';
 import { SPECIES_BY_ID } from '../src/content/species';
 import { WORLD, ZONES } from '../src/content/world';
 import { tentacleReach } from '../src/sim/rules';
+import { radiusForMass } from '../src/content/progression';
 import { mulberry32 } from '../src/core/math';
 
 const idle = { ax: 0, ay: 0, burst: false };
@@ -124,6 +125,20 @@ describe('tentacle hunting', () => {
     const after = w.tentacleReach();
     expect(after).toBeGreaterThan(before);
     expect(after - before).toBeLessThan(3);
+  });
+
+  it("Comet's burst-flung reach still lands after the burst ends", () => {
+    const w = makeWorld({ tiers: { surge: 3 } });
+    const p = w.player;
+    // A grown jelly: its arms have further to travel, so the burst can end mid-reach.
+    p.mass = 165;
+    p.r = radiusForMass(p.mass);
+    const base = tentacleReach(p.r, 0);
+    // Beyond normal reach, inside Comet's flung reach, with the burst nearly spent.
+    const krill = still(w, 'glimmer-krill', p.x, p.y - base * 1.3 - 2);
+    p.burstT = 0.12;
+    for (let i = 0; i < 150 && !krill.dead; i++) w.update(1 / 60, idle);
+    expect(krill.dead).toBe(true);
   });
 
   it('never lets two tentacles claim the same fish', () => {
