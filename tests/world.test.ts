@@ -277,6 +277,22 @@ describe('world simulation', () => {
     }
   });
 
+  it('Glow lures small prey toward the jelly instead of scaring it off', () => {
+    const run = (tiers: { glow?: number }) => {
+      const w = makeWorld({ tiers });
+      w.creatures.length = 0;
+      const p = w.player;
+      // Just outside tentacle reach, ahead of the bell.
+      const krill = w.spawn(SPECIES_BY_ID['glimmer-krill'], p.x, p.y - 70);
+      krill.slip = 99;
+      const start = Math.hypot(krill.x - p.x, krill.y - p.y);
+      for (let i = 0; i < 60; i++) w.update(1 / 60, idle);
+      return Math.hypot(krill.x - p.x, krill.y - p.y) - start;
+    };
+    expect(run({})).toBeGreaterThan(0);
+    expect(run({ glow: 1 })).toBeLessThan(0);
+  });
+
   it('early hunters keep their natural size', () => {
     const w = makeWorld();
     w.time = 60;

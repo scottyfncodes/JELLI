@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { World, WRECK_HULL, type Creature } from '../src/sim/world';
 import { SPECIES_BY_ID } from '../src/content/species';
 import { ZONES } from '../src/content/world';
-import { CHEST_SCORE, COMBO_WINDOW, PEARL_SCORE, comboMult } from '../src/sim/rules';
+import { CHEST_SCORE, COMBO_WINDOW, PEARL_SCORE, comboMult, pearlScore } from '../src/sim/rules';
 import { applyRun, emptyRunStats } from '../src/core/progress';
 import { defaultSave, sanitizeSave } from '../src/persistence/save';
 import { mulberry32 } from '../src/core/math';
@@ -74,6 +74,35 @@ describe('pearls', () => {
     // Collected once only.
     w.update(1 / 60, idle);
     expect(w.run.pearls).toBe(1);
+  });
+
+  it('are worth more the deeper they lie', () => {
+    expect(pearlScore('twilight')).toBeGreaterThan(pearlScore('shallows'));
+    expect(pearlScore('abyss')).toBeGreaterThan(pearlScore('twilight'));
+    const w = makeWorld();
+    const p = w.player;
+    const deep = w.pearls.find((pr) => pr.y > ZONES[2].top + 200)!;
+    p.x = deep.x;
+    p.y = deep.y;
+    const score = w.run.score;
+    w.update(1 / 60, idle);
+    expect(deep.taken).toBe(true);
+    expect(w.run.score - score).toBeGreaterThanOrEqual(pearlScore('abyss'));
+  });
+
+  it('gather in bigger hoards in deeper water', () => {
+    // Per unit of depth, the abyss holds at least as many pearls as the shallows.
+    let shallow = 0;
+    let deep = 0;
+    for (let seed = 1; seed <= 5; seed++) {
+      const w = new World({ seed, rng: mulberry32(seed) });
+      for (const pr of w.pearls) {
+        if (pr.y < ZONES[0].bottom) shallow++;
+        else if (pr.y >= ZONES[2].top) deep++;
+      }
+    }
+    const perDepth = (n: number, z: (typeof ZONES)[number]) => n / (z.bottom - z.top);
+    expect(perDepth(deep, ZONES[2])).toBeGreaterThan(perDepth(shallow, ZONES[0]) * 0.9);
   });
 });
 

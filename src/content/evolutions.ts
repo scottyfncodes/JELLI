@@ -29,7 +29,7 @@ export const PATHS: Record<PathId, PathDef> = {
     tiers: [
       {
         title: 'Lumen Bloom',
-        desc: 'Light the dark around you, draw in nearby plankton, and rare species appear more often.',
+        desc: 'Small prey drift toward your glow instead of fleeing. Your light reaches further in the dark, and rare species appear more often.',
         add: { lightRadius: 120, magnet: 70 },
         mul: { rareChance: 1.7 },
       },

@@ -632,7 +632,8 @@ class Game {
         this.toast('<b>Shield blocked a bite!</b>', POWERS.shield.color, `${e.def.name} stunned`);
         break;
       case 'pearl':
-        ps.burst(e.x, e.y, 8, 70, 1.8, '#fff0fa', 0.5);
+        // Deep pearls are worth more, and sparkle like it.
+        ps.burst(e.x, e.y, 6 + e.value / 10, 50 + e.value / 2, 1.8, '#fff0fa', 0.5);
         this.audio.pearl();
         break;
       case 'wreck':

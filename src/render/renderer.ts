@@ -795,11 +795,12 @@ export class Renderer {
         const tm = Math.hypot(tx, ty) || 1;
         tx /= tm;
         ty /= tm;
-        const w = (base * (1 - i / N) + r * 0.03) * 0.5;
+        // Never thinner than a couple of screen pixels, so a young jelly's arms still read on a phone.
+        const w = Math.max((base * (1 - i / N) + r * 0.03) * 0.5, ((active ? 2.2 : 1.4) * (1 - i / N) + 0.5) / z);
         pts[L + i * 2] = -ty * w;
         pts[L + i * 2 + 1] = tx * w;
       }
-      ctx.fillStyle = rgba(color, (active ? 0.72 : 0.5) * alpha);
+      ctx.fillStyle = rgba(color, (active ? 0.82 : 0.5) * alpha);
       ctx.beginPath();
       for (let i = 0; i <= N; i++) {
         const X = this.sx(pts[i * 2] + pts[L + i * 2]);
@@ -823,7 +824,7 @@ export class Renderer {
         const cr = prey.r * (1 - 0.85 * prey.consume) * z * 1.15;
         const spin = time * 6 + tt.seed;
         ctx.strokeStyle = rgba(color, 0.85 * alpha);
-        ctx.lineWidth = Math.max(1, r * z * 0.07);
+        ctx.lineWidth = Math.max(1.8, r * z * 0.07);
         ctx.lineCap = 'round';
         ctx.beginPath();
         ctx.arc(tipX, tipY, cr, spin, spin + Math.PI * 1.3);

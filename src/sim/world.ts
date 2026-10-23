@@ -22,7 +22,6 @@ import { emptyRunStats, type RunStats } from '../core/progress';
 import {
   CHEST_SCORE,
   COMBO_WINDOW,
-  PEARL_SCORE,
   REACH_ARC,
   THREAT_RATIO,
   busyArms,
@@ -30,6 +29,8 @@ import {
   comboMult,
   escapeRate,
   isThreat,
+  lureRadius,
+  pearlScore,
   tentacleCount,
   tentaclePullSpeed,
   tentacleReach,
@@ -188,7 +189,7 @@ export type SimEvent =
   | { type: 'shield'; x: number; y: number; def: SpeciesDef }
   | { type: 'grab'; x: number; y: number; def: SpeciesDef }
   | { type: 'escape'; x: number; y: number; def: SpeciesDef }
-  | { type: 'pearl'; x: number; y: number }
+  | { type: 'pearl'; x: number; y: number; value: number }
   | { type: 'chest'; x: number; y: number }
   | { type: 'wreck' };
 
@@ -427,7 +428,9 @@ export class World {
     for (let i = 0; i < 9; i++) add(wr.chestX - 30 - i * 34 + (rng() - 0.5) * 20, wr.chestY - 10 - i * 16 + (rng() - 0.5) * 20);
     for (let i = 0; i < 7; i++) add(wr.x - 200 + i * 66, wr.y - 150 - Math.sin((i / 6) * Math.PI) * 60);
     for (const m of mounds) {
-      const n = 3 + Math.floor(rng() * 3);
+      // Deeper reef hides bigger hoards.
+      const zone = zoneAt(m.y).id;
+      const n = 3 + Math.floor(rng() * 3) + (zone === 'abyss' ? 4 : zone === 'twilight' ? 2 : 0);
       const a0 = rng() * TAU;
       for (let i = 0; i < n; i++) {
         const a = a0 + (i / n) * TAU * 0.6;
@@ -861,6 +864,12 @@ export class World {
         return;
       }
       this.hunt(c, dt, p, dist, nx, ny);
+      return;
+    }
+
+    // Glow: small prey is drawn to the jelly's light instead of fleeing it.
+    if (playerCanEat && c.r < reach * 0.55 && dist < lureRadius(p.stats.magnet, reach)) {
+      this.steer(c, nx, ny, def.speed * 0.7, 1.5, dt);
       return;
     }
 
@@ -1481,10 +1490,11 @@ export class World {
       if (Math.hypot(pr.x - p.x, pr.y - p.y) > reach) continue;
       pr.taken = true;
       this.run.pearls += 1;
-      this.run.score += PEARL_SCORE;
+      const value = pearlScore(zoneAt(pr.y).id);
+      this.run.score += value;
       // A pearl keeps a running chain alive.
       if (this.combo > 0) this.comboT = COMBO_WINDOW;
-      this.events.push({ type: 'pearl', x: pr.x, y: pr.y });
+      this.events.push({ type: 'pearl', x: pr.x, y: pr.y, value });
     }
     const wr = this.wreck;
     if (!wr.found && Math.hypot(wr.x - p.x, wr.y - p.y) < 520) {

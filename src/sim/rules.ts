@@ -1,4 +1,4 @@
-import type { SpeciesDef } from '../content/types';
+import type { SpeciesDef, ZoneId } from '../content/types';
 
 /** A creature is edible when it is clearly smaller than the eater. */
 export const EAT_RATIO = 0.88;
@@ -67,3 +67,13 @@ export function comboMult(n: number): number {
 /** Points for a pearl, and for the pirate chest. */
 export const PEARL_SCORE = 40;
 export const CHEST_SCORE = 1500;
+
+/** Pearls are worth more the deeper they lie, so the dark water pays for its risk. */
+export function pearlScore(zone: ZoneId): number {
+  return zone === 'abyss' ? PEARL_SCORE * 4 : zone === 'twilight' ? PEARL_SCORE * 2 : PEARL_SCORE;
+}
+
+/** How far a Glow jelly's light lures small prey, which drift toward it instead of fleeing. */
+export function lureRadius(magnet: number, playerR: number): number {
+  return magnet > 0 ? magnet * 1.6 + playerR * 2 : 0;
+}
