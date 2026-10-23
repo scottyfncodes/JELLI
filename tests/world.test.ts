@@ -293,6 +293,22 @@ describe('world simulation', () => {
     expect(run({ glow: 1 })).toBeLessThan(0);
   });
 
+  it('reports danger only while a hunter that can catch the jelly is closing in', () => {
+    const w = makeWorld();
+    w.creatures.length = 0;
+    const p = w.player;
+    const fin = w.spawn(SPECIES_BY_ID['needlefin'], p.x + 120, p.y);
+    expect(w.inDanger()).toBe(false);
+    fin.state = 'chase';
+    expect(w.inDanger()).toBe(true);
+    fin.stunned = 1;
+    expect(w.inDanger()).toBe(false);
+    fin.stunned = 0;
+    // An outgrown hunter is no danger, whatever it is doing.
+    p.r = fin.r * 1.3;
+    expect(w.inDanger()).toBe(false);
+  });
+
   it('early hunters keep their natural size', () => {
     const w = makeWorld();
     w.time = 60;

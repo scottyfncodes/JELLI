@@ -38,6 +38,9 @@ import {
 type State = 'title' | 'play' | 'paused' | 'evolve' | 'results';
 type Overlay = 'guide' | 'lineage' | 'settings' | null;
 
+/** Longest an evolution choice waits for danger to pass, in seconds. */
+const EVOLVE_MAX_WAIT = 6;
+
 const TOUCH = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 
 class Game {
@@ -57,6 +60,8 @@ class Game {
   private last = performance.now();
   private runNew: string[] = [];
   private demoT = 0;
+  /** Seconds an earned evolution has waited for a hunter to back off. */
+  private evolveWait = 0;
   private resultsTimer = 0;
   private hudCache = { score: -1, tide: -1, growth: -1, stage: -1, cd: -1, charges: -1, maxCharges: -1, sting: '', tiers: '', powers: '', combo: -1, comboBar: -1, pearls: -1, beaten: false };
   private tutorial = { step: 0, t: 0, eats: 0 };
@@ -352,6 +357,8 @@ class Game {
     this.ui.toasts.innerHTML = '';
     this.hudCache = { score: -1, tide: -1, growth: -1, stage: -1, cd: -1, charges: -1, maxCharges: -1, sting: '', tiers: '', powers: '', combo: -1, comboBar: -1, pearls: -1, beaten: false };
     this.tutorial = { step: this.save.tutorialDone ? 99 : 0, t: 0, eats: 0 };
+    this.evolveWait = 0;
+    this.ui.growthBar.classList.remove('ready');
     this.updateHint();
     this.zoneToast(this.world.zone.name, 'Eat smaller creatures to grow');
     this.bestAtStart = this.save.best.score;
@@ -445,7 +452,7 @@ class Game {
       this.updateHUD();
       this.updateTutorial(dt);
       this.emitTrail();
-      if (this.world.pendingEvolutions > 0 && this.world.player.alive && !this.world.ended) this.openEvolve();
+      this.checkEvolve(dt);
       if (this.world.ended) {
         this.resultsTimer += dt;
         if (this.resultsTimer > 0.2) {
@@ -488,6 +495,20 @@ class Game {
       p.r = 10;
       p.food = 0;
     }
+  }
+
+  /** Offers an earned evolution, holding it while a hunter is closing in (but never for long). */
+  private checkEvolve(dt: number): void {
+    const w = this.world;
+    const ready = w.pendingEvolutions > 0 && w.player.alive && !w.ended;
+    if (ready && (!w.inDanger() || this.evolveWait > EVOLVE_MAX_WAIT)) {
+      this.evolveWait = 0;
+      this.ui.growthBar.classList.remove('ready');
+      this.openEvolve();
+      return;
+    }
+    this.evolveWait = ready ? this.evolveWait + dt : 0;
+    this.ui.growthBar.classList.toggle('ready', ready);
   }
 
   private openEvolve(): void {
@@ -834,7 +855,7 @@ class Game {
     const steps = [
       TOUCH ? 'Drag anywhere to swim' : 'Swim with <kbd>WASD</kbd> or <kbd>Arrows</kbd>',
       'Swim near a <b style="color:#8cfaff">glowing ring</b> and your tentacles reel it in',
-      TOUCH ? 'Tap <b>Burst</b> for a quick dash' : 'Press <kbd>Space</kbd> to burst',
+      TOUCH ? 'Tap <b>Burst</b>, or tap with a second finger, for a quick dash' : 'Press <kbd>Space</kbd> to burst',
       'Red eyes mean danger · Fill the bar to evolve',
     ];
     const text = steps[this.tutorial.step];
