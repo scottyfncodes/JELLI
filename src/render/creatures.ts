@@ -1,6 +1,7 @@
 import type { SpeciesDef } from '../content/types';
 import type { SkinDef } from '../content/unlocks';
 import type { Tiers } from '../content/evolutions';
+import type { FormId } from '../content/forms';
 import { TAU, rgba } from '../core/math';
 import { drawGlow } from './sprites';
 
@@ -636,7 +637,8 @@ export interface JellyBody {
 /**
  * Draws a jellyfish with its bell facing local -y (callers rotate so the bell leads).
  * `contraction` 0..1 squeezes the bell; `tiers` add evolution features; `body` adds
- * the growth that comes from feeding (fuller bell, more tentacles, canals, longer arms).
+ * the growth that comes from feeding (fuller bell, more tentacles, canals, longer arms);
+ * `forms` add the parts it took from remarkable meals.
  */
 export function drawJelly(
   ctx: CanvasRenderingContext2D,
@@ -648,6 +650,7 @@ export function drawJelly(
   flat: boolean,
   sway = 0,
   body: JellyBody | null = null,
+  forms: readonly FormId[] | null = null,
 ): void {
   const m = body?.maturity ?? 0;
   const gulp = body?.gulp ?? 0;
@@ -659,10 +662,36 @@ export function drawJelly(
   const surge = tiers?.surge ?? 0;
   const sting = tiers?.sting ?? 0;
   const al = (v: number) => (flat ? 1 : v);
+  const has = (id: FormId) => !flat && !!forms && forms.includes(id);
 
   if (!flat) {
     drawGlow(ctx, style.glow, 0, -r * 0.2, r * (2.6 + glow * 0.5), 0.28 + glow * 0.08);
     if (glow >= 2) drawGlow(ctx, '#ffd27a', 0, -r * 0.2, r * 3.6, 0.12 + (glow - 2) * 0.08);
+  }
+
+  if (has('aurora')) {
+    // Aurora Curtain: broad shimmering veils trailing among the tentacles.
+    for (let i = 0; i < 3; i++) {
+      const x0 = (i - 1) * w * 0.55;
+      const len = r * (3.2 + 0.4 * i) * (1 + 0.3 * m);
+      const color = i === 1 ? '#c59bff' : '#7dffb9';
+      const g = ctx.createLinearGradient(0, rimY, 0, rimY + len);
+      g.addColorStop(0, rgba(color, 0.32 + 0.12 * Math.sin(t * 2 + i)));
+      g.addColorStop(1, rgba(color, 0));
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(x0 - r * 0.22, rimY);
+      for (let j = 0; j <= 8; j++) {
+        const f = j / 8;
+        ctx.lineTo(x0 - r * 0.22 * (1 - f * 0.5) + Math.sin(t * 1.6 + i * 2 - f * 4) * r * 0.4 * f + sway * r * f * f, rimY + len * f);
+      }
+      for (let j = 8; j >= 0; j--) {
+        const f = j / 8;
+        ctx.lineTo(x0 + r * 0.22 * (1 - f * 0.5) + Math.sin(t * 1.6 + i * 2 - f * 4) * r * 0.4 * f + sway * r * f * f, rimY + len * f);
+      }
+      ctx.closePath();
+      ctx.fill();
+    }
   }
 
   // Tentacles stream behind the bell as long, flowing ribbons. A travelling wave runs down
@@ -753,6 +782,32 @@ export function drawJelly(
     }
   }
 
+  if (has('needle')) {
+    // Needle Crown: a slender silver spear leading from the crown of the bell.
+    ctx.fillStyle = rgba('#e8f1ff', 0.9);
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.09, -h * 0.85);
+    ctx.lineTo(0, -h - r * 1.05);
+    ctx.lineTo(r * 0.09, -h * 0.85);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = rgba('#6f86a8', 0.8);
+    ctx.lineWidth = Math.max(0.6, r * 0.03);
+    ctx.stroke();
+  }
+  const lureX = r * 0.42 + Math.sin(t * 1.7) * r * 0.08;
+  const lureY = -h - r * 0.75 + Math.cos(t * 2.1) * r * 0.06;
+  if (has('lure')) {
+    // Angler Lure: a stalk arching up off the bell, dangling a warm bulb ahead.
+    ctx.strokeStyle = rgba('#2a2440', 0.9);
+    ctx.lineWidth = Math.max(1, r * 0.07);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-w * 0.3, -h * 0.82);
+    ctx.bezierCurveTo(-w * 0.35, -h - r * 0.9, lureX - r * 0.1, -h - r * 1.25, lureX, lureY);
+    ctx.stroke();
+  }
+
   // Bell
   ctx.beginPath();
   ctx.moveTo(-w, rimY);
@@ -776,8 +831,16 @@ export function drawJelly(
     g.addColorStop(1, rgba(style.bell, 0.22));
     ctx.fillStyle = g;
     ctx.fill();
-    ctx.strokeStyle = rgba(style.rim, 0.75);
-    ctx.lineWidth = Math.max(0.8, r * 0.06);
+    if (has('prism')) {
+      // Prism Bell: colors slide around the rim as it swims.
+      const pg = ctx.createLinearGradient(-w, 0, w, 0);
+      for (let k = 0; k <= 4; k++) pg.addColorStop(k / 4, `hsla(${(t * 70 + k * 80) % 360}, 95%, 76%, 0.95)`);
+      ctx.strokeStyle = pg;
+      ctx.lineWidth = Math.max(1, r * 0.09);
+    } else {
+      ctx.strokeStyle = rgba(style.rim, 0.75);
+      ctx.lineWidth = Math.max(0.8, r * 0.06);
+    }
     ctx.stroke();
 
     const cy = -h * 0.38;
@@ -803,6 +866,32 @@ export function drawJelly(
       ctx.beginPath();
       ctx.moveTo(-w * 0.93, rimY - r * 0.04);
       ctx.bezierCurveTo(-w * 0.75, rimY - r * 0.12, w * 0.75, rimY - r * 0.12, w * 0.93, rimY - r * 0.04);
+      ctx.stroke();
+    }
+
+    if (has('moray')) {
+      // Moray Mottle: olive and gold blotches across the bell.
+      const spots: [number, number, number][] = [[-0.5, -0.45, 0.13], [0.32, -0.62, 0.1], [0.55, -0.2, 0.12], [-0.2, -0.78, 0.08], [-0.66, -0.12, 0.09], [0.1, -0.3, 0.07]];
+      spots.forEach(([sx, sy, sr], i) => {
+        ctx.fillStyle = rgba(i % 2 ? '#e8f07a' : '#7f8f3a', 0.55);
+        ctx.beginPath();
+        ctx.ellipse(sx * w, sy * h, sr * r * 1.3, sr * r, sx, 0, TAU);
+        ctx.fill();
+      });
+    }
+    if (has('gilded')) {
+      // Gilded Spiral: a nautilus coil worked in gold into the crown.
+      ctx.strokeStyle = rgba('#ffd27a', 0.85);
+      ctx.lineWidth = Math.max(0.8, r * 0.05);
+      ctx.beginPath();
+      for (let k = 0; k <= 40; k++) {
+        const a = k * 0.32;
+        const rr = r * 0.03 * Math.exp(a * 0.2);
+        const x = Math.cos(a + t * 0.4) * rr;
+        const y = -h * 0.62 + Math.sin(a + t * 0.4) * rr * 0.75;
+        if (k === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
       ctx.stroke();
     }
 
@@ -839,11 +928,64 @@ export function drawJelly(
       }
     }
 
+    if (has('lantern')) {
+      // Lantern Belt: a band of blue photophores, like the Lanternshark's belly lights.
+      const n = 9;
+      for (let i = 0; i < n; i++) {
+        const k = i / (n - 1);
+        const x = (k - 0.5) * w * 1.7;
+        const y = rimY - r * 0.2 - Math.sin(k * Math.PI) * h * 0.2;
+        const tw = 0.65 + 0.35 * Math.sin(t * 2.4 - i * 0.7);
+        drawGlow(ctx, '#7fe3ff', x, y, r * 0.24, tw);
+        ctx.fillStyle = rgba('#e8fbff', 0.9);
+        ctx.beginPath();
+        ctx.arc(x, y, Math.max(0.5, r * 0.04), 0, TAU);
+        ctx.fill();
+      }
+    }
+    if (has('razor')) {
+      // Razor Fringe: red barbs along the margin.
+      const lobesR = 8 + 2 * Math.floor(m * 5);
+      ctx.fillStyle = rgba('#ff6b6b', 0.85);
+      ctx.beginPath();
+      for (let i = 0; i <= lobesR; i++) {
+        const x = -w + (i / lobesR) * w * 2;
+        const out = Math.sign(x) * r * 0.06;
+        ctx.moveTo(x - r * 0.06, rimY);
+        ctx.lineTo(x + out, rimY + r * 0.26);
+        ctx.lineTo(x + r * 0.06, rimY);
+      }
+      ctx.fill();
+    }
+    if (has('maw')) {
+      // Gulper Maw: the margin flushes into wide, ruffled pink lips.
+      ctx.strokeStyle = rgba('#ff7a9c', 0.75);
+      ctx.lineWidth = Math.max(1, r * 0.12);
+      ctx.beginPath();
+      for (let i = 0; i <= 16; i++) {
+        const k = i / 16;
+        const x = (k - 0.5) * w * 1.85;
+        const y = rimY + r * 0.06 + Math.sin(k * Math.PI * 6 + t * 3) * r * 0.035;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      drawGlow(ctx, '#ff5c8a', 0, rimY + r * 0.2, r * 0.6, 0.45);
+    }
+
     // Specular highlight.
     ctx.strokeStyle = rgba('#ffffff', 0.55);
     ctx.lineWidth = Math.max(0.8, r * 0.07);
     ctx.beginPath();
     ctx.arc(-w * 0.1, -h * 0.25, r * 0.6, Math.PI * 1.15, Math.PI * 1.45);
     ctx.stroke();
+  }
+
+  if (has('lure')) {
+    drawGlow(ctx, '#ffe07a', lureX, lureY, r * 0.9, 0.8 + 0.2 * Math.sin(t * 4));
+    ctx.fillStyle = '#fff4c2';
+    ctx.beginPath();
+    ctx.arc(lureX, lureY, Math.max(0.8, r * 0.11), 0, TAU);
+    ctx.fill();
   }
 }

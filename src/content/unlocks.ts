@@ -19,6 +19,7 @@ export const SKINS: SkinDef[] = [
   { id: 'gilded', name: 'Gilded', bell: '#ffe2a3', rim: '#fff8e6', organ: '#ffb347', tentacle: '#ffd98a', glow: '#ffd27a' },
   { id: 'pearl', name: 'Pearl', bell: '#f2eaff', rim: '#ffffff', organ: '#ffc6e6', tentacle: '#e4dcff', glow: '#fff0fa' },
   { id: 'doubloon', name: 'Doubloon', bell: '#e6c27a', rim: '#fff5dc', organ: '#c9733f', tentacle: '#d8b06e', glow: '#ffcf70' },
+  { id: 'phantom', name: 'Phantom', bell: '#d98aa0', rim: '#ffe6ec', organ: '#8a2e52', tentacle: '#c46a84', glow: '#ff8fae' },
   { id: 'ember', name: 'Ember', bell: '#ffad85', rim: '#fff2ea', organ: '#ffe07a', tentacle: '#ff9a73', glow: '#ff8a5c' },
 ];
 

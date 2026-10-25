@@ -396,21 +396,29 @@ h2 {
 .growth-fill {
   position: absolute;
   inset: 0;
+  display: flex;
   transform-origin: left center;
   transform: scaleX(0);
   border-radius: inherit;
-  background: linear-gradient(90deg, var(--teal), var(--cyan));
-  box-shadow: 0 0 12px var(--cyan);
+  overflow: hidden;
   transition: transform 220ms var(--ease);
 }
 
-/* An evolution is earned and waits for a safe moment: the bar holds full and bright. */
-.growth-bar.ready .growth-fill {
-  transform: scaleX(1) !important;
-  background: linear-gradient(90deg, var(--cyan), #ffffff);
+/* The fill is split by diet: each colored share is food for that path, pale is plain plankton. */
+.growth-fill i {
+  flex: 0 0 0;
+  min-width: 0;
+  background: var(--c);
+  box-shadow: 0 0 10px var(--c);
+  transition: flex-grow 220ms var(--ease);
 }
 
-.growth-bar.apex .growth-fill {
+.growth-fill i.plain {
+  --c: rgba(220, 240, 255, 0.55);
+  box-shadow: none;
+}
+
+.growth-bar.apex .growth-fill i.plain {
   background: linear-gradient(90deg, var(--gold), #fff1c9);
 }
 
@@ -429,6 +437,12 @@ h2 {
 
 .path-pip.on {
   opacity: 1;
+}
+
+/* The path the current diet is steering toward. */
+.path-pip.lead {
+  opacity: 1;
+  filter: drop-shadow(0 0 5px var(--c));
 }
 
 .path-pip svg {
@@ -795,169 +809,6 @@ input[type='range']::-moz-range-thumb {
   transform: translateX(20px);
 }
 
-/* ------------------------------------------------------------ evolve */
-
-.evolve {
-  background: radial-gradient(120% 90% at 50% 30%, rgba(6, 10, 36, 0.78), rgba(3, 5, 20, 0.94));
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  overflow-y: auto;
-}
-
-.evolve-head {
-  margin-bottom: 18px;
-}
-
-.evolve-head p {
-  margin: 8px 0 0;
-  color: var(--ink-dim);
-  font-size: 14px;
-}
-
-.cards {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  width: min(100%, 720px);
-}
-
-.evo-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 20px 14px 18px;
-  border-radius: var(--radius);
-  text-align: center;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--c) 16%, transparent), rgba(10, 20, 58, 0.85) 60%);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 45%, transparent) inset, 0 20px 50px rgba(0, 0, 0, 0.35);
-  animation: card-in 420ms var(--ease) both;
-  transition: transform var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
-}
-
-.evo-card:nth-child(2) {
-  animation-delay: 70ms;
-}
-
-.evo-card:nth-child(3) {
-  animation-delay: 140ms;
-}
-
-.evo-card:hover {
-  box-shadow: 0 0 0 2px var(--c) inset, 0 0 40px color-mix(in srgb, var(--c) 35%, transparent);
-}
-
-.evo-card:active {
-  transform: scale(0.97);
-}
-
-.evo-card:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-
-@keyframes card-in {
-  from {
-    opacity: 0;
-    transform: translateY(24px) scale(0.95);
-  }
-}
-
-.evo-icon {
-  width: 56px;
-  height: 56px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  color: var(--c);
-  background: radial-gradient(circle, color-mix(in srgb, var(--c) 30%, transparent), transparent 70%);
-}
-
-.evo-icon svg {
-  width: 30px;
-  height: 30px;
-}
-
-.evo-path {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--c);
-}
-
-.evo-title {
-  font-family: var(--font-display);
-  font-size: 20px;
-  font-weight: 600;
-  line-height: 1.15;
-}
-
-.evo-desc {
-  font-size: 13px;
-  line-height: 1.45;
-  color: var(--ink-dim);
-}
-
-.tier-dots {
-  display: flex;
-  gap: 5px;
-  margin-top: auto;
-}
-
-.tier-dots i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.18);
-}
-
-.tier-dots i.on {
-  background: var(--c);
-  box-shadow: 0 0 8px var(--c);
-}
-
-.tier-dots i.next {
-  background: transparent;
-  box-shadow: 0 0 0 1.5px var(--c) inset;
-}
-
-@media (max-width: 560px) and (orientation: portrait) {
-  .cards {
-    grid-template-columns: 1fr;
-    gap: 10px;
-  }
-  .evo-card {
-    display: grid;
-    grid-template-columns: 56px 1fr;
-    grid-template-areas: 'icon path' 'icon title' 'icon desc' 'icon dots';
-    justify-items: start;
-    text-align: left;
-    column-gap: 14px;
-    row-gap: 2px;
-    padding: 16px;
-  }
-  .evo-icon {
-    grid-area: icon;
-    align-self: center;
-  }
-  .evo-path {
-    grid-area: path;
-  }
-  .evo-title {
-    grid-area: title;
-  }
-  .evo-desc {
-    grid-area: desc;
-  }
-  .tier-dots {
-    grid-area: dots;
-    margin-top: 6px;
-  }
-}
-
 /* ------------------------------------------------------------ results */
 
 .results {
@@ -1251,7 +1102,8 @@ input[type='range']::-moz-range-thumb {
 }
 
 .detail {
-  position: absolute;
+  /* Fixed, so it covers the screen however far the guide has been scrolled. */
+  position: fixed;
   inset: 0;
   display: flex;
   align-items: flex-end;
@@ -1613,4 +1465,167 @@ input[type='range']::-moz-range-thumb {
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--gold);
+}
+
+/* ------------------------------------------------------------ forms & lineage */
+
+.section-note {
+  margin: -6px 0 12px;
+  font-size: 13px;
+  color: var(--ink-faint);
+}
+
+.jelli-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px 12px 12px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line) inset;
+}
+
+.jelli-card canvas {
+  flex: none;
+  width: 132px;
+  height: 132px;
+  border-radius: 18px;
+}
+
+.jelli-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.jelli-info .eyebrow {
+  margin: 0;
+}
+
+.jelli-info strong {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.jelli-info .loadout {
+  justify-content: flex-start;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.jelli-info .chip {
+  padding: 4px 10px;
+}
+
+.jelli-info small {
+  color: var(--ink-faint);
+  font-size: 13px;
+}
+
+.heirs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.heir {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: 0 0 0 1px var(--line) inset;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.heir .dot {
+  flex: none;
+}
+
+.heir small {
+  display: block;
+  font-weight: 400;
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+
+.heir.selected {
+  box-shadow: 0 0 0 2px var(--c) inset, 0 0 22px color-mix(in srgb, var(--c) 22%, transparent);
+}
+
+.wonder strong {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.wonder small {
+  display: block;
+  margin-top: 4px;
+  color: var(--ink-dim);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.forms {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.form {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 6px 12px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: 0 0 0 1px var(--line) inset;
+  text-align: center;
+}
+
+.form canvas {
+  width: 88px;
+  height: 88px;
+  max-width: 100%;
+  border-radius: 14px;
+}
+
+.form .name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.form small {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--ink-faint);
+}
+
+.form.locked .name {
+  color: var(--ink-faint);
+}
+
+.form.selected {
+  box-shadow: 0 0 0 2px var(--cyan) inset;
+}
+
+@media (min-width: 820px) {
+  .forms-section {
+    grid-column: 1 / -1;
+  }
+  .forms {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  }
 }

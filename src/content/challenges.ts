@@ -14,6 +14,9 @@ export type ChallengeMetric =
   | 'run.powerups'
   | 'run.bestCombo'
   | 'run.chest'
+  | 'run.forms'
+  | 'life.forms'
+  | 'life.phantom'
   | 'life.pearls'
   | 'life.discovered'
   | 'life.rareDiscovered'
@@ -45,4 +48,7 @@ export const CHALLENGES: ChallengeDef[] = [
   { id: 'pearl-diver', title: 'Pearl Diver', desc: 'Collect 30 pearls across your dives.', metric: 'life.pearls', goal: 30, reward: 'skin:pearl' },
   { id: 'pirate-gold', title: 'Pirate Gold', desc: 'Open the chest in the sunken pirate ship.', metric: 'run.chest', goal: 1, reward: 'skin:doubloon' },
   { id: 'chain-master', title: 'Unbroken', desc: 'Chain 12 catches without a break.', metric: 'run.bestCombo', goal: 12 },
+  { id: 'first-form', title: 'What You Eat', desc: 'Take on a new form by eating a hunter or a rare creature.', metric: 'life.forms', goal: 1 },
+  { id: 'chimera', title: 'Chimera', desc: 'Wear 3 forms in a single run.', metric: 'run.forms', goal: 3 },
+  { id: 'phantom', title: 'Into the Light', desc: 'See the Phantom with your own light.', metric: 'life.phantom', goal: 1, reward: 'skin:phantom' },
 ];

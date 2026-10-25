@@ -6,10 +6,12 @@ import { CHALLENGES } from '../content/challenges';
 import { SKINS, SKINS_BY_ID, TRAITS, TRAITS_BY_ID, type UnlockId } from '../content/unlocks';
 import type { PathId, SpeciesDef } from '../content/types';
 import type { SaveData } from '../persistence/save';
-import { countDiscovered, metricValue, nextChallenge, type RunOutcome, type RunStats } from '../core/progress';
+import { countDiscovered, metricValue, mystery, nextChallenge, type RunOutcome, type RunStats } from '../core/progress';
+import { FORMS, FORM_BY_SOURCE, FORM_ORDER, type FormId } from '../content/forms';
+import type { JellyStyle } from '../render/creatures';
 import { ICONS } from './icons';
 import { POWERS, POWER_ORDER, type PowerTimers } from '../content/powerups';
-import { renderPortrait, renderSkin } from './portrait';
+import { renderForm, renderJelli, renderPortrait, renderSkin } from './portrait';
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 const fmt = (n: number) => Math.round(n).toLocaleString('en-US');
@@ -61,7 +63,7 @@ export function buildUI(root: HTMLElement, touch: boolean): void {
       </div>
       <div class="hud-growth">
         <div class="stage-name" data-bind="stage">${STAGES[0].name}</div>
-        <div class="growth-bar" data-bind="growthBar"><div class="growth-fill" data-bind="growth"></div></div>
+        <div class="growth-bar" data-bind="growthBar"><div class="growth-fill" data-bind="growth"><i data-bind="dietGlow" style="--c:${PATHS.glow.color}"></i><i data-bind="dietSurge" style="--c:${PATHS.surge.color}"></i><i data-bind="dietSting" style="--c:${PATHS.sting.color}"></i><i data-bind="dietPlain" class="plain"></i></div></div>
         <div class="paths" data-bind="paths"></div>
       </div>
       <div class="hud-right"><button class="icon-btn interactive" data-action="pause" aria-label="Pause">${ICONS.pause}</button></div>
@@ -96,15 +98,6 @@ export function buildUI(root: HTMLElement, touch: boolean): void {
       ${settingsBlock()}
       <div class="panel-actions"><button class="btn btn-ghost" data-action="close">Done</button></div>
     </div>
-  </section>
-
-  <section class="screen scrim evolve" data-screen="evolve">
-    <div class="evolve-head">
-      <p class="eyebrow" data-bind="evolveStage"></p>
-      <h2>Choose an evolution</h2>
-      <p>Each path changes how you play. Mix them or go deep.</p>
-    </div>
-    <div class="cards" data-bind="cards"></div>
   </section>
 
   <section class="screen scrim results" data-screen="results">
@@ -153,6 +146,10 @@ export function renderTitle(ui: Binds, save: SaveData): void {
     const tr = TRAITS_BY_ID[save.selected.trait];
     chips.push(`<span class="chip"><span class="dot" style="--c:${PATHS[tr.path].color}"></span>${esc(tr.name)}</span>`);
   }
+  if (save.heirloom) {
+    const f = FORMS[save.heirloom];
+    chips.push(`<span class="chip"><span class="dot" style="--c:${f.color}"></span>Inherits ${esc(f.name)}</span>`);
+  }
   ui.loadout.innerHTML = chips.join('');
 }
 
@@ -164,6 +161,11 @@ export function renderPathPips(el: HTMLElement, tiers: Tiers): void {
     const dots = Array.from({ length: MAX_TIER }, (_, i) => `<i class="${i < tiers[id] ? 'on' : ''}"></i>`).join('');
     return `<span class="path-pip ${tiers[id] ? 'on' : ''}" style="--c:${p.color}" title="${p.name}">${ICONS[id]}${dots}</span>`;
   }).join('');
+}
+
+/** Lights up the path the jelly's diet is steering its next evolution toward. */
+export function markDietLead(el: HTMLElement, lead: PathId | null): void {
+  PATH_ORDER.forEach((id, i) => el.children[i]?.classList.toggle('lead', id === lead));
 }
 
 export function renderCharges(el: HTMLElement, charges: number, max: number): void {
@@ -187,30 +189,32 @@ export function renderPowers(el: HTMLElement, powers: PowerTimers): void {
     .join('');
 }
 
-// ------------------------------------------------------------------ evolve
-
-export function renderEvolve(ui: Binds, tiers: Tiers, stage: number): void {
-  const n = tiers.glow + tiers.surge + tiers.sting + 1;
-  ui.evolveStage.textContent = `Evolution ${n} of ${MAX_TIER * 3} · ${STAGES[stage - 1]?.name ?? ''}`;
-  ui.cards.innerHTML = PATH_ORDER.map((id) => {
-    const p = PATHS[id];
-    const level = tiers[id];
-    const maxed = level >= MAX_TIER;
-    const tier = p.tiers[Math.min(level, MAX_TIER - 1)];
-    const dots = Array.from({ length: MAX_TIER }, (_, i) => `<i class="${i < level ? 'on' : i === level ? 'next' : ''}"></i>`).join('');
-    return `<button class="evo-card" style="--c:${p.color}" data-action="evolve" data-path="${id}" ${maxed ? 'disabled' : ''}>
-      <span class="evo-icon">${ICONS[id]}</span>
-      <span class="evo-path">${p.name}${level ? ` · Tier ${Math.min(level + 1, MAX_TIER)}` : ''}</span>
-      <span class="evo-title">${maxed ? 'Fully evolved' : esc(tier.title)}</span>
-      <span class="evo-desc">${maxed ? esc(p.tagline) : esc(tier.desc)}</span>
-      <span class="tier-dots">${dots}</span>
-    </button>`;
-  }).join('');
-}
-
 // ------------------------------------------------------------------ results
 
-export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, save: SaveData, tiers: Tiers): void {
+/** The jelly a run ended with, for its portrait on the results screen. */
+export interface JelliView {
+  style: JellyStyle;
+  tiers: Tiers;
+  forms: FormId[];
+  maturity: number;
+}
+
+function formChip(id: FormId): string {
+  return `<span class="chip"><span class="dot" style="--c:${FORMS[id].color}"></span>${esc(FORMS[id].name)}</span>`;
+}
+
+/** The forms this Jelli could pass on, with the chosen one marked. */
+export function renderHeirs(el: HTMLElement, forms: FormId[], heirloom: FormId | null): void {
+  el.innerHTML = forms
+    .map(
+      (id) => `<button class="heir ${heirloom === id ? 'selected' : ''}" style="--c:${FORMS[id].color}" data-action="heir" data-id="${id}" aria-pressed="${heirloom === id}">
+      <span class="dot"></span><span>${esc(FORMS[id].name)}<small>${esc(FORMS[id].desc)}</small></span></button>`,
+    )
+    .join('');
+}
+
+export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, save: SaveData, jelli: JelliView): void {
+  const tiers = jelli.tiers;
   const caughtBy = run.caughtBy ? SPECIES_BY_ID[run.caughtBy] : null;
   const title = caughtBy ? `Caught by a ${caughtBy.name}` : 'Run ended';
   const longest = save.stats.runs > 1 && run.time >= save.stats.longest && run.time > 0;
@@ -223,6 +227,14 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
   const evo = PATH_ORDER.filter((p) => tiers[p] > 0)
     .map((p) => `<span class="chip"><span class="dot" style="--c:${PATHS[p].color}"></span>${PATHS[p].name} ${tiers[p]}</span>`)
     .join('');
+  const forms = jelli.forms.map(formChip).join('');
+  const heirs = jelli.forms.length
+    ? `<section class="section"><h3>Pass one on</h3><p class="section-note">Your next Jelli hatches wearing it.</p><div class="heirs" data-bind="heirs"></div></section>`
+    : '';
+  const wonder = mystery(save, run);
+  const wonderHtml = wonder
+    ? `<section class="section wonder"><h3>Still out there</h3><div class="row-main"><strong>${esc(wonder.title)}</strong><small>${esc(wonder.text)}</small></div></section>`
+    : '';
 
   const disc = outcome.newDiscoveries.length
     ? `<section class="section"><h3>New in the Field Guide</h3><div class="discoveries">${outcome.newDiscoveries
@@ -254,6 +266,15 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
       <div class="big-score">${fmt(run.score)}</div>
       ${outcome.newBest ? '<span class="new-best">New best</span>' : `<p>Best ${fmt(save.best.score)}</p>`}
     </div>
+    <div class="jelli-card">
+      <canvas data-jelli></canvas>
+      <div class="jelli-info">
+        <p class="eyebrow">Your Jelli became</p>
+        <strong>${esc(stageName)}</strong>
+        <div class="loadout">${evo}${forms}</div>
+        ${evo || forms ? '' : '<small>No evolutions or forms yet. What it eats decides what it becomes.</small>'}
+      </div>
+    </div>
     <div class="stat-grid">
       <div class="stat"><span>Size</span><strong>${esc(stageName)}</strong></div>
       <div class="stat"><span>Eaten</span><strong>${run.eaten}</strong></div>
@@ -262,8 +283,9 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
       <div class="stat"><span>Longest chain</span><strong>${run.bestCombo}${run.bestCombo >= save.best.combo && run.bestCombo > 1 ? ' <em>best</em>' : ''}</strong></div>
       <div class="stat"><span>Pearls</span><strong>${run.pearls}${run.chest ? ' + chest' : ''}</strong></div>
     </div>
-    ${evo ? `<div class="loadout">${evo}</div>` : ''}
+    ${heirs}
     ${disc}
+    ${wonderHtml}
     ${done}
     ${nextHtml}
     <div class="results-actions">
@@ -276,6 +298,9 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
   ui.results.querySelectorAll<HTMLCanvasElement>('canvas[data-portrait]').forEach((cv) => {
     renderPortrait(cv, SPECIES_BY_ID[cv.dataset.portrait!], true, 84);
   });
+  renderJelli(ui.results.querySelector<HTMLCanvasElement>('canvas[data-jelli]')!, jelli.style, tiers, jelli.forms, jelli.maturity, 132);
+  const heirEl = ui.results.querySelector<HTMLElement>('[data-bind="heirs"]');
+  if (heirEl) renderHeirs(heirEl, jelli.forms, save.heirloom);
 }
 
 function zoneName(depth: number): string {
@@ -292,9 +317,10 @@ export function renderGuide(ui: Binds, save: SaveData): void {
   ui.guideBar.style.width = `${(n / SPECIES.length) * 100}%`;
   ui.guideGrid.innerHTML = SPECIES.map((s) => {
     const known = !!save.discovered[s.id];
+    const glimpsed = !known && !!save.glimpses[s.id];
     return `<button class="entry r-${s.rarity} ${known ? '' : 'locked'}" data-action="species" data-id="${s.id}">
       <canvas data-portrait="${s.id}" data-known="${known ? 1 : 0}"></canvas>
-      <span class="name">${known ? esc(s.name) : '???'}</span>
+      <span class="name">${known ? esc(s.name) : glimpsed ? 'Glimpsed' : '???'}</span>
       <span class="rarity-tag">${RARITY_LABEL[s.rarity]}</span>
     </button>`;
   }).join('');
@@ -327,10 +353,23 @@ export function renderDetail(ui: Binds, save: SaveData, id: string): void {
       ${known ? `<span class="chip">Habitat · ${esc(habitat(def))}</span>` : ''}
       ${known && def.role !== 'player' ? `<span class="chip">Seen in ${rec.seen} ${rec.seen === 1 ? 'dive' : 'dives'}</span>` : ''}
       ${known && rec.eaten ? `<span class="chip">Eaten ${rec.eaten}</span>` : ''}
+      ${known && def.diet ? `<span class="chip"><span class="dot" style="--c:${PATHS[def.diet].color}"></span>Feeds your ${PATHS[def.diet].name}</span>` : ''}
+      ${!known && save.glimpses[id] ? `<span class="chip">Glimpsed in ${save.glimpses[id]} ${save.glimpses[id] === 1 ? 'dive' : 'dives'}</span>` : ''}
+      ${formFact(save, id, known)}
       ${def.power ? `<span class="chip"><span class="dot" style="--c:${POWERS[def.power].color}"></span>${known ? `${esc(POWERS[def.power].name)} · ${esc(POWERS[def.power].desc)}` : 'Grants a power-up'}</span>` : ''}
     </div>`;
   renderPortrait(ui.detailCard.querySelector('canvas')!, def, known, 240);
   ui.detail.classList.add('is-open');
+}
+
+/** What eating this creature does to you, once you know. Before that, only that it will. */
+function formFact(save: SaveData, id: string, known: boolean): string {
+  const form = FORM_BY_SOURCE[id];
+  if (!form || !known) return '';
+  const f = FORMS[form];
+  return save.forms.includes(form)
+    ? `<span class="chip"><span class="dot" style="--c:${f.color}"></span>Eat one · ${esc(f.name)} · ${esc(f.desc)}</span>`
+    : '<span class="chip">Eating one would change you</span>';
 }
 
 // ------------------------------------------------------------------ lineage
@@ -364,13 +403,28 @@ export function renderLineage(ui: Binds, save: SaveData): void {
       ${ICONS[t.path]}<span>${esc(t.name)}<small>${owned ? esc(t.desc) : `Unlock: ${esc(src?.title ?? '')}`}</small></span></button>`;
   }).join('');
 
+  const worn = FORM_ORDER.filter((id) => save.forms.includes(id)).length;
+  const forms = FORM_ORDER.map((id) => {
+    const known = save.forms.includes(id);
+    const f = FORMS[id];
+    return `<div class="form ${known ? '' : 'locked'} ${save.heirloom === id ? 'selected' : ''}">
+      <canvas data-form="${id}" data-known="${known ? 1 : 0}"></canvas>
+      <span class="name">${known ? esc(f.name) : '???'}</span>
+      <small>${known ? esc(f.desc) : esc(f.hint)}</small>
+      ${save.heirloom === id ? '<span class="rarity-tag">Inherited</span>' : ''}
+    </div>`;
+  }).join('');
+
   ui.lineage.innerHTML = `
+    <section class="section forms-section"><h3>Forms · ${worn} of ${FORM_ORDER.length}</h3><p class="section-note">Eat a hunter or a rare creature and part of it grows onto you for the rest of the dive.</p><div class="forms">${forms}</div></section>
     <section class="section"><h3>Challenges</h3><div class="row-list">${challenges}</div></section>
     <div>
       <section class="section"><h3>Starting trait</h3>${traits}</section>
       <section class="section" style="margin-top:16px"><h3>Bell colors</h3><div class="skins">${skins}</div></section>
     </div>`;
   ui.lineage.querySelectorAll<HTMLCanvasElement>('canvas[data-skin]').forEach((cv) => renderSkin(cv, SKINS_BY_ID[cv.dataset.skin!], 64));
+  const style = SKINS_BY_ID[save.selected.skin] ?? SKINS_BY_ID.moon;
+  ui.lineage.querySelectorAll<HTMLCanvasElement>('canvas[data-form]').forEach((cv) => renderForm(cv, style, cv.dataset.form as FormId, cv.dataset.known === '1', 88));
 }
 
 // ------------------------------------------------------------------ binding

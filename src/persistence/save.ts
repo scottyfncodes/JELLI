@@ -1,6 +1,7 @@
 import { DEFAULT_UNLOCKS, SKINS_BY_ID, TRAITS_BY_ID, type UnlockId } from '../content/unlocks';
 import { SPECIES_BY_ID } from '../content/species';
 import { CHALLENGES } from '../content/challenges';
+import { isFormId, type FormId } from '../content/forms';
 
 export const SAVE_KEY = 'jelli.save.v1';
 export const SAVE_VERSION = 1;
@@ -28,6 +29,12 @@ export interface SaveData {
   selected: { skin: string; trait: string | null };
   settings: Settings;
   tutorialDone: boolean;
+  /** Every form any Jelli has worn. */
+  forms: FormId[];
+  /** The form the next Jelli hatches with. */
+  heirloom: FormId | null;
+  /** Dives in which something too vast to see was glimpsed, by species. */
+  glimpses: Record<string, number>;
 }
 
 export function defaultSave(): SaveData {
@@ -41,6 +48,9 @@ export function defaultSave(): SaveData {
     selected: { skin: 'moon', trait: null },
     settings: { volume: 0.7, muted: false, reducedMotion: null },
     tutorialDone: false,
+    forms: [],
+    heirloom: null,
+    glimpses: {},
   };
 }
 
@@ -117,6 +127,14 @@ export function sanitizeSave(raw: unknown): SaveData {
   }
 
   save.tutorialDone = raw.tutorialDone === true;
+
+  if (Array.isArray(raw.forms)) save.forms = [...new Set(raw.forms.filter(isFormId))];
+  if (isFormId(raw.heirloom)) save.heirloom = raw.heirloom;
+  if (isObj(raw.glimpses)) {
+    for (const [id, n] of Object.entries(raw.glimpses)) {
+      if (id in SPECIES_BY_ID) save.glimpses[id] = Math.floor(num(n, 0));
+    }
+  }
   return save;
 }
 

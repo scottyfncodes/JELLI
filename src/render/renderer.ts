@@ -598,6 +598,8 @@ export class Renderer {
       if (c.consume > 0) ctx.globalAlpha = 1 - c.consume * 0.6;
       if (c.def.shape === 'jelly') {
         ctx.rotate(c.heading + Math.PI / 2);
+        // Until the jelly's light is strong enough to take it in, the Phantom is barely there.
+        if (c.def.revealLight) ctx.globalAlpha = world.hasSeen(c.def.id) ? 0.75 : 0.1;
         drawJelly(ctx, c.r, c.phase, Math.pow(Math.max(0, Math.sin(c.phase * 2.2)), 2), jellyStyleForSpecies(c.def), null, false);
       } else {
         ctx.rotate(c.heading);
@@ -709,7 +711,7 @@ export class Renderer {
     ctx.translate(x, y);
     ctx.scale(z * scale, z * scale);
     ctx.rotate(p.heading + Math.PI / 2);
-    drawJelly(ctx, tr, world.time, p.thrust, this.playerStyle, p.tiers, false, this.sway, this.body);
+    drawJelly(ctx, tr, world.time, p.thrust, this.playerStyle, p.tiers, false, this.sway, this.body, p.forms);
     ctx.restore();
   }
 
@@ -864,6 +866,10 @@ export class Renderer {
       const x = this.sx(c.x);
       const y = this.sy(c.y);
       if (!this.onScreen(x, y, c.r * z * 3)) continue;
+      if (c.def.revealLight) {
+        this.drawPhantomLights(c, dark);
+        continue;
+      }
       if (c.def.glows) {
         const tw = 0.75 + 0.25 * Math.sin(c.phase * 3);
         drawGlow(ctx, c.def.colors.glow, x, y, c.r * z * 2.4, (0.18 + dark * 0.55) * tw);
@@ -893,6 +899,37 @@ export class Renderer {
     }
     if (p.alive) drawGlow(ctx, this.playerStyle.glow, this.sx(p.x), this.sy(p.y), p.r * z * 2.4, 0.12 + dark * 0.12);
     ctx.globalCompositeOperation = 'source-over';
+  }
+
+  /**
+   * The Phantom's rim lights shine through any darkness: a slow arc of lights far wider
+   * than the screen is often all a dim jelly ever sees of it.
+   */
+  private drawPhantomLights(c: Creature, dark: number): void {
+    const ctx = this.ctx;
+    const z = this.zoom;
+    const r = c.r;
+    const n = 22;
+    const breathe = 0.6 + 0.4 * Math.sin(c.phase * 0.5);
+    drawGlow(ctx, c.def.colors.glow, this.sx(c.x), this.sy(c.y - r * 0.4), r * z * 1.6, 0.1 + dark * 0.12);
+    for (let i = 0; i < n; i++) {
+      const k = i / (n - 1);
+      const a = Math.PI + k * Math.PI;
+      const lx = c.x + Math.cos(a) * r * 0.98;
+      const ly = c.y + Math.sin(a) * r * 0.8 + r * 0.2 * (1 - Math.abs(Math.sin(a)));
+      const tw = 0.5 + 0.5 * Math.sin(c.phase * 1.2 - i * 0.45);
+      drawGlow(ctx, i % 4 === 0 ? c.def.colors.accent : c.def.colors.glow, this.sx(lx), this.sy(ly), r * z * 0.16, (0.25 + dark * 0.5) * tw * breathe);
+    }
+    // Lights strung down its arms, fading into the deep.
+    for (let arm = 0; arm < 4; arm++) {
+      const ax = c.x + (arm - 1.5) * r * 0.35;
+      for (let j = 1; j <= 6; j++) {
+        const f = j / 6;
+        const lx = ax + Math.sin(c.phase * 0.4 + arm * 1.7 - f * 3) * r * 0.25 * f;
+        const ly = c.y + r * 0.2 + f * r * 2.4;
+        drawGlow(ctx, c.def.colors.glow, this.sx(lx), this.sy(ly), r * z * 0.1, (0.2 + dark * 0.4) * (1 - f * 0.7) * breathe);
+      }
+    }
   }
 
   private drawIndicators(world: World): void {
