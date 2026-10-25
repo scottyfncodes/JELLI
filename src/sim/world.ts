@@ -1,7 +1,8 @@
 import { SPECIES, PLAYER_SPECIES } from '../content/species';
 import type { PathId, PlayerStats, SpeciesDef, ZoneId } from '../content/types';
 import { WORLD, ZONES, darknessAt, zoneAt, type ZoneDef } from '../content/world';
-import { MAX_TIER, computeStats, emptyTiers, type Tiers } from '../content/evolutions';
+import { BASE_STATS, MAX_TIER, computeStats, dietPath, emptyDiet, emptyTiers, type Diet, type Tiers } from '../content/evolutions';
+import { FORM_BY_SOURCE, type FormId } from '../content/forms';
 import {
   MAX_MASS,
   START_MASS,
@@ -168,6 +169,10 @@ export interface Player {
   powers: PowerTimers;
   /** Total food eaten this run (untapered, uncapped); drives evolutions. */
   food: number;
+  /** Food eaten toward each path since the last evolution; the biggest share decides the next one. */
+  diet: Diet;
+  /** Forms grown from remarkable meals (and the inherited one), in the order they grew. */
+  forms: FormId[];
 }
 
 export interface SimInput {
@@ -193,7 +198,10 @@ export type SimEvent =
   | { type: 'escape'; x: number; y: number; def: SpeciesDef }
   | { type: 'pearl'; x: number; y: number; value: number }
   | { type: 'chest'; x: number; y: number }
-  | { type: 'wreck' };
+  | { type: 'wreck' }
+  | { type: 'evolve'; path: PathId; tier: number }
+  | { type: 'form'; id: FormId; x: number; y: number }
+  | { type: 'glimpse'; def: SpeciesDef };
 
 export type RunEnd = 'caught' | null;
 
@@ -247,6 +255,8 @@ const RARE_DEFS = SPECIES.filter((s) => s.rare);
 export interface WorldOptions {
   seed?: number;
   tiers?: Partial<Tiers>;
+  /** Forms the jelly hatches with (its inheritance). */
+  forms?: FormId[];
   /** Attract mode on the title screen: no hunters, no clock. */
   demo?: boolean;
   rng?: () => number;
@@ -270,7 +280,6 @@ export class World {
 
   time = 0;
   ended: RunEnd = null;
-  pendingEvolutions = 0;
   /** Evolution milestones already reached this run. */
   evolutionsReached = 0;
   zone: ZoneDef = ZONES[0];
@@ -293,6 +302,7 @@ export class World {
     this.rand = opts.rng ?? Math.random;
     this.demo = opts.demo ?? false;
     const tiers = { ...emptyTiers(), ...opts.tiers };
+    const forms = [...new Set(opts.forms ?? [])];
     this.player = {
       x: START_X,
       y: START_Y,
@@ -313,10 +323,13 @@ export class World {
       deathT: 0,
       inCurrent: false,
       tiers,
-      stats: computeStats(tiers),
+      stats: computeStats(tiers, BASE_STATS, forms),
       powers: emptyPowers(),
       food: 0,
+      diet: emptyDiet(),
+      forms,
     };
+    this.run.forms = [...forms];
     this.player.charges = this.player.stats.burstCharges;
     this.syncTentacles();
     for (const t of this.tentacles) this.restPoint(t, this.player.r, t);
@@ -544,17 +557,47 @@ export class World {
 
   // ---------------------------------------------------------------- run control
 
-  applyEvolution(path: PathId): void {
+  /** Grows one tier along a path. Returns false when the path is already maxed. */
+  evolve(path: PathId): boolean {
     const p = this.player;
-    if (this.pendingEvolutions <= 0) return;
-    if (p.tiers[path] >= MAX_TIER) return;
+    if (p.tiers[path] >= MAX_TIER) return false;
     p.tiers[path] += 1;
-    const before = p.stats.burstCharges;
-    p.stats = computeStats(p.tiers);
-    p.charges = Math.min(p.stats.burstCharges, p.charges + (p.stats.burstCharges - before));
+    this.refreshStats();
     if (path === 'sting') p.stingCd = 0;
-    this.pendingEvolutions -= 1;
     this.run.evolutions += 1;
+    this.events.push({ type: 'evolve', path, tier: p.tiers[path] });
+    return true;
+  }
+
+  /** Takes on the form of something remarkable it just ate. */
+  grantForm(id: FormId): boolean {
+    const p = this.player;
+    if (p.forms.includes(id)) return false;
+    p.forms.push(id);
+    this.run.forms.push(id);
+    this.refreshStats();
+    this.events.push({ type: 'form', id, x: p.x, y: p.y });
+    return true;
+  }
+
+  /** Recomputes stats after an evolution or a new form, handing over any new burst charge at once. */
+  private refreshStats(): void {
+    const p = this.player;
+    const before = p.stats.burstCharges;
+    p.stats = computeStats(p.tiers, BASE_STATS, p.forms);
+    p.charges = Math.min(p.stats.burstCharges, p.charges + (p.stats.burstCharges - before));
+  }
+
+  /** The path the jelly's recent diet is steering it toward, or null with nothing on the scales yet. */
+  dietLead(): PathId | null {
+    const d = this.player.diet;
+    if (d.glow + d.surge + d.sting <= 0) return null;
+    return dietPath(d, this.player.tiers);
+  }
+
+  /** Seconds a catch chain survives between catches. */
+  comboWindow(): number {
+    return COMBO_WINDOW + this.player.stats.comboBonus;
   }
 
   /** Path tiers still available to evolve into. */
@@ -567,18 +610,6 @@ export class World {
   visibleRadius(): number {
     const dark = darknessAt(this.player.y);
     return lerp(this.viewRadius, Math.min(this.viewRadius, this.player.stats.lightRadius), clamp(dark / 0.8, 0, 1));
-  }
-
-  /** A hunter that can catch the jelly is sizing it up or closing in. */
-  inDanger(): boolean {
-    const p = this.player;
-    const R = this.playerReach();
-    for (const c of this.creatures) {
-      if (c.dead || c.stunned > 0 || !isThreat(R, c.r, c.def)) continue;
-      if (c.state !== 'notice' && c.state !== 'chase' && c.state !== 'orbit') continue;
-      if (Math.hypot(c.x - p.x, c.y - p.y) < this.viewRadius) return true;
-    }
-    return false;
   }
 
   stingReady(): boolean {
@@ -616,6 +647,7 @@ export class World {
     this.resolveContacts(dt);
     this.updateSpawning(dt);
     this.updateDiscovery();
+    this.lastDt = dt;
     this.updateTreasure();
     if (this.comboT > 0) {
       this.comboT -= dt;
@@ -634,6 +666,7 @@ export class World {
   }
 
   private flow = { x: 0, y: 0 };
+  private lastDt = 0;
 
   private updatePlayer(dt: number, input: SimInput): void {
     const p = this.player;
@@ -828,7 +861,7 @@ export class World {
       c.r = lerp(c.r, targetR, 1 - Math.exp(-8 * dt));
 
       const sp = Math.hypot(c.vx, c.vy);
-      if (c.stunned <= 0 && sp > 8 && c.def.behavior !== 'lure') {
+      if (c.stunned <= 0 && sp > 8 && c.def.behavior !== 'lure' && c.def.behavior !== 'loom') {
         c.heading = angleLerp(c.heading, Math.atan2(c.vy, c.vx), 1 - Math.exp(-5 * dt));
       }
     }
@@ -958,6 +991,17 @@ export class World {
         const h = c.offX;
         c.vx = Math.cos(h) * def.speed;
         c.vy = Math.sin(h) * def.speed + Math.sin(c.phase * 0.8) * 14;
+        break;
+      }
+      case 'loom': {
+        // The Phantom drifts bell-up along the bottom of the Abyss, turning back before the walls.
+        if (c.x < 400) c.offX = 0;
+        else if (c.x > this.width - 400) c.offX = Math.PI;
+        const range = ZONE_RANGE[def.id];
+        const lift = c.y > range.bottom - 700 ? -10 : c.y < range.top + 2000 ? 10 : 0;
+        this.steer(c, Math.cos(c.offX), 0, def.speed, 0.4, dt);
+        c.vy = lift + Math.sin(c.phase * 0.35) * 7;
+        c.heading = -Math.PI / 2;
         break;
       }
       case 'chain':
@@ -1137,7 +1181,7 @@ export class World {
 
   /** Grows the set of arms to match the jelly's stage and spreads them across the rim. */
   private syncTentacles(): void {
-    const want = tentacleCount(this.player.stage);
+    const want = Math.max(tentacleCount(this.player.stage), busyArms(this.player.stage) + this.player.stats.extraArms + 1);
     while (this.tentacles.length < want) {
       const p = this.player;
       this.tentacles.push({ slot: 0.5, phase: 'idle', target: null, x: p.x, y: p.y, t: 0, cooldown: 0, seed: this.tentacles.length * 2.39, range: 0 });
@@ -1155,6 +1199,12 @@ export class World {
       if (this.insideCoral(x0 + (x1 - x0) * k, y0 + (y1 - y0) * k, 0)) return true;
     }
     return false;
+  }
+
+  /** Coral stops an arm reaching for this creature (unless the jelly wears the Moray Mottle). */
+  private armBlocked(c: Creature): boolean {
+    const p = this.player;
+    return p.stats.coralReach <= 0 && this.blocked(p.x, p.y, c.x, c.y);
   }
 
   /** Whether a creature is a valid, live tentacle target right now. */
@@ -1252,7 +1302,7 @@ export class World {
             break;
           }
           const away = Math.hypot(c.x - p.x, c.y - p.y) - c.r * 0.5;
-          if (away > Math.max(reach, t.range) * 1.2 || t.t > REACH_TIME || this.blocked(p.x, p.y, c.x, c.y)) {
+          if (away > Math.max(reach, t.range) * 1.2 || t.t > REACH_TIME || this.armBlocked(c)) {
             // Out of range, too slow, or it ducked behind coral: it got away.
             this.letGo(t, true);
             t.cooldown = 0.8;
@@ -1349,11 +1399,11 @@ export class World {
       // Arms strike forward, toward where the jelly is heading; only food brushing the bell is taken from behind.
       const ahead = (dx * Math.cos(p.heading) + dy * Math.sin(p.heading)) / d;
       if (ahead < REACH_ARC && d > this.playerReach() * 1.6 + c.r) continue;
-      if (this.blocked(p.x, p.y, c.x, c.y)) continue;
+      if (this.armBlocked(c)) continue;
       cands.push(c);
     }
     if (!cands.length) return;
-    let free = busyArms(p.stage) - this.tentacles.filter((t) => t.phase !== 'idle' && t.phase !== 'retract').length;
+    let free = busyArms(p.stage) + p.stats.extraArms - this.tentacles.filter((t) => t.phase !== 'idle' && t.phase !== 'retract').length;
     const root = this.tmp;
     for (const t of this.tentacles) {
       if (free <= 0) return;
@@ -1442,12 +1492,15 @@ export class World {
     const p = this.player;
     c.dead = true;
     const sizeK = (c.r / c.def.radius) ** 2;
-    p.mass = Math.min(MAX_MASS, p.mass + growthGain(c.def.growth * sizeK, p.mass));
-    p.food += c.def.growth;
+    const fed = c.def.growth * p.stats.foodMult;
+    p.mass = Math.min(MAX_MASS, p.mass + growthGain(fed * sizeK, p.mass));
+    p.food += fed;
+    // You are what you eat: each meal tips the scales toward the path its creature belongs to.
+    if (c.def.diet) p.diet[c.def.diet] += fed;
     p.r = radiusForMass(p.mass);
     // Catches in quick succession build a chain that multiplies their score.
     this.combo = this.comboT > 0 ? this.combo + 1 : 1;
-    this.comboT = COMBO_WINDOW;
+    this.comboT = this.comboWindow();
     this.run.bestCombo = Math.max(this.run.bestCombo, this.combo);
     this.run.score += Math.round(c.def.score * (p.powers.frenzy > 0 ? 2 : 1) * comboMult(this.combo));
     this.run.eaten += 1;
@@ -1456,17 +1509,23 @@ export class World {
     this.markSeen(c.def);
     this.events.push({ type: 'eat', x: c.x, y: c.y, def: c.def, r: c.r });
     if (c.def.power) this.grantPower(c.def.power);
+    // Hunters and rare creatures leave part of themselves on the jelly that eats them.
+    const form = FORM_BY_SOURCE[c.def.id];
+    if (form && !this.demo) this.grantForm(form);
 
     const stage = stageForMass(p.mass);
     while (p.stage < stage) {
       p.stage += 1;
       if (p.stage <= STAGES.length) this.events.push({ type: 'stage', stage: p.stage });
     }
-    // Feeding earns evolution choices until every path is maxed.
-    const earned = evolutionsEarned(p.food);
+    // Feeding earns evolutions until every path is maxed. No menu: the diet decides.
+    const earned = this.demo ? 0 : evolutionsEarned(p.food);
     while (this.evolutionsReached < earned) {
       this.evolutionsReached += 1;
-      if (this.tiersLeft() > this.pendingEvolutions) this.pendingEvolutions += 1;
+      const path = dietPath(p.diet, p.tiers);
+      if (!path) continue;
+      this.evolve(path);
+      p.diet = emptyDiet();
     }
   }
 
@@ -1500,7 +1559,19 @@ export class World {
     const p = this.player;
     if (!p.alive) return;
     const reach = p.r + 12;
+    const pull = p.stats.pearlMagnet;
     for (const pr of this.pearls) {
+      if (pull > 0 && !pr.taken && Math.abs(pr.x - p.x) < pull && Math.abs(pr.y - p.y) < pull) {
+        // The Gilded Spiral draws pearls in, faster the closer they are.
+        const dx = p.x - pr.x;
+        const dy = p.y - pr.y;
+        const d = Math.hypot(dx, dy) || 1;
+        if (d < pull) {
+          const step = Math.min(d, (60 + 260 * (1 - d / pull)) * this.lastDt);
+          pr.x += (dx / d) * step;
+          pr.y += (dy / d) * step;
+        }
+      }
       if (pr.taken || Math.abs(pr.x - p.x) > reach || Math.abs(pr.y - p.y) > reach) continue;
       if (Math.hypot(pr.x - p.x, pr.y - p.y) > reach) continue;
       pr.taken = true;
@@ -1508,7 +1579,7 @@ export class World {
       const value = pearlScore(zoneAt(pr.y).id);
       this.run.score += value;
       // A pearl keeps a running chain alive.
-      if (this.combo > 0) this.comboT = COMBO_WINDOW;
+      if (this.combo > 0) this.comboT = this.comboWindow();
       this.events.push({ type: 'pearl', x: pr.x, y: pr.y, value });
     }
     const wr = this.wreck;
@@ -1548,7 +1619,19 @@ export class World {
     const vis = this.visibleRadius();
     for (const c of this.creatures) {
       if (c.dead || this.seen.has(c.def.id)) continue;
-      if (Math.hypot(c.x - p.x, c.y - p.y) - c.r < vis) this.markSeen(c.def);
+      const reveal = c.def.revealLight;
+      if (!reveal) {
+        if (Math.hypot(c.x - p.x, c.y - p.y) - c.r < vis) this.markSeen(c.def);
+        continue;
+      }
+      // Something this vast only shows itself to a light strong enough to take it in.
+      // A dimmer jelly drifting past its rim lights just glimpses it.
+      const d = Math.hypot(c.x - p.x, c.y - p.y);
+      if (p.stats.lightRadius >= reveal && d - c.r * 0.6 < p.stats.lightRadius) this.markSeen(c.def);
+      else if (d - c.r < vis + 120 && !this.run.glimpsed.includes(c.def.id)) {
+        this.run.glimpsed.push(c.def.id);
+        this.events.push({ type: 'glimpse', def: c.def });
+      }
     }
   }
 
@@ -1563,7 +1646,8 @@ export class World {
     // Despawn far-away and eaten creatures.
     for (let i = this.creatures.length - 1; i >= 0; i--) {
       const c = this.creatures[i];
-      if (c.dead || (!c.held && !c.claimed && Math.hypot(c.x - p.x, c.y - p.y) > this.viewRadius + DESPAWN_PAD)) {
+      const pad = DESPAWN_PAD + (c.def.role === 'ambient' ? c.r : 0);
+      if (c.dead || (!c.held && !c.claimed && Math.hypot(c.x - p.x, c.y - p.y) > this.viewRadius + pad)) {
         this.creatures.splice(i, 1);
       }
     }
@@ -1726,13 +1810,15 @@ export class World {
       if (rule.minStage && p.stage < rule.minStage) return false;
       if (rule.requiresPath && p.tiers[rule.requiresPath.path] < rule.requiresPath.tier) return false;
       if (rule.playerInCurrent && !p.inCurrent) return false;
+      if (rule.minDepth && p.y < rule.minDepth) return false;
       return !this.creatures.some((c) => c.def === def && !c.dead);
     });
   }
 
   private rollRare(): void {
     const p = this.player;
-    const alive = this.creatures.filter((c) => c.def.rare && !c.dead).length;
+    // Something as vast as the Phantom drifts in its own time; it doesn't crowd out the other rares.
+    const alive = this.creatures.filter((c) => c.def.rare && !c.def.revealLight && !c.dead).length;
     if (alive >= 1 + (p.tiers.glow > 0 ? 1 : 0)) return;
     const pool = this.eligibleRares();
     // Shuffle so earlier entries don't crowd out the rest.
@@ -1778,6 +1864,17 @@ export class World {
       const spot = this.coralSpot(def.radius, this.viewRadius * 0.55, this.viewRadius + 380, true);
       if (!spot) return false;
       this.spawn(def, spot.x, spot.y);
+      return true;
+    }
+    if (def.behavior === 'loom') {
+      // Drift in from the side, just below the jelly, heading across its path.
+      const side = this.rand() < 0.5 ? -1 : 1;
+      const x = clamp(p.x + side * (this.viewRadius + def.radius * 0.9), 300, this.width - 300);
+      const range = ZONE_RANGE[def.id];
+      const y = clamp(p.y + 160 + this.rand() * 260, range.top + 400, range.bottom - 500);
+      const c = this.spawn(def, x, y);
+      c.offX = x < p.x ? 0 : Math.PI;
+      c.heading = -Math.PI / 2;
       return true;
     }
     if (rule.playerInCurrent) {

@@ -1,5 +1,6 @@
 import { CHALLENGES, type ChallengeDef, type ChallengeMetric } from '../content/challenges';
-import { SPECIES_BY_ID } from '../content/species';
+import { SPECIES, SPECIES_BY_ID } from '../content/species';
+import { FORMS, FORM_ORDER, type FormId } from '../content/forms';
 import type { UnlockId } from '../content/unlocks';
 import type { SaveData } from '../persistence/save';
 
@@ -23,6 +24,10 @@ export interface RunStats {
   caughtBy: string | null;
   seen: string[];
   eatenBySpecies: Record<string, number>;
+  /** Forms worn this run, inherited first, in the order they grew. */
+  forms: FormId[];
+  /** Species glimpsed but never seen clearly this run. */
+  glimpsed: string[];
 }
 
 export function emptyRunStats(): RunStats {
@@ -43,6 +48,8 @@ export function emptyRunStats(): RunStats {
     caughtBy: null,
     seen: [],
     eatenBySpecies: {},
+    forms: [],
+    glimpsed: [],
   };
 }
 
@@ -60,6 +67,10 @@ export function metricValue(metric: ChallengeMetric, run: RunStats | null, save:
       return countDiscovered(save, 'legendary');
     case 'life.pearls':
       return save.stats.pearls;
+    case 'life.forms':
+      return save.forms.length;
+    case 'life.phantom':
+      return save.discovered.phantom ? 1 : 0;
   }
   if (!run) return 0;
   switch (metric) {
@@ -85,6 +96,8 @@ export function metricValue(metric: ChallengeMetric, run: RunStats | null, save:
       return run.bestCombo;
     case 'run.chest':
       return run.chest;
+    case 'run.forms':
+      return run.forms?.length ?? 0;
   }
   return 0;
 }
@@ -108,6 +121,18 @@ export function recordDiscoveries(save: SaveData, seen: Iterable<string>, eaten:
   return fresh;
 }
 
+/** Adds a form to the collection. Returns true the first time any Jelli wears it. */
+export function recordForm(save: SaveData, id: FormId): boolean {
+  if (save.forms.includes(id)) return false;
+  save.forms.push(id);
+  return true;
+}
+
+/** Counts a dive in which something too vast to see was glimpsed. */
+export function recordGlimpse(save: SaveData, id: string): void {
+  if (id in SPECIES_BY_ID) save.glimpses[id] = (save.glimpses[id] ?? 0) + 1;
+}
+
 export interface RunOutcome {
   newDiscoveries: string[];
   completed: ChallengeDef[];
@@ -127,6 +152,10 @@ export function applyRun(save: SaveData, run: RunStats, now = Date.now()): RunOu
   save.stats.pearls += run.pearls ?? 0;
   save.stats.chests += run.chest ?? 0;
   save.best.combo = Math.max(save.best.combo, run.bestCombo ?? 0);
+  // The newest form passes on by default; the results screen lets the player pick another.
+  const forms = run.forms ?? [];
+  for (const id of forms) recordForm(save, id);
+  save.heirloom = forms.length ? forms[forms.length - 1] : null;
 
   const completed: ChallengeDef[] = [];
   const unlocked: UnlockId[] = [];
@@ -147,4 +176,31 @@ export function applyRun(save: SaveData, run: RunStats, now = Date.now()): RunOu
 /** The next unfinished challenge, for nudging the player toward another run. */
 export function nextChallenge(save: SaveData): ChallengeDef | null {
   return CHALLENGES.find((c) => !save.challenges[c.id]) ?? null;
+}
+
+export interface Mystery {
+  title: string;
+  text: string;
+}
+
+/** One thing still out there, so a finished run leaves something to wonder about. */
+export function mystery(save: SaveData, run: RunStats | null): Mystery | null {
+  const vast = SPECIES.find((s) => s.revealLight && !save.discovered[s.id] && (run?.glimpsed.includes(s.id) || save.glimpses[s.id]));
+  if (vast) {
+    const n = save.glimpses[vast.id] ?? 0;
+    return run?.glimpsed.includes(vast.id)
+      ? { title: 'Something vast drifted past', text: 'It moved just beyond your light at the bottom of the Abyss. A brighter Jelli might see what it was.' }
+      : { title: 'Something vast waits in the Abyss', text: `Glimpsed in ${n} ${n === 1 ? 'dive' : 'dives'}. Your light has never reached it.` };
+  }
+  // A hunter or rare met, but never eaten: what would it do to you?
+  const met = FORM_ORDER.find((id) => !save.forms.includes(id) && (run?.seen.includes(FORMS[id].source) || save.discovered[FORMS[id].source]));
+  if (met) {
+    const def = SPECIES_BY_ID[FORMS[met].source];
+    return { title: `You’ve met the ${def.name}`, text: 'Eat one and part of it will grow onto you. Nobody knows what yet.' };
+  }
+  const unknown = SPECIES.find((s) => !save.discovered[s.id]);
+  if (unknown) return { title: 'Still undiscovered', text: `Field notes: “${unknown.hint}”` };
+  const form = FORM_ORDER.find((id) => !save.forms.includes(id));
+  if (form) return { title: 'An unworn form', text: FORMS[form].hint };
+  return null;
 }

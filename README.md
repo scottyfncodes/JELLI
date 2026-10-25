@@ -2,7 +2,7 @@
 
 **Eat. Grow. Evolve. Discover.** A luminous, mobile-first underwater arcade game for the HaveAnApp portfolio.
 
-You're a thimble-sized moon jelly in Lantern Reef. Eat anything clearly smaller than you, dodge the hunters, evolve along three paths, and fill the Field Guide with 16 species. Runs are endless: you swim until something catches you, and the longer you survive, the bigger and more numerous the hunters get.
+You're a thimble-sized moon jelly in Lantern Reef. What you eat decides what you become: glowing prey light you up, quick prey make you faster, spiny prey and hunters make you sting, and swallowing a hunter or a rare creature grows part of it onto your bell. Runs are endless: you swim until something catches you, and the longer you survive, the bigger and more numerous the hunters get. Something vast drifts at the bottom of the Abyss, and a dim jelly can only glimpse it.
 
 ## Play
 
@@ -18,10 +18,14 @@ You're a thimble-sized moon jelly in Lantern Reef. Eat anything clearly smaller 
 - **Treasure:** pearls rest all over the reef (hoards around reef mounds, strays in open water, glowing in the deep). A sunken pirate ship sits in the lower shallows with a chest worth 1,500 that spills more pearls. Pearls bank across dives.
 - **Chase your best:** your best score sits under the clock, and passing it mid-run gets its own moment.
 - **Feeding shapes the body:** the more Jelli eats in a run, the more its body develops. The bell domes higher with finer scallops, more and longer tentacles sprout, radial and ring canals branch through the bell, the gonads fill in, and the oral arms grow long and ruffled. Each meal briefly swells the bell and glows through it in the prey's color.
-- **Evolution:** feeding fills an evolution meter. Each time it fills you pick a tier in one of three paths, up to 9 choices (every path maxed):
+- **You are what you eat:** most prey belong to a path (glowing prey to Glow, quick prey to Surge, spiny prey and hunters to Sting; plain krill to none). The evolution meter fills in those colors as you eat, the leading path's icon lights up, and when the meter is full Jelli evolves along whichever path it ate most of, right there in the water with no menu. Up to 9 evolutions (every path maxed):
   - **Glow:** wider light in the dark, pulls in plankton, more rare spawns, a rare-species compass, and hunters notice you later.
   - **Surge:** faster, stronger bursts, riding currents, then two charges and longer tentacle reach while bursting.
   - **Sting:** stuns the first hunter that bites, recharging faster with each tier, then a stinging nova on every burst.
+- **Forms:** eating a hunter or a rare creature grows part of it onto Jelli for the rest of the dive, each with a visible change and a small ability. Razor Fringe (Razorfin) adds an arm, Needle Crown (Needlefin) flings bursts further, Moray Mottle (Coral Moray) reaches through coral, Lantern Belt (Lanternshark) widens your light, Angler Lure (Lure Angler) draws prey in, Gulper Maw (Gulper Eel, only edible while swollen with Titan) feeds you more, Prism Bell (Prism Seahorse) stretches chains, Gilded Spiral (Golden Nautilus) pulls in pearls, and Aurora Curtain (Aurora Jelly) hides you from hunters.
+- **Lineage:** when a dive ends you pick one form to pass on, and the next Jelli hatches wearing it (it shows on the title screen too). Every form ever worn is collected in Lineage, with field notes for the ones still unknown.
+- **The Phantom:** a colossal jelly that drifts along the bottom of the Abyss. Without enough light you only glimpse its rim lights in the dark (logged in the Field Guide as "Glimpsed"); with a light of 440 or more (Glow 2, or Glow 1 plus a Lantern Belt) you see it and discover it.
+- **Still out there:** the results screen shows the Jelli you became, then one thing still to find: something glimpsed, a hunter you met but never ate, or a Field Guide hint.
 - **World:** one large biome (6000 by 12000 units) with three depth bands (Sunlit Shallows, Twilight Reef, The Abyss). It has darkness falloff, bioluminescence, coral outcrops and reef mounds, eight currents, parallax kelp, light rays and marine snow.
 - **Hunters:** six hunting styles. The Needlefin lunges in a straight line, the Gulper Eel stalks, the Lure Angler waits behind its light, the Coral Moray strikes from the reef, Razorfin packs swarm, and the Lanternshark circles before dashing. Every attack is telegraphed.
 - **Power-ups:** the Titan Krill and Spark Minnow sparkle with a dashed ring, and the rare fish grant power-ups too:
@@ -30,8 +34,8 @@ You're a thimble-sized moon jelly in Lantern Reef. Eat anything clearly smaller 
   - **Shell Shield** (Golden Nautilus): blocks one bite.
   - **Prism Frenzy** (Prism Seahorse): double points and food drifts to you.
   - **Aurora Veil** (Aurora Jelly): hunters can't see you.
-- **Field Guide:** 21 species across four rarity tiers. Rare encounters depend on conditions: coral in the shallows, the time of night, Glow tier 2, and riding an abyssal current.
-- **Lineage:** 16 challenges that unlock 9 bell colors and 3 starting traits, including chains, pearls and the pirate's gold.
+- **Field Guide:** 22 species across four rarity tiers, each showing which path it feeds and, once worn, the form it gives. Rare encounters depend on conditions: coral in the shallows, the time of night, Glow tier 2, riding an abyssal current, and diving to the floor of the Abyss.
+- **Challenges:** 19 challenges that unlock 10 bell colors and 3 starting traits, including chains, pearls, the pirate's gold, forms and the Phantom.
 - **Audio:** synthesized WebAudio ambience and effects, with no audio files. Volume, mute and reduced-motion settings are included.
 
 ## Development
@@ -51,12 +55,12 @@ Add `?debug` to the URL to expose `window.jelli` for automated playtesting.
 
 | Area | Path | Notes |
 | --- | --- | --- |
-| Content (data only) | `src/content/` | Species, evolution paths, stages, zones, challenges and unlocks. Balancing lives here. |
+| Content (data only) | `src/content/` | Species (with diet paths), evolution paths, forms, stages, zones, challenges and unlocks. Balancing lives here. |
 | Simulation | `src/sim/` | `world.ts` (entities, AI, tentacle hunting, spawning, contacts) and `rules.ts` (pure feeding and threat rules). No DOM. |
 | Rendering | `src/render/` | Canvas 2D renderer, procedural creature art, pooled particles, and glow sprites (no `shadowBlur`). |
-| Progression | `src/core/progress.ts` | Run stats, discoveries, challenges and unlocks. |
+| Progression | `src/core/progress.ts` | Run stats, discoveries, forms, glimpses, challenges, unlocks and the end-of-run mystery. |
 | Persistence | `src/persistence/save.ts` | Versioned localStorage save with full sanitizing, plus an in-memory fallback. |
-| UI | `src/ui/` | DOM screens over the canvas: title, HUD, pause, evolve, results, Field Guide, Lineage. |
+| UI | `src/ui/` | DOM screens over the canvas: title, HUD, pause, results, Field Guide, Lineage. |
 | Orchestration | `src/main.ts` | State machine, loop, input, audio, lifecycle (pause on blur/hide), and resize. |
 
 Stack: Vite + TypeScript + Canvas 2D. There's no game engine, because a hand-rolled loop keeps the bundle around 35 KB gzipped. Fonts (Fraunces, Outfit) are self-hosted via Fontsource. Deployed as a static site on Vercel.

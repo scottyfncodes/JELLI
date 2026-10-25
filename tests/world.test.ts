@@ -33,33 +33,32 @@ describe('world simulation', () => {
     expect(w.hasSeen('glimmer-krill')).toBe(true);
   });
 
-  it('feeding past a milestone queues an evolution choice', () => {
+  it('feeding past a milestone evolves the jelly at once, along the path its diet favored', () => {
     const w = makeWorld();
     const p = w.player;
     p.food = EVOLUTION_FOOD[0] - 0.1;
+    p.diet.surge = 6;
     w.creatures.length = 0;
-    feed(w, w.spawn(SPECIES_BY_ID['sea-butterfly'], p.x + 2, p.y));
-    expect(w.pendingEvolutions).toBe(1);
-    w.applyEvolution('surge');
+    feed(w, w.spawn(SPECIES_BY_ID['glimmer-krill'], p.x + 2, p.y));
     expect(p.tiers.surge).toBe(1);
     expect(p.stats.burstCooldown).toBeLessThan(3);
-    expect(w.pendingEvolutions).toBe(0);
     expect(w.run.evolutions).toBe(1);
+    expect(w.events.some((e) => e.type === 'evolve' && e.path === 'surge' && e.tier === 1)).toBe(true);
+    // The scales reset for the next evolution.
+    expect(p.diet).toEqual({ glow: 0, surge: 0, sting: 0 });
   });
 
-  it('allows nine evolutions in total, then stops offering more', () => {
+  it('allows nine evolutions in total, then stops', () => {
     const w = makeWorld();
     const p = w.player;
     w.creatures.length = 0;
     p.food = EVOLUTION_FOOD[EVOLUTION_FOOD.length - 1] + 500;
     feed(w, w.spawn(SPECIES_BY_ID['glimmer-krill'], p.x + 2, p.y));
-    expect(w.pendingEvolutions).toBe(9);
-    for (const path of ['glow', 'surge', 'sting'] as const) for (let i = 0; i < 3; i++) w.applyEvolution(path);
     expect(p.tiers).toEqual({ glow: 3, surge: 3, sting: 3 });
     expect(w.tiersLeft()).toBe(0);
-    expect(w.pendingEvolutions).toBe(0);
-    // Applying past the cap changes nothing.
-    w.applyEvolution('glow');
+    expect(w.run.evolutions).toBe(9);
+    // Evolving past the cap changes nothing.
+    expect(w.evolve('glow')).toBe(false);
     expect(p.tiers.glow).toBe(3);
   });
 
@@ -69,7 +68,8 @@ describe('world simulation', () => {
     w.creatures.length = 0;
     p.food = 5000;
     feed(w, w.spawn(SPECIES_BY_ID['glimmer-krill'], p.x + 2, p.y));
-    expect(w.pendingEvolutions).toBe(8);
+    expect(w.run.evolutions).toBe(8);
+    expect(w.tiersLeft()).toBe(0);
   });
 
   it('a hunter catches an unprotected jelly', () => {
@@ -291,22 +291,6 @@ describe('world simulation', () => {
     };
     expect(run({})).toBeGreaterThan(0);
     expect(run({ glow: 1 })).toBeLessThan(0);
-  });
-
-  it('reports danger only while a hunter that can catch the jelly is closing in', () => {
-    const w = makeWorld();
-    w.creatures.length = 0;
-    const p = w.player;
-    const fin = w.spawn(SPECIES_BY_ID['needlefin'], p.x + 120, p.y);
-    expect(w.inDanger()).toBe(false);
-    fin.state = 'chase';
-    expect(w.inDanger()).toBe(true);
-    fin.stunned = 1;
-    expect(w.inDanger()).toBe(false);
-    fin.stunned = 0;
-    // An outgrown hunter is no danger, whatever it is doing.
-    p.r = fin.r * 1.3;
-    expect(w.inDanger()).toBe(false);
   });
 
   it('early hunters keep their natural size', () => {

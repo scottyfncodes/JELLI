@@ -8,26 +8,27 @@ import { Renderer } from './render/renderer';
 import { Input } from './core/input';
 import { AudioEngine } from './audio/audio';
 import { SaveStore, type SaveData } from './persistence/save';
-import { applyRun, recordDiscoveries } from './core/progress';
+import { applyRun, recordDiscoveries, recordForm, recordGlimpse } from './core/progress';
 import { PATHS, type Tiers } from './content/evolutions';
-import { STAGES, evolutionProgress } from './content/progression';
+import { FORMS, isFormId } from './content/forms';
+import { EVOLUTION_FOOD, STAGES, evolutionProgress, maturity } from './content/progression';
 import { RARITY_LABEL, SPECIES_BY_ID } from './content/species';
 import { SKINS_BY_ID, TRAITS_BY_ID } from './content/unlocks';
 import { WORLD } from './content/world';
 import { POWERS } from './content/powerups';
-import type { PathId } from './content/types';
 import { clamp } from './core/math';
-import { COMBO_WINDOW, comboMult } from './sim/rules';
+import { comboMult } from './sim/rules';
 import { PKind } from './render/particles';
 import {
   buildUI,
   collectBinds,
   fmt,
+  markDietLead,
   mmss,
   renderCharges,
   renderDetail,
-  renderEvolve,
   renderGuide,
+  renderHeirs,
   renderLineage,
   renderPathPips,
   renderPowers,
@@ -36,11 +37,8 @@ import {
   type Binds,
 } from './ui/screens';
 
-type State = 'title' | 'play' | 'paused' | 'evolve' | 'results';
+type State = 'title' | 'play' | 'paused' | 'results';
 type Overlay = 'guide' | 'lineage' | 'settings' | null;
-
-/** Longest an evolution choice waits for danger to pass, in seconds. */
-const EVOLVE_MAX_WAIT = 6;
 
 const TOUCH = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 
@@ -61,10 +59,8 @@ class Game {
   private last = performance.now();
   private runNew: string[] = [];
   private demoT = 0;
-  /** Seconds an earned evolution has waited for a hunter to back off. */
-  private evolveWait = 0;
   private resultsTimer = 0;
-  private hudCache = { score: -1, tide: -1, growth: -1, stage: -1, cd: -1, charges: -1, maxCharges: -1, sting: '', tiers: '', powers: '', combo: -1, comboBar: -1, pearls: -1, beaten: false };
+  private hudCache = Game.freshHud();
   private tutorial = { step: 0, t: 0, eats: 0 };
   /** Personal best when this run began, for the mid-run "new best" moment. */
   private bestAtStart = 0;
@@ -81,6 +77,10 @@ class Game {
     this.resize();
     this.showTitle();
     requestAnimationFrame(this.frame);
+  }
+
+  private static freshHud() {
+    return { score: -1, tide: -1, growth: -1, diet: '', lead: '', stage: -1, cd: -1, charges: -1, maxCharges: -1, sting: '', tiers: '', powers: '', combo: -1, comboBar: -1, pearls: -1, beaten: false };
   }
 
   // ------------------------------------------------------------ setup
@@ -152,7 +152,7 @@ class Game {
     this.app.addEventListener(
       'touchmove',
       (e) => {
-        if (!(e.target as HTMLElement).closest('.results, .sheet, .evolve')) e.preventDefault();
+        if (!(e.target as HTMLElement).closest('.results, .sheet')) e.preventDefault();
       },
       { passive: false },
     );
@@ -206,14 +206,14 @@ class Game {
     this.state = 'title';
     this.input.enabled = false;
     this.input.reset();
-    this.world = new World({ demo: true, tiers: this.startTiers() });
+    this.world = new World({ demo: true, tiers: this.startTiers(), forms: this.startForms() });
     this.frameTitle();
     this.syncView();
     this.renderer.snapCamera(this.world);
     this.syncView();
     this.world.populate();
     renderTitle(this.ui, this.save);
-    for (const s of ['hud', 'pause', 'evolve', 'results']) this.show(s, false);
+    for (const s of ['hud', 'pause', 'results']) this.show(s, false);
     this.show('title', true);
   }
 
@@ -308,9 +308,17 @@ class Game {
       case 'home':
         this.showTitle();
         break;
-      case 'evolve':
-        this.chooseEvolution(el.dataset.path as PathId);
+      case 'heir': {
+        // Choose which of this Jelli's forms the next one hatches with.
+        const id = el.dataset.id;
+        if (!isFormId(id) || !this.world.player.forms.includes(id)) return;
+        this.audio.click();
+        this.save.heirloom = id;
+        this.persist();
+        const box = el.parentElement;
+        if (box) renderHeirs(box, this.world.player.forms, id);
         break;
+      }
       case 'sound':
         break;
     }
@@ -334,9 +342,14 @@ class Game {
     return trait ? { [trait.path]: 1 } : {};
   }
 
+  /** The form this Jelli inherits from the last one. */
+  private startForms() {
+    return this.save.heirloom ? [this.save.heirloom] : [];
+  }
+
   private startRun(): void {
     this.audio.unlock();
-    this.world = new World({ tiers: this.startTiers() });
+    this.world = new World({ tiers: this.startTiers(), forms: this.startForms() });
     this.runNew = [];
     this.renderer.focusOffset = 0;
     this.renderer.focusOffsetX = 0;
@@ -354,15 +367,14 @@ class Game {
     track('game_start');
     this.input.reset();
     this.input.enabled = true;
-    for (const s of ['title', 'pause', 'evolve', 'results']) this.show(s, false);
+    for (const s of ['title', 'pause', 'results']) this.show(s, false);
     this.show('hud', true);
     this.ui.toasts.innerHTML = '';
-    this.hudCache = { score: -1, tide: -1, growth: -1, stage: -1, cd: -1, charges: -1, maxCharges: -1, sting: '', tiers: '', powers: '', combo: -1, comboBar: -1, pearls: -1, beaten: false };
+    this.hudCache = Game.freshHud();
     this.tutorial = { step: this.save.tutorialDone ? 99 : 0, t: 0, eats: 0 };
-    this.evolveWait = 0;
-    this.ui.growthBar.classList.remove('ready');
     this.updateHint();
-    this.zoneToast(this.world.zone.name, 'Eat smaller creatures to grow');
+    const heir = this.save.heirloom;
+    this.zoneToast(this.world.zone.name, heir ? `Hatched wearing ${FORMS[heir].name}` : 'Eat smaller creatures to grow');
     this.bestAtStart = this.save.best.score;
     this.ui.hudBest.textContent = this.bestAtStart > 0 ? `Best ${fmt(this.bestAtStart)}` : '';
     this.ui.hudBest.classList.remove('beaten');
@@ -408,30 +420,10 @@ class Game {
     outcome.newDiscoveries = this.runNew;
     this.persist();
     this.show('hud', false);
-    this.show('evolve', false);
-    renderResults(this.ui, run, outcome, this.save, this.world.player.tiers);
+    const p = this.world.player;
+    renderResults(this.ui, run, outcome, this.save, { style: this.renderer.playerStyle, tiers: p.tiers, forms: p.forms, maturity: maturity(p.food) });
     this.show('results', true);
     this.ui.results.parentElement!.scrollTop = 0;
-  }
-
-  private chooseEvolution(path: PathId): void {
-    if (this.state !== 'evolve') return;
-    this.world.applyEvolution(path);
-    this.audio.evolve();
-    const p = this.world.player;
-    this.renderer.particles.burst(p.x, p.y, 40, 260, 6, PATHS[path].color, 1.1);
-    this.renderer.particles.emit(PKind.Ring, p.x, p.y, 0, 0, 0.9, p.r, PATHS[path].color, 260, 0);
-    this.flash();
-    this.toast(`<b>${PATHS[path].tiers[p.tiers[path] - 1].title}</b>`, PATHS[path].color, PATHS[path].name);
-    if (this.world.pendingEvolutions > 0) {
-      renderEvolve(this.ui, p.tiers, p.stage);
-    } else {
-      this.show('evolve', false);
-      this.state = 'play';
-      this.input.enabled = true;
-      this.last = performance.now();
-      this.updateHint();
-    }
   }
 
   // ------------------------------------------------------------ loop
@@ -455,7 +447,6 @@ class Game {
       this.updateHUD();
       this.updateTutorial(dt);
       this.emitTrail();
-      this.checkEvolve(dt);
       if (this.world.ended) {
         this.resultsTimer += dt;
         if (this.resultsTimer > 0.2) {
@@ -470,7 +461,7 @@ class Game {
       r.updateCamera(this.world, dt);
       r.render(this.world, dt, null);
     } else {
-      // Paused or choosing: hold the frame still but keep it rendered.
+      // Paused: hold the frame still but keep it rendered.
       r.render(this.world, 0, null);
     }
   };
@@ -498,31 +489,6 @@ class Game {
       p.r = 10;
       p.food = 0;
     }
-  }
-
-  /** Offers an earned evolution, holding it while a hunter is closing in (but never for long). */
-  private checkEvolve(dt: number): void {
-    const w = this.world;
-    const ready = w.pendingEvolutions > 0 && w.player.alive && !w.ended;
-    if (ready && (!w.inDanger() || this.evolveWait > EVOLVE_MAX_WAIT)) {
-      this.evolveWait = 0;
-      this.ui.growthBar.classList.remove('ready');
-      this.openEvolve();
-      return;
-    }
-    this.evolveWait = ready ? this.evolveWait + dt : 0;
-    this.ui.growthBar.classList.toggle('ready', ready);
-  }
-
-  private openEvolve(): void {
-    this.state = 'evolve';
-    this.input.enabled = false;
-    this.input.reset();
-    renderEvolve(this.ui, this.world.player.tiers, this.world.player.stage);
-    this.ui.toasts.innerHTML = '';
-    // The tutorial pill would show through the cards.
-    this.ui.hint.classList.remove('show');
-    this.show('evolve', true);
   }
 
   private emitTrail(): void {
@@ -636,7 +602,39 @@ class Game {
         this.audio.setDepth(e.zone.id === 'shallows' ? 0 : e.zone.id === 'twilight' ? 0.5 : 1);
         break;
       }
+      case 'evolve': {
+        // The diet decided: an in-world transformation, no menu, no pause.
+        const path = PATHS[e.path];
+        this.audio.evolve();
+        ps.burst(p.x, p.y, 40, 260, 6, path.color, 1.1);
+        ps.emit(PKind.Ring, p.x, p.y, 0, 0, 0.9, p.r, path.color, 260, 0);
+        this.flash();
+        const tier = path.tiers[e.tier - 1];
+        this.toast(`<b>${tier.title}</b> ${tier.short}`, path.color, `${path.name} ${e.tier}`);
+        break;
+      }
+      case 'form': {
+        const f = FORMS[e.id];
+        const first = recordForm(this.save, e.id);
+        this.persist();
+        this.audio.discover(true);
+        ps.burst(e.x, e.y, 46, 280, 6, f.color, 1.2);
+        ps.emit(PKind.Ring, e.x, e.y, 0, 0, 1, p.r, f.color, 320, 0);
+        ps.emit(PKind.Ring, e.x, e.y, 0, 0, 0.7, p.r * 0.6, '#ffffff', 200, 0);
+        this.renderer.addShake(0.3);
+        this.flash();
+        this.toast(`<b>${f.name}</b> ${f.desc}`, f.color, first ? 'New form' : 'Form', true);
+        break;
+      }
+      case 'glimpse':
+        recordGlimpse(this.save, e.def.id);
+        this.persist();
+        this.audio.notice();
+        this.toast('<b>Something vast moves past your light</b>', e.def.colors.glow, 'Unknown');
+        break;
       case 'rare':
+        // Something too vast to see announces itself with a glimpse instead.
+        if (e.def.revealLight) break;
         if (!this.world.hasSeen(e.def.id)) this.toast('<b>Something rare stirs nearby…</b>', '#ffd27a', p.stats.rareCompass ? 'Follow the gold' : '');
         break;
       case 'power': {
@@ -696,9 +694,10 @@ class Game {
     f.classList.add('go');
   }
 
-  private toast(html: string, color: string, tag: string): void {
+  /** `keep` toasts (new forms) outlast ordinary ones when the stack overflows. */
+  private toast(html: string, color: string, tag: string, keep = false): void {
     const el = document.createElement('div');
-    el.className = 'toast';
+    el.className = keep ? 'toast keep' : 'toast';
     el.style.setProperty('--c', color);
     el.innerHTML = `${tag ? `<span class="rarity">${tag}</span>` : ''}<span>${html}</span>`;
     this.pushToast(el, 2200);
@@ -714,9 +713,12 @@ class Game {
   private pushToast(el: HTMLElement, ms: number): void {
     const box = this.ui.toasts;
     box.appendChild(el);
-    // Keep the zone banner: when the stack is full, drop the oldest other toast first.
+    // When the stack is full, drop the oldest ordinary toast first, then the zone banner;
+    // a new form always stays on screen.
     while (box.children.length > 2) {
-      const old = [...box.children].find((c) => c !== el && !c.classList.contains('zone')) ?? box.firstElementChild;
+      const all = [...box.children].filter((c) => c !== el);
+      const old =
+        all.find((c) => !c.classList.contains('zone') && !c.classList.contains('keep')) ?? all.find((c) => c.classList.contains('zone')) ?? box.firstElementChild;
       old?.remove();
     }
     setTimeout(() => {
@@ -759,7 +761,7 @@ class Game {
         ui.comboMult.textContent = `${comboMult(combo).toFixed(2).replace(/0$/, '')}x`;
       }
     }
-    const cb = combo ? Math.round((w.comboT / COMBO_WINDOW) * 60) / 60 : 0;
+    const cb = combo ? Math.round((w.comboT / w.comboWindow()) * 60) / 60 : 0;
     if (cb !== c.comboBar) {
       c.comboBar = cb;
       ui.comboBar.style.transform = `scaleX(${cb})`;
@@ -777,6 +779,21 @@ class Game {
       c.growth = g;
       ui.growth.style.transform = `scaleX(${g})`;
     }
+    // The fill is split by what was eaten: gold for Glow food, teal for Surge, violet for Sting,
+    // pale for plain plankton. The biggest colored share is the next evolution.
+    const d = p.diet;
+    const plain = Math.max(0, p.food - (EVOLUTION_FOOD[w.evolutionsReached - 1] ?? 0) - d.glow - d.surge - d.sting);
+    const dietKey = maxed ? 'max' : [d.glow, d.surge, d.sting, plain].map((v) => Math.round(v)).join(',');
+    if (dietKey !== c.diet) {
+      c.diet = dietKey;
+      const parts = maxed ? [0, 0, 0, 1] : [d.glow, d.surge, d.sting, plain];
+      [ui.dietGlow, ui.dietSurge, ui.dietSting, ui.dietPlain].forEach((el, i) => (el.style.flexGrow = String(parts[i])));
+    }
+    const lead = maxed ? null : w.dietLead();
+    if ((lead ?? '') !== c.lead) {
+      c.lead = lead ?? '';
+      markDietLead(ui.paths, lead);
+    }
     if (p.stage !== c.stage) {
       c.stage = p.stage;
       ui.stage.textContent = STAGES[p.stage - 1].name;
@@ -787,6 +804,8 @@ class Game {
       c.tiers = tiersKey;
       ui.growthBar.classList.toggle('apex', maxed);
       renderPathPips(ui.paths, p.tiers);
+      c.lead = '';
+      c.diet = '';
     }
     const max = p.stats.burstCharges;
     const full = p.charges >= max;
@@ -859,7 +878,7 @@ class Game {
       TOUCH ? 'Drag anywhere to swim' : 'Swim with <kbd>WASD</kbd> or <kbd>Arrows</kbd>',
       'Swim near a <b style="color:#8cfaff">glowing ring</b> and your tentacles reel it in',
       TOUCH ? 'Tap <b>Burst</b>, or tap with a second finger, for a quick dash' : 'Press <kbd>Space</kbd> to burst',
-      'Red eyes mean danger · Fill the bar to evolve',
+      'Red eyes mean danger · What you eat decides how you evolve',
     ];
     const text = steps[this.tutorial.step];
     this.ui.hint.classList.toggle('show', !!text);

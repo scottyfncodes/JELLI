@@ -39,7 +39,8 @@ export type Behavior =
   | 'lure'
   | 'ambush'
   | 'pack'
-  | 'circle';
+  | 'circle'
+  | 'loom';
 
 export interface RareRule {
   /** Chance per rare roll (every few seconds) before Glow multipliers. */
@@ -51,6 +52,8 @@ export interface RareRule {
   nearCoral?: boolean;
   /** Only appears while the player is riding a current. */
   playerInCurrent?: boolean;
+  /** Only appears once the jelly has swum at least this deep. */
+  minDepth?: number;
 }
 
 export interface HunterDef {
@@ -93,6 +96,13 @@ export interface SpeciesDef {
   power?: PowerId;
   /** Regular spawns tuck in against coral (ambush hunters). */
   spawnNearCoral?: boolean;
+  /** The evolution path eating this creature pushes Jelli toward. Plain plankton has none. */
+  diet?: PathId;
+  /**
+   * Too vast to take in at a glance: the jelly only glimpses it until its light
+   * reaches at least this far, and only then does it count as discovered.
+   */
+  revealLight?: number;
 }
 
 export interface PlayerStats {
@@ -111,11 +121,23 @@ export interface PlayerStats {
   stingCooldown: number;
   stingStun: number;
   stingNova: number;
+  /** Arms that may hunt at once on top of the stage allowance. */
+  extraArms: number;
+  /** 1 lets tentacles reach through coral. */
+  coralReach: number;
+  /** Multiplies the growth and evolution food every meal gives. */
+  foodMult: number;
+  /** Seconds added to the catch-chain window. */
+  comboBonus: number;
+  /** Radius within which pearls drift toward the jelly. */
+  pearlMagnet: number;
 }
 
 export interface PathTier {
   title: string;
   desc: string;
+  /** A few words for the in-run evolution moment. */
+  short: string;
   add?: Partial<PlayerStats>;
   mul?: Partial<PlayerStats>;
 }

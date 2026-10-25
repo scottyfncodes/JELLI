@@ -1,6 +1,8 @@
 import type { SpeciesDef } from '../content/types';
 import type { SkinDef } from '../content/unlocks';
-import { drawCreatureShape, drawJelly, jellyStyleForSpecies, lookFor } from '../render/creatures';
+import type { Tiers } from '../content/evolutions';
+import type { FormId } from '../content/forms';
+import { drawCreatureShape, drawJelly, jellyStyleForSpecies, lookFor, type JellyStyle } from '../render/creatures';
 import { drawGlow } from '../render/sprites';
 
 const SILHOUETTE = '#1b2a62';
@@ -78,4 +80,37 @@ export function renderSkin(canvas: HTMLCanvasElement, skin: SkinDef, cssSize: nu
   ctx.translate(cssSize / 2, cssSize * 0.42);
   drawJelly(ctx, cssSize * 0.22, 1, 0.3, skin, null, false);
   ctx.restore();
+}
+
+/** A particular Jelli as it grew: its colors, evolutions, forms and how well fed it was. */
+export function renderJelli(canvas: HTMLCanvasElement, style: JellyStyle, tiers: Tiers | null, forms: readonly FormId[], maturity: number, cssSize: number): void {
+  const ctx = prep(canvas, cssSize);
+  const s = cssSize;
+  backdrop(ctx, s, style.glow);
+  const r = s * 0.2;
+  ctx.save();
+  // Leave headroom for a crown (needle, lure) and room below for the arms.
+  ctx.translate(s / 2, s * 0.44);
+  drawJelly(ctx, r, 1.2, 0.3, style, tiers, false, 0, { maturity, gulp: 0, gut: '#ffffff' }, forms);
+  ctx.restore();
+}
+
+/** One form worn by a plain moon jelly, or its silhouette while still unknown. */
+export function renderForm(canvas: HTMLCanvasElement, style: JellyStyle, form: FormId, known: boolean, cssSize: number): void {
+  if (known) {
+    renderJelli(canvas, style, null, [form], 0.4, cssSize);
+    return;
+  }
+  const ctx = prep(canvas, cssSize);
+  const s = cssSize;
+  backdrop(ctx, s, null);
+  ctx.save();
+  ctx.translate(s / 2, s * 0.44);
+  drawJelly(ctx, s * 0.2, 1.2, 0.3, { bell: SILHOUETTE, rim: SILHOUETTE, organ: SILHOUETTE, tentacle: SILHOUETTE, glow: SILHOUETTE }, null, true);
+  ctx.restore();
+  ctx.fillStyle = 'rgba(234,246,255,0.5)';
+  ctx.font = `600 ${Math.round(s * 0.22)}px Fraunces Variable, Georgia, serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('?', s / 2, s * 0.44);
 }
