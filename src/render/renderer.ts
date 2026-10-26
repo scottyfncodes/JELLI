@@ -1,6 +1,7 @@
 import { SWEEP, type World, type Creature, type CoralCluster, type Current } from '../sim/world';
 import { canEat, isThreat } from '../sim/rules';
-import { WORLD, darknessAt } from '../content/world';
+import { WORLD, darknessAt, depthMeters, zoneAt } from '../content/world';
+import type { ZoneId } from '../content/types';
 import { BASE_RADIUS, maturity } from '../content/progression';
 import { TAU, angleLerp, clamp, damp, hexToRgb, lerp, rgba } from '../core/math';
 import { bellSize, drawCreatureShape, drawJelly, jellyStyleForSpecies, lookFor, marginalLength, marginalTentacles, type JellyBody, type JellyStyle } from './creatures';
@@ -21,16 +22,40 @@ export interface JoystickView {
 const TENT_SEGS = 22;
 /** Links in each trailing marginal tentacle. */
 const TRAIL_LINKS = 12;
+/** Edge arrows stay below the HUD's depth readout and evolution bar. */
+const HUD_TOP = 120;
+/** Height of one tile of the far parallax layer, in parallax units. */
+const FAR_TILE = 2400;
 
+/** Water color by depth: blue shallows, teal gardens, deep blue drop, sea-green ruins, black abyss, red dream. */
 const WATER_STOPS: [number, string][] = [
   [0, '#2b6eaa'],
-  [1900, '#1d4f8c'],
-  [3800, '#163674'],
-  [5900, '#10265a'],
-  [8000, '#0b1844'],
-  [10300, '#070e2e'],
-  [12000, '#04081c'],
+  [1800, '#1b5a86'],
+  [2800, '#0f4a5c'],
+  [4400, '#10345a'],
+  [6000, '#0e2556'],
+  [7400, '#0b1a40'],
+  [8800, '#082430'],
+  [10800, '#061422'],
+  [12600, '#04081c'],
+  [14600, '#12051c'],
+  [16500, '#2c0a26'],
+  [22000, '#34081c'],
 ];
+
+/** The tint of the dark itself, which turns red in the Hadal Dream. */
+function darkColor(y: number): string {
+  const k = clamp((y - 14000) / 2500, 0, 1);
+  return `${Math.round(lerp(2, 30, k))},${Math.round(lerp(4, 4, k))},${Math.round(lerp(18, 22, k))}`;
+}
+
+/** How a reef cluster is built in each biome: living reef, glowing reef, carved ruin, basalt or crystal. */
+type CoralKind = 'reef' | 'ruin' | 'crystal';
+const BIOME_ROCK: Partial<Record<ZoneId, { kind: CoralKind; base: string; lump: string; polyp: string; glow: number }>> = {
+  forgotten: { kind: 'ruin', base: '#3a4e54', lump: '#71878a', polyp: '#5ee0b0', glow: 0.45 },
+  abyss: { kind: 'reef', base: '#11142a', lump: '#20263f', polyp: '#b8c8ff', glow: 0.5 },
+  hadal: { kind: 'crystal', base: '#3a0e3c', lump: '#8a2a6e', polyp: '#ff6fae', glow: 0.9 },
+};
 
 function waterAt(y: number): [number, number, number] {
   for (let i = 1; i < WATER_STOPS.length; i++) {
@@ -68,9 +93,12 @@ function mix(a: string, b: string, t: number): string {
 }
 
 interface CoralLook {
+  kind: CoralKind;
   base: string;
   lump: string;
   polyp: string;
+  /** How bright its polyps shine. */
+  glow: number;
   /** Circles whose crown isn't buried inside a neighbour get rim light and lumps. */
   exposed: boolean[];
 }
@@ -154,9 +182,10 @@ export class Renderer {
       return out;
     };
     // Parallax layers only need to span the world scaled by their scroll factor.
-    this.far = shapes(110, WORLD.width * 0.35 + 1400, WORLD.height * 0.35 + 1400, 60, 150);
-    for (let i = 0; i < 170; i++) {
-      this.kelp.push({ x: Math.random() * (WORLD.width * 0.6 + 1200) - 600, y: Math.random() * (7200 * 0.6 + 900) - 200, h: 180 + Math.random() * 320, w: 5 + Math.random() * 6, ph: Math.random() * TAU });
+    // Parallax layers tile vertically, so the endless shaft never runs out of background.
+    this.far = shapes(70, WORLD.width * 0.35 + 1400, FAR_TILE, 60, 150);
+    for (let i = 0; i < 110; i++) {
+      this.kelp.push({ x: Math.random() * (WORLD.width * 0.6 + 1200) - 600, y: Math.random() * (1800 * 0.6 + 900) - 200, h: 180 + Math.random() * 320, w: 5 + Math.random() * 6, ph: Math.random() * TAU });
     }
     for (let i = 0; i < 110; i++) {
       this.snow.push({ u: Math.random(), v: Math.random(), f: 0.25 + Math.random() * 0.9, s: 0.6 + Math.random() * 1.6 });
@@ -245,6 +274,7 @@ export class Renderer {
     this.drawKelp();
     this.drawCurrents(world, dt);
     this.drawCorals(world);
+    this.drawRecord();
     this.drawWreck(world);
     this.drawPearls(world);
     this.drawCreatures(world);
@@ -284,7 +314,7 @@ export class Renderer {
   }
 
   private drawRays(): void {
-    const k = clamp(1 - this.camY / 4000, 0, 1);
+    const k = clamp(1 - this.camY / 2600, 0, 1);
     if (k <= 0) return;
     const ctx = this.ctx;
     const { w, h } = this;
@@ -310,26 +340,94 @@ export class Renderer {
     ctx.globalCompositeOperation = 'source-over';
   }
 
-  /** Distant pools of light drifting slowly behind everything. */
+  /**
+   * Distant pools of light drifting slowly behind everything, in the color of the biome just
+   * below: the next place glows up through the water before you reach it.
+   */
   private drawFar(): void {
     const ctx = this.ctx;
     const f = 0.3;
     const z = this.zoom * 0.6;
-    const light = clamp(1 - this.camY / (WORLD.height * 0.93), 0.25, 1);
+    const ahead = zoneAt(this.camY + 1400);
+    const here = zoneAt(this.camY);
+    const color = ahead.id === 'shallows' ? '#6fb6ff' : ahead.color;
+    // Brighter once the water darkens, and brightest just above a new biome.
+    const near = ahead !== here ? 1.6 : 1;
+    const alpha = (0.06 + 0.1 * darknessAt(this.camY)) * near;
     ctx.globalCompositeOperation = 'lighter';
     for (const s of this.far) {
       const x = (s.x - this.camX * f) * z + this.w / 2;
-      const y = (s.y - this.camY * f) * z + this.h / 2;
+      const py = (((s.y - this.camY * f) % FAR_TILE) + FAR_TILE) % FAR_TILE;
+      const y = (py - FAR_TILE / 2) * z + this.h / 2;
       const rr = s.r[0] * z * 2.4;
       if (x < -rr || x > this.w + rr || y < -rr || y > this.h + rr) continue;
-      drawGlow(ctx, '#6fb6ff', x, y, rr, 0.07 * light);
+      drawGlow(ctx, color, x, y, rr, alpha);
     }
     ctx.globalCompositeOperation = 'source-over';
+    this.drawGiants();
+  }
+
+  /**
+   * Below the Twilight Drop, something enormous is always passing far off in the dark: a dim
+   * silhouette with a string of lights, crossing slowly behind everything. It never comes closer.
+   */
+  private drawGiants(): void {
+    const depth = this.camY;
+    if (depth < 6800) return;
+    const ctx = this.ctx;
+    const k = clamp((depth - 6800) / 1200, 0, 1);
+    const t = this.reducedMotion ? this.time * 0.3 : this.time;
+    const span = this.w + 900;
+    const period = span / 22;
+    const lap = Math.floor(t / period);
+    const x = ((t % period) / period) * span - 450;
+    const dir = lap % 2 === 0 ? 1 : -1;
+    const sx = dir > 0 ? x : this.w - x;
+    const sy = this.h * (0.25 + hash(lap) * 0.5) + Math.sin(t * 0.2) * 20;
+    const hadal = depth > 14600;
+    const len = Math.min(this.w, this.h) * (hadal ? 0.9 : 1.2);
+    const body = hadal ? 'rgba(40,6,30,0.55)' : 'rgba(2,6,14,0.5)';
+    const lamp = hadal ? '#ff6fae' : zoneAt(depth).color;
+    ctx.save();
+    ctx.globalAlpha = k;
+    ctx.translate(sx, sy);
+    ctx.scale(dir, 1);
+    ctx.fillStyle = body;
+    ctx.beginPath();
+    if (hadal) {
+      // A jelly the size of the sky, trailing arms.
+      ctx.ellipse(0, 0, len * 0.35, len * 0.22, 0, Math.PI, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = body;
+      ctx.lineWidth = len * 0.02;
+      for (let i = 0; i < 6; i++) {
+        const ax = (i - 2.5) * len * 0.1;
+        ctx.beginPath();
+        ctx.moveTo(ax, 0);
+        ctx.quadraticCurveTo(ax + Math.sin(t * 0.4 + i) * len * 0.1, len * 0.4, ax + Math.sin(t * 0.3 + i * 2) * len * 0.15, len * 0.8);
+        ctx.stroke();
+      }
+    } else {
+      // A long, slow leviathan.
+      ctx.moveTo(-len * 0.5, 0);
+      ctx.quadraticCurveTo(-len * 0.1, -len * 0.12, len * 0.35, -len * 0.04);
+      ctx.quadraticCurveTo(len * 0.55, 0, len * 0.35, len * 0.05);
+      ctx.quadraticCurveTo(-len * 0.1, len * 0.1, -len * 0.5, 0);
+      ctx.fill();
+    }
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 9; i++) {
+      const lx = (hadal ? (i / 8 - 0.5) * len * 0.62 : -len * 0.4 + (i / 8) * len * 0.75);
+      const ly = hadal ? -Math.sin((i / 8) * Math.PI) * len * 0.18 : Math.sin(i * 0.9) * len * 0.015;
+      drawGlow(ctx, lamp, lx, ly, len * 0.025, 0.5 + 0.4 * Math.sin(t * 1.5 + i));
+    }
+    ctx.restore();
   }
 
   /** Swaying kelp silhouettes in a mid parallax layer, fading out with depth. */
   private drawKelp(): void {
-    const k = clamp(1 - (this.camY - 3400) / 3400, 0, 1);
+    const k = clamp(1 - (this.camY - 1400) / 1400, 0, 1);
     if (k <= 0) return;
     const ctx = this.ctx;
     const f = 0.6;
@@ -362,12 +460,15 @@ export class Renderer {
     const W = this.w + 40;
     const H = this.h + 40;
     const t = this.reducedMotion ? 0 : this.time;
-    ctx.fillStyle = layer > 1 ? 'rgba(220,240,255,0.35)' : 'rgba(200,230,255,0.22)';
+    // In the Hadal Dream the snow falls upward.
+    const hadal = this.camY > 14600;
+    const fall = hadal ? -6 : 6;
+    ctx.fillStyle = hadal ? (layer > 1 ? 'rgba(255,170,210,0.4)' : 'rgba(255,150,200,0.25)') : layer > 1 ? 'rgba(220,240,255,0.35)' : 'rgba(200,230,255,0.22)';
     for (let i = layer > 1 ? 0 : 1; i < this.snow.length; i += 2) {
       const s = this.snow[i];
       const f = s.f * layer;
       let x = (s.u * W - this.camX * this.zoom * f + Math.sin(t * 0.3 + i) * 8) % W;
-      let y = (s.v * H - this.camY * this.zoom * f + t * 6 * s.f) % H;
+      let y = (s.v * H - this.camY * this.zoom * f + t * fall * s.f) % H;
       if (x < 0) x += W;
       if (y < 0) y += H;
       const size = s.s * (layer > 1 ? 1.4 : 1);
@@ -415,11 +516,16 @@ export class Renderer {
     let look = this.coralLooks.get(cl);
     if (!look) {
       const pal = CORAL_PALETTES[Math.floor(cl.hue * CORAL_PALETTES.length) % CORAL_PALETTES.length];
-      const depth = clamp(((cl.minY + cl.maxY) / 2) / WORLD.height, 0, 1);
+      const rock = BIOME_ROCK[cl.zone];
+      const depth = clamp(((cl.minY + cl.maxY) / 2) / 7400, 0, 1);
+      const gardens = cl.zone === 'gardens';
       look = {
-        base: mix(pal[0], '#0a0d2c', 0.25 + depth * 0.55),
-        lump: mix(pal[1], '#121845', 0.15 + depth * 0.55),
-        polyp: depth > 0.55 ? '#7ff0ff' : pal[2],
+        kind: rock?.kind ?? 'reef',
+        base: rock?.base ?? mix(pal[0], '#0a0d2c', 0.25 + depth * 0.55),
+        lump: rock?.lump ?? mix(pal[1], '#121845', 0.15 + depth * 0.55),
+        // The Glow Gardens' reef shines green and gold.
+        polyp: rock?.polyp ?? (gardens ? (cl.hue < 0.5 ? '#7dffb9' : '#ffd27a') : depth > 0.6 ? '#7ff0ff' : pal[2]),
+        glow: rock?.glow ?? (gardens ? 1 : 0.6),
         exposed: cl.circles.map((c) => !cl.circles.some((o) => o !== c && Math.hypot(c.x - o.x, c.y - c.r * 0.8 - o.y) < o.r * 0.95)),
       };
       this.coralLooks.set(cl, look);
@@ -435,8 +541,12 @@ export class Renderer {
     for (const cl of world.corals) {
       if (cl.maxX < this.camX - hw - 20 || cl.minX > this.camX + hw + 20 || cl.maxY < this.camY - hh - 20 || cl.minY > this.camY + hh + 20) continue;
       const look = this.coralLook(cl);
-      // Sea fans behind the rock.
-      ctx.strokeStyle = rgba(look.polyp, 0.28);
+      if (look.kind === 'crystal') {
+        this.drawCrystal(cl, look);
+        continue;
+      }
+      // Sea fans behind the rock (ruins have none).
+      ctx.strokeStyle = rgba(look.polyp, look.kind === 'ruin' ? 0 : 0.28);
       ctx.lineWidth = Math.max(1, 2 * z);
       ctx.beginPath();
       cl.circles.forEach((c, i) => {
@@ -500,11 +610,92 @@ export class Renderer {
           const x = this.sx(c.x + Math.cos(a) * c.r * 0.92);
           const y = this.sy(c.y + Math.sin(a) * c.r * 0.92);
           const tw = 0.55 + 0.45 * Math.sin(t * 1.5 + i * 3 + k);
-          drawGlow(ctx, look.polyp, x, y, Math.max(2, 7 * z), 0.6 * tw);
+          drawGlow(ctx, look.polyp, x, y, Math.max(2, 7 * z * (0.6 + look.glow * 0.5)), look.glow * tw);
         }
       });
       ctx.globalCompositeOperation = 'source-over';
+      if (look.kind === 'ruin') {
+        // Carved bands and a worn ring on every stone: someone shaped these, long ago.
+        ctx.strokeStyle = 'rgba(170,220,205,0.4)';
+        ctx.lineWidth = Math.max(1, 1.6 * z);
+        ctx.beginPath();
+        cl.circles.forEach((c, i) => {
+          const x = this.sx(c.x);
+          const y = this.sy(c.y);
+          const r = c.r * z;
+          for (const f of [-0.35, 0.2]) {
+            const hw = Math.sqrt(1 - f * f) * r * 0.9;
+            ctx.moveTo(x - hw, y + f * r);
+            ctx.lineTo(x + hw, y + f * r);
+          }
+          if (hash(cl.seed + i) < 0.5) {
+            ctx.moveTo(x + r * 0.35, y - r * 0.1);
+            ctx.arc(x, y - r * 0.1, r * 0.35, 0, TAU);
+          }
+        });
+        ctx.stroke();
+      }
     }
+  }
+
+  /** A Hadal crystal: each reef circle grows as a glowing six-sided shard. */
+  private drawCrystal(cl: CoralCluster, look: CoralLook): void {
+    const ctx = this.ctx;
+    const z = this.zoom;
+    const t = this.reducedMotion ? 0 : this.time;
+    const top = this.sy(cl.minY);
+    const bottom = this.sy(cl.maxY);
+    const g = ctx.createLinearGradient(0, top, 0, bottom);
+    g.addColorStop(0, look.lump);
+    g.addColorStop(1, look.base);
+    ctx.fillStyle = g;
+    ctx.strokeStyle = rgba(look.polyp, 0.55 + 0.2 * Math.sin(t * 1.2 + cl.seed));
+    ctx.lineWidth = Math.max(1, 1.8 * z);
+    ctx.beginPath();
+    cl.circles.forEach((c, i) => {
+      const x = this.sx(c.x);
+      const y = this.sy(c.y);
+      const r = c.r * z * 1.06;
+      const rot = hash(cl.seed + i) * TAU;
+      for (let k = 0; k <= 6; k++) {
+        const a = rot + (k / 6) * TAU;
+        const px = x + Math.cos(a) * r;
+        const py = y + Math.sin(a) * r * 1.15;
+        if (k === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+    });
+    ctx.fill();
+    ctx.stroke();
+    ctx.globalCompositeOperation = 'lighter';
+    cl.circles.forEach((c, i) => {
+      drawGlow(ctx, look.polyp, this.sx(c.x), this.sy(c.y - c.r * 0.3), c.r * z * 0.8, 0.18 + 0.1 * Math.sin(t * 0.8 + i));
+    });
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  /** Your deepest dive, drawn across the water: pass it and the record is yours again. */
+  recordY = 0;
+
+  private drawRecord(): void {
+    const y0 = this.recordY;
+    if (y0 <= 0) return;
+    const y = this.sy(y0);
+    if (y < -20 || y > this.h + 20) return;
+    const ctx = this.ctx;
+    ctx.strokeStyle = 'rgba(255,210,122,0.5)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([10, 10]);
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(this.w, y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(255,226,163,0.85)';
+    ctx.font = '700 12px Outfit Variable, system-ui, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(`YOUR RECORD · ${Math.round(depthMeters(y0)).toLocaleString('en-US')} M`, this.w - 16, y - 6);
   }
 
   private drawWreck(world: World): void {
@@ -1013,9 +1204,10 @@ export class Renderer {
     const y = this.sy(p.y);
     const light = p.stats.lightRadius * this.zoom * (1 + 0.03 * Math.sin(this.time * 2));
     const g = ctx.createRadialGradient(x, y, light * 0.15, x, y, light);
-    g.addColorStop(0, 'rgba(2,4,18,0)');
-    g.addColorStop(0.5, `rgba(2,4,18,${dark * 0.25})`);
-    g.addColorStop(1, `rgba(2,4,18,${dark})`);
+    const dc = darkColor(this.camY);
+    g.addColorStop(0, `rgba(${dc},0)`);
+    g.addColorStop(0.5, `rgba(${dc},${dark * 0.25})`);
+    g.addColorStop(1, `rgba(${dc},${dark})`);
     ctx.fillStyle = g;
     ctx.fillRect(-20, -20, this.w + 40, this.h + 40);
   }
@@ -1133,7 +1325,7 @@ export class Renderer {
       if (!this.onScreen(x, y, -c.r * z * 0.3) && Math.hypot(c.x - p.x, c.y - p.y) < world.viewRadius * 1.25) {
         const a = Math.atan2(y - py, x - px);
         const ex = clamp(px + Math.cos(a) * 2000, 26, this.w - 26);
-        const ey = clamp(py + Math.sin(a) * 2000, 26, this.h - 26);
+        const ey = clamp(py + Math.sin(a) * 2000, HUD_TOP, this.h - 26);
         const chasing = c.state === 'chase' || c.state === 'notice';
         this.drawChevron(ex, ey, a, chasing ? '#ff5d5d' : 'rgba(255,140,140,0.6)');
       }
@@ -1148,7 +1340,7 @@ export class Renderer {
       if (d < 1600 && !this.onScreen(cx, cy, -20)) {
         const a = Math.atan2(cy - py, cx - px);
         const ex = clamp(px + Math.cos(a) * 2000, 30, this.w - 30);
-        const ey = clamp(py + Math.sin(a) * 2000, 70, this.h - 30);
+        const ey = clamp(py + Math.sin(a) * 2000, HUD_TOP, this.h - 30);
         const pulse = 0.55 + 0.45 * Math.sin(this.time * 3);
         ctx.globalCompositeOperation = 'lighter';
         drawGlow(ctx, '#ffd27a', ex, ey, 18, pulse * 0.8);

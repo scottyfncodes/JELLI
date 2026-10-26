@@ -1,8 +1,10 @@
 import { CHALLENGES, type ChallengeDef, type ChallengeMetric } from '../content/challenges';
 import { SPECIES, SPECIES_BY_ID } from '../content/species';
+import { ZONES } from '../content/world';
 import { FORMS, FORM_ORDER, type FormId } from '../content/forms';
 import type { UnlockId } from '../content/unlocks';
 import type { SaveData } from '../persistence/save';
+import type { ZoneId } from '../content/types';
 
 /** Everything the end-of-run summary and challenges need to know about a run. */
 export interface RunStats {
@@ -32,6 +34,8 @@ export interface RunStats {
   glimpsed: string[];
   /** The state the jelly was caught in, if it was caught. */
   death: DeathInfo | null;
+  /** Biomes reached this run, in the order they were reached. */
+  biomes: ZoneId[];
 }
 
 export interface DeathInfo {
@@ -43,6 +47,12 @@ export interface DeathInfo {
   lastSweep: number;
   /** How the hunter that caught it hunts. */
   behavior: string;
+  /** 0..1 how dark the water was. */
+  dark?: number;
+  /** How far the jelly's light reached. */
+  light?: number;
+  /** The hunter's size relative to the jelly. */
+  size?: number;
 }
 
 export function emptyRunStats(): RunStats {
@@ -67,6 +77,7 @@ export function emptyRunStats(): RunStats {
     forms: [],
     glimpsed: [],
     death: null,
+    biomes: ['shallows'],
   };
 }
 
@@ -157,6 +168,10 @@ export interface RunOutcome {
   newBest: boolean;
   /** The biggest sweep on record before this run. */
   prevBestSweep: number;
+  /** The deepest dive on record before this run, in world units. */
+  prevBestDepth: number;
+  /** Biomes reached for the first time ever this run. */
+  newBiomes: ZoneId[];
 }
 
 /** Applies a finished run to the save: discoveries, bests, stats, challenges, unlocks. */
@@ -164,6 +179,8 @@ export function applyRun(save: SaveData, run: RunStats, now = Date.now()): RunOu
   const newDiscoveries = recordDiscoveries(save, run.seen, run.eatenBySpecies, now);
   const newBest = run.score > save.best.score;
   const prevBestSweep = save.best.sweep;
+  const prevBestDepth = save.best.depth;
+  const newBiomes = (run.biomes ?? []).filter((id) => !save.biomes.includes(id));
   if (newBest) save.best.score = run.score;
   save.best.mass = Math.max(save.best.mass, run.mass);
   save.stats.runs += 1;
@@ -173,6 +190,8 @@ export function applyRun(save: SaveData, run: RunStats, now = Date.now()): RunOu
   save.stats.chests += run.chest ?? 0;
   save.best.combo = Math.max(save.best.combo, run.bestCombo ?? 0);
   save.best.sweep = Math.max(save.best.sweep, run.bestSweep ?? 0);
+  if (run.maxDepth > save.best.depth) save.best.depth = run.maxDepth;
+  for (const id of run.biomes ?? []) if (!save.biomes.includes(id)) save.biomes.push(id);
   // The newest form passes on by default; the results screen lets the player pick another.
   const forms = run.forms ?? [];
   for (const id of forms) recordForm(save, id);
@@ -191,7 +210,7 @@ export function applyRun(save: SaveData, run: RunStats, now = Date.now()): RunOu
       }
     }
   }
-  return { newDiscoveries, completed, unlocked, newBest, prevBestSweep };
+  return { newDiscoveries, completed, unlocked, newBest, prevBestSweep, prevBestDepth, newBiomes };
 }
 
 /** The next unfinished challenge, for nudging the player toward another run. */
@@ -234,9 +253,17 @@ export function deathLesson(run: RunStats): string | null {
   const d = run.death;
   if (!d) return null;
   const chaser = d.behavior === 'stalk' || d.behavior === 'pack';
+  // The deep asks for a different Jelli: light to see by, and size to not be a snack.
+  if ((d.dark ?? 0) > 0.6 && (d.light ?? 999) < 400) return 'In the dark you saw it too late. Glowing prey grow your light.';
+  if ((d.size ?? 0) > 2.2) return 'It was more than twice your size. Feed up before diving this deep, or dive past it faster.';
   if (d.burstReady) return chaser ? 'You had a burst ready. Burst away before it closes in.' : 'You had a burst ready. When the red line appears, burst across it.';
   if (d.lastSweep > 0 && d.sinceBurst < 3) {
     return `You spent your burst sweeping up ${d.lastSweep} just before it struck. Worth it?`;
   }
   return 'Your burst was still recharging. Keep one ready when red eyes are near.';
+}
+
+/** The next biome below the deepest one this player has ever reached, if any is left unseen. */
+export function nextBiome(save: SaveData): (typeof ZONES)[number] | null {
+  return ZONES.find((z) => !save.biomes.includes(z.id)) ?? null;
 }

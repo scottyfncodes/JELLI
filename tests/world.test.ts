@@ -246,15 +246,17 @@ describe('world simulation', () => {
     expect(w.ended).toBeNull();
   });
 
-  it('hunters spawned late in a run are bigger', () => {
+  it('hunters are bigger the deeper they spawn, and a little bigger late in a run', () => {
     const w = makeWorld();
-    const early = w.spawn(SPECIES_BY_ID['gulper-eel'], 0, 0).r / SPECIES_BY_ID['gulper-eel'].radius;
-    w.time = 20 * 60;
-    const late = w.spawn(SPECIES_BY_ID['gulper-eel'], 0, 0).r / SPECIES_BY_ID['gulper-eel'].radius;
-    expect(late).toBeGreaterThan(early * 1.4);
+    const size = (y: number) => w.spawn(SPECIES_BY_ID['gulper-eel'], 0, y).r / SPECIES_BY_ID['gulper-eel'].radius;
+    const shallow = size(1000);
+    const deep = size(14600);
+    expect(deep).toBeGreaterThan(shallow * 1.4);
     expect(hunterScale(0)).toBe(1);
-    // An apex-size jelly is still prey for a late-run gulper.
-    expect(late * SPECIES_BY_ID['gulper-eel'].radius).toBeGreaterThan(60);
+    expect(hunterScale(0, 14600)).toBeGreaterThan(1.5);
+    expect(hunterScale(20 * 60, 1000)).toBeGreaterThan(hunterScale(0, 1000));
+    // An apex-size jelly is still prey for a gulper at the bottom of the Abyss.
+    expect(deep * SPECIES_BY_ID['gulper-eel'].radius).toBeGreaterThan(60);
   });
 
   it('a full-grown jelly is still hunted in every zone late in a run', () => {
@@ -312,12 +314,12 @@ describe('world simulation', () => {
     p.tiers.glow = 2;
     ids = w.eligibleRares().map((d) => d.id);
     expect(ids).toContain('aurora-jelly');
-    // Nautilus only appears in the twilight after some time.
-    p.y = 5000;
+    // Nautilus only appears in the Glow Gardens after some time.
+    p.y = 3000;
     expect(w.eligibleRares().map((d) => d.id)).not.toContain('golden-nautilus');
     w.time = 60;
     expect(w.eligibleRares().map((d) => d.id)).toContain('golden-nautilus');
-    // Ghost Ray needs the abyss, stage 2 and a current.
+    // Ghost Ray needs the Forgotten Depths, stage 2 and a current.
     p.y = 9000;
     p.stage = 2;
     p.inCurrent = false;

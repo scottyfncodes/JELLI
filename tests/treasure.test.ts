@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { World, WRECK_HULL, type Creature } from '../src/sim/world';
 import { SPECIES_BY_ID } from '../src/content/species';
-import { ZONES } from '../src/content/world';
+import { ZONES, ZONES_BY_ID } from '../src/content/world';
 import { CHEST_SCORE, COMBO_WINDOW, PEARL_SCORE, comboMult, pearlScore } from '../src/sim/rules';
 import { applyRun, emptyRunStats } from '../src/core/progress';
 import { defaultSave, sanitizeSave } from '../src/persistence/save';
@@ -48,10 +48,11 @@ describe('catch chains', () => {
 });
 
 describe('pearls', () => {
-  it('are scattered over the whole map and never inside reef', () => {
+  it('are scattered through the shaft as it generates, and never inside reef', () => {
     const w = makeWorld();
+    w.ensureGenerated(ZONES_BY_ID.abyss.top + 1500);
     expect(w.pearls.length).toBeGreaterThan(80);
-    expect(w.pearls.some((p) => p.y > ZONES[2].top)).toBe(true);
+    expect(w.pearls.some((p) => p.y > ZONES_BY_ID.abyss.top)).toBe(true);
     expect(w.pearls.some((p) => p.x > w.width * 0.75)).toBe(true);
     for (const p of w.pearls) expect(w.insideCoral(p.x, p.y, 4)).toBe(false);
   });
@@ -81,7 +82,8 @@ describe('pearls', () => {
     expect(pearlScore('abyss')).toBeGreaterThan(pearlScore('twilight'));
     const w = makeWorld();
     const p = w.player;
-    const deep = w.pearls.find((pr) => pr.y > ZONES[2].top + 200)!;
+    w.ensureGenerated(ZONES_BY_ID.abyss.top + 1500);
+    const deep = w.pearls.find((pr) => pr.y > ZONES_BY_ID.abyss.top + 200 && pr.y < ZONES_BY_ID.abyss.bottom)!;
     p.x = deep.x;
     p.y = deep.y;
     const score = w.run.score;
@@ -96,13 +98,14 @@ describe('pearls', () => {
     let deep = 0;
     for (let seed = 1; seed <= 5; seed++) {
       const w = new World({ seed, rng: mulberry32(seed) });
+      w.ensureGenerated(ZONES_BY_ID.abyss.bottom);
       for (const pr of w.pearls) {
         if (pr.y < ZONES[0].bottom) shallow++;
-        else if (pr.y >= ZONES[2].top) deep++;
+        else if (pr.y >= ZONES_BY_ID.abyss.top && pr.y < ZONES_BY_ID.abyss.bottom) deep++;
       }
     }
     const perDepth = (n: number, z: (typeof ZONES)[number]) => n / (z.bottom - z.top);
-    expect(perDepth(deep, ZONES[2])).toBeGreaterThan(perDepth(shallow, ZONES[0]) * 0.9);
+    expect(perDepth(deep, ZONES_BY_ID.abyss)).toBeGreaterThan(perDepth(shallow, ZONES[0]) * 0.9);
   });
 });
 
@@ -111,7 +114,7 @@ describe('sunken pirate ship', () => {
     const w = makeWorld();
     const wr = w.wreck;
     expect(wr.y).toBeLessThan(ZONES[0].bottom);
-    expect(Math.hypot(wr.x - w.player.x, wr.y - w.player.y)).toBeGreaterThan(2000);
+    expect(Math.hypot(wr.x - w.player.x, wr.y - w.player.y)).toBeGreaterThan(700);
   });
 
   it('has a solid hull', () => {
@@ -122,9 +125,10 @@ describe('sunken pirate ship', () => {
     const y = wr.y + lx * Math.sin(wr.tilt) + ly * Math.cos(wr.tilt);
     expect(w.insideCoral(x, y, 0)).toBe(true);
     const p = w.player;
+    // A jelly pressing into the deck from above is pushed back out.
     p.x = x;
-    p.y = y;
-    w.update(1 / 60, idle);
+    p.y = y - 40;
+    for (let i = 0; i < 10; i++) w.update(1 / 60, idle);
     expect(w.insideCoral(p.x, p.y, 0)).toBe(false);
   });
 

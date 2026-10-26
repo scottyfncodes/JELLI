@@ -322,16 +322,6 @@ h2 {
   text-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
 }
 
-.tide {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-  color: var(--ink-dim);
-}
-
 .powers {
   position: absolute;
   left: calc(var(--sal) + var(--gutter));
@@ -1376,21 +1366,6 @@ input[type='range']::-moz-range-thumb {
   text-transform: uppercase;
 }
 
-.hud-pearls {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--ink-dim);
-}
-
-.pearl-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #fff 0 25%, #eadcf2 60%, #b9a7cf 100%);
-  box-shadow: 0 0 6px rgba(255, 240, 250, 0.6);
-}
-
 .combo {
   position: absolute;
   left: 50%;
@@ -1632,11 +1607,12 @@ input[type='range']::-moz-range-thumb {
 
 /* ------------------------------------------------------------ sweep */
 
-/* A sweep's haul, popping just above the jelly. */
+/* A sweep's haul or a new record, popping up just below the jelly. */
 .sweep-pop {
   position: absolute;
   left: 50%;
-  top: 34%;
+  /* In the open water below the jelly, which the camera keeps high on the screen. */
+  top: 54%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1715,4 +1691,100 @@ input[type='range']::-moz-range-thumb {
   font-size: 12px;
   font-weight: 500;
   color: var(--ink-faint);
+}
+
+/* ------------------------------------------------------------ depth */
+
+/* One band per biome under the depth readout: dark until reached, a gold record tick, and you. */
+.biome-strip {
+  position: relative;
+  display: flex;
+  gap: 2px;
+  width: 112px;
+  height: 5px;
+  margin-top: 6px;
+}
+
+.biome-strip i {
+  flex: 1;
+  border-radius: 2px;
+  background: var(--c);
+  opacity: 0.7;
+}
+
+.biome-strip i.unseen {
+  background: transparent;
+  box-shadow: 0 0 0 1px rgba(234, 246, 255, 0.25) inset;
+  opacity: 1;
+}
+
+.biome-strip b {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.biome-strip .rec {
+  width: 2px;
+  height: 11px;
+  border-radius: 1px;
+  background: var(--gold);
+}
+
+.biome-strip .you {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.8);
+  transition: left 200ms linear;
+}
+
+.results-head .eyebrow {
+  margin: 0;
+}
+
+.results-head .big-score {
+  margin-top: 6px;
+}
+
+.results-head h2 {
+  margin: 6px 0 0;
+}
+
+.results-head .record-note {
+  margin: 6px 0 0;
+  color: var(--gold);
+  font-weight: 600;
+}
+
+.results-head .how {
+  margin-top: 12px;
+  line-height: 1.5;
+}
+
+.results-head .how b {
+  color: var(--ink);
+}
+
+.descent {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.descent em {
+  font-style: normal;
+  font-weight: 700;
+  color: var(--gold);
+}
+
+.below {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 40%, transparent) inset, 0 0 40px color-mix(in srgb, var(--c) 12%, transparent);
+}
+
+.below h3 {
+  color: var(--c);
 }

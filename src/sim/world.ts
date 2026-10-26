@@ -1,6 +1,6 @@
 import { SPECIES, PLAYER_SPECIES } from '../content/species';
 import type { PathId, PlayerStats, SpeciesDef, ZoneId } from '../content/types';
-import { WORLD, ZONES, darknessAt, zoneAt, type ZoneDef } from '../content/world';
+import { WORLD, ZONES, darknessAt, zoneAt, zoneIndex, type ZoneDef } from '../content/world';
 import { BASE_STATS, MAX_TIER, computeStats, dietPath, emptyDiet, emptyTiers, type Diet, type Tiers } from '../content/evolutions';
 import { FORM_BY_SOURCE, type FormId } from '../content/forms';
 import {
@@ -8,6 +8,7 @@ import {
   START_MASS,
   STAGES,
   detectionScale,
+  depthPressure,
   escalation,
   evolutionsEarned,
   extraHunters,
@@ -54,6 +55,8 @@ export interface CoralCluster {
   maxY: number;
   hue: number;
   seed: number;
+  /** The biome it grew in, which decides how it looks: reef, ruin or crystal. */
+  zone: ZoneId;
 }
 
 export interface Current {
@@ -212,6 +215,8 @@ export type SimEvent =
 export type RunEnd = 'caught' | null;
 
 const DESPAWN_PAD = 380;
+/** The shaft generates in bands this deep, always a few screens ahead of the jelly. */
+const BAND = 1500;
 /** Ship-local hull colliders [x, y, r]: keel to deck, bow (-x) to the raised stern. Shared with the renderer. */
 export const WRECK_HULL: [number, number, number][] = [
   [-250, 18, 34],
@@ -233,6 +238,10 @@ export const WRECK_HULL: [number, number, number][] = [
   [235, 112, 52],
   [320, 104, 46],
 ];
+/** Swimming down is this much quicker, swimming up this much slower; idle jellies sink this hard. */
+const SINK_BOOST = 0.3;
+const RISE_DRAG = 0.25;
+const IDLE_SINK = 40;
 /** How long a burst's sweep stays open, catching whatever the net passes. */
 /**
  * The sweep's net: open for `time` seconds, reaching the arms' length times `reach` plus the bell
@@ -318,6 +327,9 @@ export class World {
   viewHH = 500;
 
   private nextId = 1;
+  private seed = 0;
+  /** The world has been generated down to here. */
+  private generatedTo = 0;
   private spawnTimer = 0;
   private rareTimer = 3;
   private seen = new Set<string>();
@@ -361,15 +373,33 @@ export class World {
     this.player.charges = this.player.stats.burstCharges;
     this.syncTentacles();
     for (const t of this.tentacles) this.restPoint(t, this.player.r, t);
-    this.generate(mulberry32(seed));
+    this.seed = seed;
+    this.placeWreck(mulberry32(seed));
+    this.ensureGenerated(START_Y + 3000);
     this.markSeen(PLAYER_SPECIES);
   }
 
   // ---------------------------------------------------------------- layout
 
-  private generate(rng: () => number): void {
+  /** Generates reef, pearls and currents down to at least depth `y`, a band at a time. */
+  ensureGenerated(y: number): void {
+    if (!Number.isFinite(y)) return;
+    while (this.generatedTo < y) {
+      const top = this.generatedTo;
+      const band = Math.round(top / BAND);
+      this.generateBand(top, top + BAND, mulberry32((this.seed ^ Math.imul(band + 1, 2654435761)) >>> 0));
+      this.generatedTo = top + BAND;
+    }
+  }
+
+  /**
+   * One band of the shaft: reef walls down both edges, open-water outcrops (some with a gap only a
+   * small jelly fits through), the odd reef mound with a pearl hoard, stray pearls, and the
+   * currents of whichever biome the band lies in: sideways drifts, or down-currents to ride.
+   */
+  private generateBand(top: number, bottom: number, rng: () => number): void {
     const W = this.width;
-    const H = this.height;
+    const zone = zoneAt((top + bottom) / 2);
     const addCluster = (cx: number, cy: number, count: number, minR: number, maxR: number, spread: number) => {
       const circles: Coral[] = [];
       for (let i = 0; i < count; i++) {
@@ -379,42 +409,47 @@ export class World {
       }
       return this.addCoral(circles, rng);
     };
+    const nearWreck = (x: number, y: number, pad: number) => Math.hypot(x - this.wreck.x, y - this.wreck.y) < 360 + pad;
+    const nearStart = (x: number, y: number, pad: number) => Math.hypot(x - START_X, y - START_Y) < pad;
 
-    // Reef walls hugging both edges and the seabed.
-    for (let y = 120; y < H; y += 150 + rng() * 120) {
+    // Reef walls hugging both edges.
+    for (let y = Math.max(120, top) + rng() * 60; y < bottom; y += 150 + rng() * 120) {
       addCluster(-30 + rng() * 40, y, 3, 50, 120, 70);
       addCluster(W + 30 - rng() * 40, y + rng() * 80, 3, 50, 120, 70);
     }
-    for (let x = 80; x < W; x += 170 + rng() * 120) {
-      addCluster(x, H + 20, 3, 60, 130, 80);
-    }
 
-    this.placeWreck(rng);
-    const nearWreck = (x: number, y: number, pad: number) => Math.hypot(x - this.wreck.x, y - this.wreck.y) < 360 + pad;
+    const pearl = (x: number, y: number) => {
+      if (x < 60 || x > W - 60 || y < 500) return;
+      if (this.coralWithin(x, y, 14)) return;
+      this.pearls.push({ x, y, taken: false, seed: rng() * TAU });
+    };
 
-    // Large reef mounds: landmarks to navigate by and cover for hiding prey.
-    const mounds: { x: number; y: number }[] = [];
-    for (let y = 1400; y < H - 600; y += 1100 + rng() * 500) {
-      for (let x = 700 + rng() * 600; x < W - 500; x += 1700 + rng() * 900) {
-        if (Math.hypot(x - START_X, y - START_Y) < 900 || nearWreck(x, y, 260)) continue;
-        addCluster(x, y, 7 + Math.floor(rng() * 5), 40, 120, 190);
-        mounds.push({ x, y });
+    // A reef mound now and then: a landmark, cover for prey, and a pearl hoard (bigger deeper).
+    for (let y = top + 250 + rng() * 500; y < bottom - 100; y += 1300 + rng() * 500) {
+      if (y < 1400) continue;
+      const x = 600 + rng() * (W - 1200);
+      if (nearStart(x, y, 900) || nearWreck(x, y, 260)) continue;
+      addCluster(x, y, 7 + Math.floor(rng() * 5), 40, 120, 190);
+      const n = 3 + Math.floor(rng() * 3) + Math.min(5, zoneIndex(zone.id));
+      const a0 = rng() * TAU;
+      for (let i = 0; i < n; i++) {
+        const a = a0 + (i / n) * TAU * 0.6;
+        pearl(x + Math.cos(a) * 260, y + Math.sin(a) * 210);
       }
     }
 
-    // Open-water outcrops, some paired with a tight gap only small jellies fit through.
-    // Rows hold more outcrops the wider the reef, so open water keeps the same density.
+    // Open-water outcrops; rows hold more outcrops the wider the reef, so open water keeps its density.
     const perRow = W / 2400;
-    for (let y = 700; y < H - 200; y += 230 + rng() * 120) {
+    for (let y = Math.max(700, top) + rng() * 100; y < bottom; y += 230 + rng() * 120) {
       const n = Math.round((1 + (rng() < 0.55 ? 1 : 0)) * perRow);
       for (let k = 0; k < n; k++) {
         const x = 260 + rng() * (W - 520);
-        if (Math.hypot(x - START_X, y - START_Y) < 420 || nearWreck(x, y, 120)) continue;
+        if (nearStart(x, y, 420) || nearWreck(x, y, 120)) continue;
         const r = 40 + rng() * 45;
         // Keep outcrops apart so every gap stays a real, readable passage.
         if (this.coralWithin(x, y, r + 150)) continue;
         const cl = addCluster(x, y, 3 + Math.floor(rng() * 4), 22, r, 70);
-        if (rng() < 0.45) {
+        if (rng() < zone.gaps) {
           const gap = 30 + rng() * 22;
           const r2 = 40 + rng() * 30;
           const side = rng() < 0.5 ? -1 : 1;
@@ -424,18 +459,22 @@ export class World {
       }
     }
 
-    this.placePearls(rng, mounds);
+    for (let i = 0; i < 5; i++) pearl(200 + rng() * (W - 400), top + rng() * (bottom - top));
 
-    const cur = (x: number, y: number, w: number, h: number, fx: number, fy: number) =>
-      this.currents.push({ x, y, w, h, fx, fy });
-    cur(W * 0.08, 2450, W * 0.84, 160, 95, 0);
-    cur(W * 0.55, 1300, W * 0.38, 140, -80, 0);
-    cur(W * 0.06, 5250, W * 0.88, 170, -115, 0);
-    cur(W * 0.2, 4300, 180, 2800, 0, -95);
-    cur(W * 0.78, 3600, 180, 2200, 0, 90);
-    cur(W * 0.1, 6900, W * 0.5, 160, 105, 0);
-    cur(W * 0.08, 9100, W * 0.84, 180, 125, 0);
-    cur(W * 0.1, 10600, W * 0.8, 180, -110, 0);
+    // Currents: a sideways drift in most bands, and in the deep, a current pouring straight down.
+    if (top >= 600 && rng() < 0.75) {
+      const w = W * (0.45 + rng() * 0.4);
+      const dir = rng() < 0.5 ? -1 : 1;
+      this.currents.push({ x: 80 + rng() * (W - 160 - w), y: top + rng() * (BAND - 180), w, h: 150 + rng() * 40, fx: dir * (90 + rng() * 40), fy: 0 });
+    }
+    if (rng() < zone.downCurrents) {
+      this.currents.push({ x: 250 + rng() * (W - 700), y: top + rng() * 300, w: 200, h: BAND * 0.75 + rng() * 500, fx: 0, fy: 130 + rng() * 60 });
+    }
+    // Reef that grew across a band edge can bury pearls laid down by the band above: clear them.
+    for (let i = this.pearls.length - 1; i >= 0; i--) {
+      const pr = this.pearls[i];
+      if (pr.y > top - 400 && pr.y < bottom && this.insideCoral(pr.x, pr.y, 4)) this.pearls.splice(i, 1);
+    }
   }
 
   /**
@@ -445,7 +484,7 @@ export class World {
   private placeWreck(rng: () => number): void {
     const wr = this.wreck;
     wr.x = this.width * 0.3 + (rng() - 0.5) * 500;
-    wr.y = 3000 + rng() * 300;
+    wr.y = 1150 + rng() * 250;
     wr.tilt = -0.1 - rng() * 0.08;
     const cos = Math.cos(wr.tilt);
     const sin = Math.sin(wr.tilt);
@@ -458,29 +497,6 @@ export class World {
     const chest = at(-330, 58);
     wr.chestX = chest.x;
     wr.chestY = chest.y;
-  }
-
-  /** Pearls: a trail spilling from the wreck, small hoards around reef mounds, and strays in open water. */
-  private placePearls(rng: () => number, mounds: { x: number; y: number }[]): void {
-    const add = (x: number, y: number) => {
-      if (x < 60 || x > this.width - 60 || y < 80 || y > this.height - 80) return;
-      if (this.coralWithin(x, y, 14)) return;
-      this.pearls.push({ x, y, taken: false, seed: rng() * TAU });
-    };
-    const wr = this.wreck;
-    for (let i = 0; i < 9; i++) add(wr.chestX - 30 - i * 34 + (rng() - 0.5) * 20, wr.chestY - 10 - i * 16 + (rng() - 0.5) * 20);
-    for (let i = 0; i < 7; i++) add(wr.x - 200 + i * 66, wr.y - 150 - Math.sin((i / 6) * Math.PI) * 60);
-    for (const m of mounds) {
-      // Deeper reef hides bigger hoards.
-      const zone = zoneAt(m.y).id;
-      const n = 3 + Math.floor(rng() * 3) + (zone === 'abyss' ? 4 : zone === 'twilight' ? 2 : 0);
-      const a0 = rng() * TAU;
-      for (let i = 0; i < n; i++) {
-        const a = a0 + (i / n) * TAU * 0.6;
-        add(m.x + Math.cos(a) * 260, m.y + Math.sin(a) * 210);
-      }
-    }
-    for (let i = 0; i < 70; i++) add(200 + rng() * (this.width - 400), 600 + rng() * (this.height - 900));
   }
 
   private indexCoral(c: Coral): void {
@@ -506,7 +522,7 @@ export class World {
       maxY = Math.max(maxY, c.y + c.r);
       this.indexCoral(c);
     }
-    const cluster = { circles, minX, minY, maxX, maxY, hue: rng(), seed: Math.floor(rng() * 1e6) };
+    const cluster = { circles, minX, minY, maxX, maxY, hue: rng(), seed: Math.floor(rng() * 1e6), zone: zoneAt((minY + maxY) / 2).id };
     this.corals.push(cluster);
     return cluster;
   }
@@ -656,6 +672,7 @@ export class World {
     if (this.ended) return;
     this.time += dt;
     const p = this.player;
+    this.ensureGenerated(p.y + 3000);
 
     if (!p.alive) {
       p.deathT += dt;
@@ -665,7 +682,7 @@ export class World {
       p.y += p.vy * dt;
       this.updateCreatures(dt);
       this.updateTentacles(dt);
-      if (p.deathT > 1.5) this.ended = 'caught';
+      if (p.deathT > 1.1) this.ended = 'caught';
       return;
     }
 
@@ -685,6 +702,7 @@ export class World {
     const zone = zoneAt(p.y);
     if (zone !== this.zone) {
       this.zone = zone;
+      if (!this.run.biomes.includes(zone.id)) this.run.biomes.push(zone.id);
       this.events.push({ type: 'zone', zone });
     }
     this.run.maxDepth = Math.max(this.run.maxDepth, p.y);
@@ -715,8 +733,10 @@ export class World {
     p.thrust = contraction;
     const drag = 2.4;
     const accel = maxSp * drag * (0.72 + 0.62 * contraction);
+    // The deep pulls: swimming down is quicker than climbing back up, and an idle jelly sinks.
+    const vert = ay > 0 ? 1 + SINK_BOOST * ay : 1 + RISE_DRAG * ay;
     p.vx += ax * accel * dt;
-    p.vy += ay * accel * dt;
+    p.vy += ay * accel * vert * dt + IDLE_SINK * (1 - mag) * dt;
 
     // Burst
     if (p.charges < st.burstCharges) {
@@ -736,7 +756,8 @@ export class World {
         dy = Math.sin(p.heading);
       }
       const dm = Math.hypot(dx, dy) || 1;
-      const impulse = 340 * st.burstPower;
+      // A burst straight down plunges further than one sideways or up.
+      const impulse = 340 * st.burstPower * (1 + 0.2 * Math.max(0, dy / dm));
       p.vx += (dx / dm) * impulse;
       p.vy += (dy / dm) * impulse;
       p.burstT = 0.55;
@@ -756,8 +777,9 @@ export class World {
     // Gentle idle drift so the jelly never feels frozen.
     p.vy += Math.sin(this.time * 1.3) * 7 * dt * (1 - mag);
 
-    const cap = maxSp * (p.burstT > 0 ? 1 + 1.2 * st.burstPower * (p.burstT / 0.55) : 1.08);
     const sp = Math.hypot(p.vx, p.vy);
+    const sinking = sp > 1 ? p.vy / sp : 0;
+    const cap = maxSp * (p.burstT > 0 ? 1 + 1.2 * st.burstPower * (p.burstT / 0.55) : 1.08) * (1 + (sinking > 0 ? SINK_BOOST : RISE_DRAG) * sinking);
     if (sp > cap) {
       p.vx = (p.vx / sp) * cap;
       p.vy = (p.vy / sp) * cap;
@@ -1344,6 +1366,9 @@ export class World {
             t.cooldown = 0.8;
             break;
           }
+          // The arm is part of a moving body: its tip travels with the bell, so a diving jelly can still strike.
+          t.x += p.x - this.lastPX;
+          t.y += p.y - this.lastPY;
           const left = World.approach(t, c.x, c.y, speed, dt);
           if (left <= c.r * 0.9 + 2) {
             t.phase = 'grab';
@@ -1375,11 +1400,10 @@ export class World {
               t.cooldown = 0.5;
               break;
             }
-            // A sweep's haul rides along with the bell and comes in fast, so the gulps land right after the snap.
-            if (t.sweep) {
-              t.x += p.x - this.lastPX;
-              t.y += p.y - this.lastPY;
-            }
+            // A catch rides along with the bell as it is reeled in; a sweep's haul comes in fast,
+            // so the gulps land right after the snap.
+            t.x += p.x - this.lastPX;
+            t.y += p.y - this.lastPY;
             const left = World.approach(t, mouth.x, mouth.y, tentaclePullSpeed(R, c.r) * (t.sweep ? 2.4 : 1), dt);
             if (left <= R * 0.35) {
               t.phase = 'eat';
@@ -1666,6 +1690,9 @@ export class World {
       sinceBurst: this.time - this.lastBurstT,
       lastSweep: this.lastSweep,
       behavior: c.def.behavior,
+      dark: darknessAt(p.y),
+      light: p.stats.lightRadius,
+      size: c.r / this.playerReach(),
     };
     this.finalizeRun();
     this.events.push({ type: 'caught', def: c.def });
@@ -1791,7 +1818,7 @@ export class World {
         else if (c.def.role === 'predator' && !c.def.rare) hunters += c.def.group ? 2 / (c.def.group[0] + c.def.group[1]) : 1;
       }
       const ramp = this.demo ? 0 : clamp((this.time - 14) / 30, 0, 1);
-      const hunterTarget = Math.round(zone.predators * ramp + (zone.id === 'shallows' && this.time > 70 ? 1 : 0)) + (this.demo ? 0 : extraHunters(this.time));
+      const hunterTarget = Math.round(zone.predators * ramp + (zone.id === 'shallows' && this.time > 70 ? 1 : 0)) + (this.demo ? 0 : extraHunters(this.time, p.y));
       if (prey < zone.prey) this.spawnGroup('prey');
       else if (hunters < hunterTarget) this.spawnGroup('predator');
     }
@@ -1808,8 +1835,10 @@ export class World {
     const p = this.player;
     for (let tries = 0; tries < 8; tries++) {
       // Bias spawns toward the direction of travel so the way ahead feels alive.
+      // A diving jelly meets a stream of life along its path: the faster it goes, the tighter the aim.
       let a = this.rand() * TAU;
-      if (this.rand() < 0.5 && Math.hypot(p.vx, p.vy) > 40) a = Math.atan2(p.vy, p.vx) + (this.rand() - 0.5) * 1.6;
+      const sp = Math.hypot(p.vx, p.vy);
+      if (sp > 40 && this.rand() < (sp > 150 ? 0.75 : 0.5)) a = Math.atan2(p.vy, p.vx) + (this.rand() - 0.5) * (sp > 150 ? 0.8 : 1.6);
       const d = lerp(minD, maxD, this.rand());
       const x = p.x + Math.cos(a) * d;
       const y = p.y + Math.sin(a) * d;
@@ -1866,7 +1895,9 @@ export class World {
       return;
     }
     const [lo, hi] = def.group ?? [1, 1];
-    const n = lo + Math.floor(this.rand() * (hi - lo + 1));
+    // The Glow Gardens' prey gathers in swarms, the best sweeping in the ocean.
+    const swarm = role === 'prey' && def.group ? zoneAt(pt.y).swarm : 1;
+    const n = Math.round((lo + Math.floor(this.rand() * (hi - lo + 1))) * swarm);
     let leader: Creature | null = null;
     for (let i = 0; i < n; i++) {
       const c = this.spawn(def, pt.x + (this.rand() - 0.5) * 70, pt.y + (this.rand() - 0.5) * 70);
@@ -1882,10 +1913,10 @@ export class World {
   }
 
   spawn(def: SpeciesDef, x: number, y: number): Creature {
-    const grow = def.role === 'predator' && !this.demo ? hunterScale(this.time) : 1;
+    const grow = def.role === 'predator' && !this.demo ? hunterScale(this.time, y) : 1;
     let r = def.radius * (1 + (this.rand() * 2 - 1) * def.radiusVar) * grow;
     // Later in a run, the odd lone hunter grows to match the jelly, so no zone is ever fully safe.
-    const esc = def.role === 'predator' && !def.group && !this.demo ? escalation(this.time) : 0;
+    const esc = def.role === 'predator' && !def.group && !this.demo ? Math.max(escalation(this.time), Math.min(1, depthPressure(y))) : 0;
     if (esc > 0 && this.rand() < 0.3 * esc) {
       r = Math.max(r, this.player.r * THREAT_RATIO * (1.05 + this.rand() * 0.2));
     }

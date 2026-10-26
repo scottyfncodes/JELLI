@@ -17,23 +17,32 @@ export const STAGES: StageDef[] = [
   { mass: 165, name: 'Apex' },
 ];
 
-/** Runs have no clock; after a grace period hunters slowly grow in size and number. */
+/** Runs have no clock; after a grace period hunters slowly grow in size and number wherever you are. */
 export const ESCALATION_START = 120;
 export const ESCALATION_SECONDS = 300;
 
-/** 0..1 how far a run has escalated. */
+/** 0..1 how far a run has escalated with time, so lingering in the shallows never stays safe. */
 export function escalation(time: number): number {
   return Math.max(0, Math.min(1, (time - ESCALATION_START) / ESCALATION_SECONDS));
 }
 
-/** Newly spawned hunters grow up to 70% bigger, so even an Apex jelly stays hunted. */
-export function hunterScale(time: number): number {
-  return 1 + 0.7 * escalation(time);
+/**
+ * How dangerous the water is at a depth: 0 in the shallows, 1 at the top of the Hadal Dream,
+ * and still climbing below it, so there is always a depth that will be too much.
+ */
+export function depthPressure(y: number): number {
+  const v = (y - 1800) / 12800;
+  return v <= 1 ? Math.max(0, v) : 1 + (v - 1) * 0.5;
 }
 
-/** Up to two extra hunters on top of each zone's base count. */
-export function extraHunters(time: number): number {
-  return Math.round(2 * escalation(time));
+/** Newly spawned hunters grow with depth (and a little with time), so a deep hunter dwarfs a shallow one. */
+export function hunterScale(time: number, y = 0): number {
+  return 1 + 0.6 * Math.min(1.6, depthPressure(y)) + 0.35 * escalation(time);
+}
+
+/** Extra hunters on top of each zone's base count: one for lingering, more far below the Abyss. */
+export function extraHunters(time: number, y = 0): number {
+  return Math.round(escalation(time)) + Math.floor(Math.max(0, depthPressure(y) - 1) * 2);
 }
 
 /**

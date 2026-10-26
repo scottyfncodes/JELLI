@@ -12,6 +12,7 @@ import { applyRun, recordDiscoveries, recordForm, recordGlimpse } from './core/p
 import { PATHS, type Tiers } from './content/evolutions';
 import { FORMS, isFormId } from './content/forms';
 import { EVOLUTION_FOOD, STAGES, evolutionProgress, maturity } from './content/progression';
+import { depthMeters, zoneIndex } from './content/world';
 import { RARITY_LABEL, SPECIES_BY_ID } from './content/species';
 import { SKINS_BY_ID, TRAITS_BY_ID } from './content/unlocks';
 import { WORLD } from './content/world';
@@ -24,7 +25,9 @@ import {
   collectBinds,
   fmt,
   markDietLead,
-  mmss,
+  meters,
+  moveBiomeStrip,
+  renderBiomeStrip,
   renderCharges,
   renderDetail,
   renderGuide,
@@ -82,7 +85,7 @@ class Game {
   }
 
   private static freshHud() {
-    return { score: -1, tide: -1, growth: -1, diet: '', lead: '', stage: -1, cd: -1, charges: -1, maxCharges: -1, sting: '', tiers: '', powers: '', combo: -1, comboBar: -1, pearls: -1, beaten: false };
+    return { depth: -1, strip: -1, growth: -1, diet: '', lead: '', stage: -1, cd: -1, charges: -1, maxCharges: -1, sting: '', tiers: '', powers: '', combo: -1, comboBar: -1, beaten: false };
   }
 
   // ------------------------------------------------------------ setup
@@ -166,6 +169,7 @@ class Game {
     const h = this.app.clientHeight;
     this.renderer.resize(w, h, Math.min(2, window.devicePixelRatio || 1));
     if (this.state === 'title') this.frameTitle();
+    else this.renderer.focusOffset = this.renderer.h * 0.12;
     this.syncView();
   }
 
@@ -209,6 +213,7 @@ class Game {
     this.input.enabled = false;
     this.input.reset();
     this.world = new World({ demo: true, tiers: this.startTiers(), forms: this.startForms() });
+    this.renderer.recordY = 0;
     this.frameTitle();
     this.syncView();
     this.renderer.snapCamera(this.world);
@@ -376,11 +381,15 @@ class Game {
     this.tutorial = { step: this.save.tutorialDone ? 99 : 0, t: 0, eats: 0 };
     this.updateHint();
     const heir = this.save.heirloom;
-    this.zoneToast(this.world.zone.name, heir ? `Hatched wearing ${FORMS[heir].name}` : 'Eat smaller creatures to grow');
-    this.bestAtStart = this.save.best.score;
+    this.zoneToast(this.world.zone.name, heir ? `Hatched wearing ${FORMS[heir].name}` : 'Feed up, then dive');
+    this.bestAtStart = this.save.best.depth;
     this.sweepRecord = this.save.best.sweep;
     this.ui.sweepPop.classList.remove('go');
-    this.ui.hudBest.textContent = this.bestAtStart > 0 ? `Best ${fmt(this.bestAtStart)}` : '';
+    this.renderer.recordY = this.bestAtStart;
+    // Frame the jelly high on the screen: in a descent, what matters is what lies below.
+    this.renderer.focusOffset = this.renderer.h * 0.12;
+    renderBiomeStrip(this.ui.biomeStrip, this.save.biomes, this.bestAtStart);
+    this.ui.hudBest.textContent = this.bestAtStart > 0 ? `Record ${meters(this.bestAtStart)}` : '';
     this.ui.hudBest.classList.remove('beaten');
   }
 
@@ -418,7 +427,7 @@ class Game {
     this.input.enabled = false;
     this.input.reset();
     const run = this.world.run;
-    track('game_complete', { result: 'lose', stage: run.stage });
+    track('game_complete', { result: 'lose', stage: run.stage, depth: Math.round(depthMeters(run.maxDepth)) });
     // Discoveries were recorded the moment they happened; only eaten counts remain.
     const outcome = applyRun(this.save, { ...run, seen: [] });
     outcome.newDiscoveries = this.runNew;
@@ -561,14 +570,7 @@ class Game {
         this.renderer.addShake(Math.min(0.5, 0.08 + e.n * 0.04));
         const record = e.n > this.sweepRecord && e.n >= 3;
         if (record) this.sweepRecord = e.n;
-        const pop = this.ui.sweepPop;
-        this.ui.sweepN.textContent = `Sweep ×${e.n}`;
-        this.ui.sweepBonus.textContent = record ? `New record · +${fmt(e.bonus)}` : `+${fmt(e.bonus)}`;
-        pop.classList.toggle('record', record);
-        pop.classList.toggle('big', e.n >= 6);
-        pop.classList.remove('go');
-        void pop.offsetWidth;
-        pop.classList.add('go');
+        this.callout(`Sweep ×${e.n}`, record ? `New record · +${fmt(e.bonus)}` : `+${fmt(e.bonus)}`, record, e.n >= 6);
         break;
       }
       case 'burst':
@@ -621,9 +623,18 @@ class Game {
         ps.burst(p.x, p.y, 30, 200, 5, this.renderer.playerStyle.glow, 1);
         break;
       case 'zone': {
-        const sub = e.zone.id === 'shallows' ? 'Sunlight and safety' : e.zone.id === 'twilight' ? 'Darker water · Bigger hunters' : 'Only light you bring';
-        this.zoneToast(e.zone.name, sub);
-        this.audio.setDepth(e.zone.id === 'shallows' ? 0 : e.zone.id === 'twilight' ? 0.5 : 1);
+        // Arriving somewhere new. The first time any Jelli gets here, it's an event.
+        const z = e.zone;
+        const first = !this.save.biomes.includes(z.id) && !this.world.demo;
+        this.zoneToast(z.name, `${first ? 'New biome · ' : ''}${fmt(depthMeters(z.top))} m · ${z.sub}`);
+        this.audio.setDepth(Math.min(1, zoneIndex(z.id) / 4));
+        if (first) {
+          this.audio.discover(true);
+          this.flash();
+          ps.emit(PKind.Ring, p.x, p.y, 0, 0, 1.2, p.r, z.color, 420, 0);
+          renderBiomeStrip(this.ui.biomeStrip, [...this.save.biomes, ...this.world.run.biomes], this.bestAtStart);
+          moveBiomeStrip(this.ui.biomeStrip, p.y);
+        }
         break;
       }
       case 'evolve': {
@@ -710,6 +721,18 @@ class Game {
     }
   }
 
+  /** A big line of text just above the jelly, for a moment worth stopping on. */
+  private callout(title: string, sub: string, gold = false, big = false): void {
+    const pop = this.ui.sweepPop;
+    this.ui.sweepN.textContent = title;
+    this.ui.sweepBonus.textContent = sub;
+    pop.classList.toggle('record', gold);
+    pop.classList.toggle('big', big);
+    pop.classList.remove('go');
+    void pop.offsetWidth;
+    pop.classList.add('go');
+  }
+
   private flash(): void {
     if (this.reducedMotion()) return;
     const f = this.ui.flash;
@@ -756,23 +779,24 @@ class Game {
     const p = w.player;
     const c = this.hudCache;
     const ui = this.ui;
-    const score = w.run.score;
-    if (score !== c.score) {
-      c.score = score;
-      ui.score.textContent = fmt(score);
-      // Passing your personal best is its own moment, once per run.
-      if (!c.beaten && this.bestAtStart > 0 && score > this.bestAtStart) {
+    // Depth is the score: it reads in meters, and passing your record is its own moment.
+    const depth = Math.round(depthMeters(p.y));
+    if (depth !== c.depth) {
+      c.depth = depth;
+      ui.depth.textContent = `${fmt(depth)} m`;
+      if (!c.beaten && this.bestAtStart > 0 && w.run.maxDepth > this.bestAtStart) {
         c.beaten = true;
-        ui.hudBest.textContent = 'New best';
+        ui.hudBest.textContent = 'New record';
         ui.hudBest.classList.add('beaten');
-        this.toast('<b>New personal best!</b> Keep going', '#ffd27a', 'Record');
-        this.audio.discover(false);
+        this.callout('New depth record', 'Keep going', true);
+        this.audio.discover(true);
         this.flash();
       }
     }
-    if (w.run.pearls !== c.pearls) {
-      c.pearls = w.run.pearls;
-      ui.pearlCount.textContent = String(c.pearls);
+    const strip = Math.round(p.y / 20);
+    if (strip !== c.strip) {
+      c.strip = strip;
+      moveBiomeStrip(ui.biomeStrip, p.y);
     }
     // Catch chain: shows from two catches, with a bar draining toward the break.
     const combo = w.combo >= 2 ? w.combo : 0;
@@ -789,12 +813,6 @@ class Game {
     if (cb !== c.comboBar) {
       c.comboBar = cb;
       ui.comboBar.style.transform = `scaleX(${cb})`;
-    }
-    // Elapsed time: runs are endless, so this counts up.
-    const tide = Math.floor(w.time);
-    if (tide !== c.tide) {
-      c.tide = tide;
-      ui.tideText.textContent = mmss(tide);
     }
     // The bar fills toward the next evolution; it turns gold once every path is maxed.
     const maxed = w.tiersLeft() === 0;
@@ -902,7 +920,7 @@ class Game {
       TOUCH ? 'Drag anywhere to swim' : 'Swim with <kbd>WASD</kbd> or <kbd>Arrows</kbd>',
       'Swim near a <b style="color:#8cfaff">glowing ring</b> and your tentacles reel it in',
       TOUCH ? 'Tap <b>Burst</b> into a group of prey: your arms sweep up everything ahead' : 'Press <kbd>Space</kbd> to burst into a group of prey and sweep it up',
-      'Red eyes mean danger · What you eat decides how you evolve',
+      'Dive as deep as you dare · Bigger hunters wait below',
     ];
     const text = steps[this.tutorial.step];
     this.ui.hint.classList.toggle('show', !!text);

@@ -1,12 +1,13 @@
 import { PATHS, PATH_ORDER, MAX_TIER, type Tiers } from '../content/evolutions';
 import { SPECIES, SPECIES_BY_ID, RARITY_LABEL } from '../content/species';
 import { STAGES } from '../content/progression';
-import { ZONES } from '../content/world';
+import { ZONES, depthMeters, zoneAt, zoneIndex } from '../content/world';
+import type { ZoneId } from '../content/types';
 import { CHALLENGES } from '../content/challenges';
 import { SKINS, SKINS_BY_ID, TRAITS, TRAITS_BY_ID, type UnlockId } from '../content/unlocks';
 import type { PathId, SpeciesDef } from '../content/types';
 import type { SaveData } from '../persistence/save';
-import { countDiscovered, deathLesson, metricValue, mystery, nextChallenge, type RunOutcome, type RunStats } from '../core/progress';
+import { countDiscovered, deathLesson, metricValue, mystery, nextBiome, type RunOutcome, type RunStats } from '../core/progress';
 import { FORMS, FORM_BY_SOURCE, FORM_ORDER, type FormId } from '../content/forms';
 import type { JellyStyle } from '../render/creatures';
 import { ICONS } from './icons';
@@ -41,7 +42,7 @@ export function buildUI(root: HTMLElement, touch: boolean): void {
     <div class="title-corner"><button class="icon-btn" data-action="settings" aria-label="Settings">${ICONS.gear}</button></div>
     <div class="title-wrap">
       <h1 class="logo">Jelli</h1>
-      <p class="tagline">Eat · Grow · Evolve · Discover</p>
+      <p class="tagline">How deep can you go?</p>
     </div>
     <div class="title-actions">
       <button class="btn btn-primary" data-action="play">Play</button>
@@ -57,9 +58,9 @@ export function buildUI(root: HTMLElement, touch: boolean): void {
   <section class="screen passthrough hud" data-screen="hud">
     <div class="hud-top">
       <div class="hud-score">
-        <span class="score" data-bind="score">0</span>
-        <span class="tide" data-bind="tide">${ICONS.clock}<span data-bind="tideText">0:00</span></span>
-        <span class="hud-meta"><span class="hud-best" data-bind="hudBest"></span><span class="hud-pearls"><i class="pearl-dot" aria-hidden="true"></i><span data-bind="pearlCount">0</span></span></span>
+        <span class="score" data-bind="depth">0 m</span>
+        <span class="hud-meta"><span class="hud-best" data-bind="hudBest"></span></span>
+        <div class="biome-strip" data-bind="biomeStrip" aria-hidden="true"></div>
       </div>
       <div class="hud-growth">
         <div class="stage-name" data-bind="stage">${STAGES[0].name}</div>
@@ -137,7 +138,10 @@ export function buildUI(root: HTMLElement, touch: boolean): void {
 export function renderTitle(ui: Binds, save: SaveData): void {
   ui.guideCount.textContent = `${countDiscovered(save)}/${SPECIES.length}`;
   const pearls = save.stats.pearls > 0 ? ` · ${fmt(save.stats.pearls)} ${save.stats.pearls === 1 ? 'pearl' : 'pearls'}` : '';
-  ui.best.textContent = save.best.score > 0 ? `Best ${fmt(save.best.score)} · ${save.stats.runs} ${save.stats.runs === 1 ? 'dive' : 'dives'}${pearls}` : '';
+  ui.best.textContent =
+    save.best.depth > 0
+      ? `Deepest ${meters(save.best.depth)} · ${zoneAt(save.best.depth).name} · ${save.stats.runs} ${save.stats.runs === 1 ? 'dive' : 'dives'}${pearls}`
+      : '';
   const chips: string[] = [];
   if (save.selected.skin !== 'moon') {
     const skin = SKINS_BY_ID[save.selected.skin];
@@ -167,6 +171,35 @@ export function renderPathPips(el: HTMLElement, tiers: Tiers): void {
 /** Lights up the path the jelly's diet is steering its next evolution toward. */
 export function markDietLead(el: HTMLElement, lead: PathId | null): void {
   PATH_ORDER.forEach((id, i) => el.children[i]?.classList.toggle('lead', id === lead));
+}
+
+/** Depth for display: "742 m". */
+export function meters(y: number): string {
+  return `${fmt(depthMeters(y))} m`;
+}
+
+/** Where a depth sits along the biome strip, 0..1: each biome gets an equal share. */
+function stripPos(y: number): number {
+  const z = zoneAt(y);
+  const i = zoneIndex(z.id);
+  const span = Number.isFinite(z.bottom) ? z.bottom - z.top : 4000;
+  return (i + Math.min(1, Math.max(0, (y - z.top) / span))) / ZONES.length;
+}
+
+/**
+ * The biome strip under the depth readout: one band per biome, dark until some Jelli has
+ * reached it, with a gold tick at your record and a dot for where you are now.
+ */
+export function renderBiomeStrip(el: HTMLElement, seen: readonly ZoneId[], record: number): void {
+  el.innerHTML =
+    ZONES.map((z) => `<i class="${seen.includes(z.id) ? '' : 'unseen'}" style="--c:${z.color}"></i>`).join('') +
+    (record > 0 ? `<b class="rec" style="left:${(stripPos(record) * 100).toFixed(1)}%"></b>` : '') +
+    '<b class="you"></b>';
+}
+
+export function moveBiomeStrip(el: HTMLElement, y: number): void {
+  const you = el.querySelector<HTMLElement>('.you');
+  if (you) you.style.left = `${(stripPos(y) * 100).toFixed(1)}%`;
 }
 
 export function renderCharges(el: HTMLElement, charges: number, max: number): void {
@@ -217,14 +250,29 @@ export function renderHeirs(el: HTMLElement, forms: FormId[], heirloom: FormId |
 export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, save: SaveData, jelli: JelliView): void {
   const tiers = jelli.tiers;
   const caughtBy = run.caughtBy ? SPECIES_BY_ID[run.caughtBy] : null;
-  const title = caughtBy ? `Caught by a ${caughtBy.name}` : 'Run ended';
-  const longest = save.stats.runs > 1 && run.time >= save.stats.longest && run.time > 0;
-  // Why it ended comes first: it is the thing to try differently next run.
-  const sub = deathLesson(run) ?? (caughtBy
-    ? longest
-      ? 'Your longest swim yet. The reef will remember.'
-      : 'Every jelly is somebody’s dinner. Grow faster next time.'
-    : 'A short swim, but every dive counts.');
+  const zone = zoneAt(run.maxDepth);
+  const how = caughtBy ? `Caught by a ${caughtBy.name}` : 'You surfaced';
+  // Why it ended comes right after how deep: it is the thing to try differently next run.
+  const sub = deathLesson(run) ?? (caughtBy ? 'Every jelly is somebody’s dinner. The deep is waiting.' : 'Every dive goes somewhere new.');
+  const depth = depthMeters(run.maxDepth);
+  const prev = depthMeters(outcome.prevBestDepth);
+  const record =
+    run.maxDepth > outcome.prevBestDepth && outcome.prevBestDepth > 0
+      ? '<span class="new-best">New depth record</span>'
+      : outcome.prevBestDepth > 0
+        ? `<p class="record-note">${prev - depth <= Math.max(60, prev * 0.15) ? `${fmt(prev - depth)} m short of your record` : `Your record is ${fmt(prev)} m`}</p>`
+        : '';
+  const descent = `<div class="descent">${run.biomes
+    .map((id) => {
+      const z = ZONES[zoneIndex(id)];
+      return `<span class="chip"><span class="dot" style="--c:${z.color}"></span>${esc(z.name)}${outcome.newBiomes.includes(id) ? ' <em>new</em>' : ''}</span>`;
+    })
+    .join('')}</div>`;
+  // A glimpse of the next place nobody has reached yet.
+  const below = nextBiome(save);
+  const belowHtml = below
+    ? `<section class="section wonder below" style="--c:${below.color}"><h3>Below ${fmt(depthMeters(below.top))} m</h3><div class="row-main"><strong>???</strong><small>${esc(below.teaser)}</small></div></section>`
+    : '';
   const stageName = STAGES[run.stage - 1]?.name ?? '';
   const evo = PATH_ORDER.filter((p) => tiers[p] > 0)
     .map((p) => `<span class="chip"><span class="dot" style="--c:${PATHS[p].color}"></span>${PATHS[p].name} ${tiers[p]}</span>`)
@@ -233,7 +281,7 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
   const heirs = jelli.forms.length
     ? `<section class="section"><h3>Pass one on</h3><p class="section-note">Your next Jelli hatches wearing it.</p><div class="heirs" data-bind="heirs"></div></section>`
     : '';
-  const wonder = mystery(save, run);
+  const wonder = below ? null : mystery(save, run);
   const wonderHtml = wonder
     ? `<section class="section wonder"><h3>Still out there</h3><div class="row-main"><strong>${esc(wonder.title)}</strong><small>${esc(wonder.text)}</small></div></section>`
     : '';
@@ -255,19 +303,16 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
         .join('')}</div></section>`
     : '';
 
-  const next = nextChallenge(save);
-  const nextHtml = next
-    ? `<section class="section"><h3>Next challenge</h3><div class="row"><span class="check">${ICONS.lock}</span><div class="row-main">${esc(next.title)}<small>${esc(next.desc)}</small></div>${next.reward ? `<span class="reward">${esc(unlockLabel(next.reward))}</span>` : ''}</div></section>`
-    : '';
-
   ui.results.innerHTML = `
     <div class="results-head">
-      <p class="eyebrow">Run over</p>
-      <h2>${esc(title)}</h2>
-      <p>${esc(sub)}</p>
-      <div class="big-score">${fmt(run.score)}</div>
-      ${outcome.newBest ? '<span class="new-best">New best</span>' : `<p>Best ${fmt(save.best.score)}</p>`}
+      <p class="eyebrow">You reached</p>
+      <div class="big-score">${fmt(depth)} m</div>
+      <h2>${esc(zone.name)}</h2>
+      ${record}
+      <p class="how"><b>${esc(how)}.</b> ${esc(sub)}</p>
     </div>
+    ${descent}
+    ${belowHtml}
     <div class="jelli-card">
       <canvas data-jelli></canvas>
       <div class="jelli-info">
@@ -281,7 +326,7 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
       <div class="stat"><span>Biggest sweep</span><strong>${run.bestSweep}${sweepNote(run.bestSweep, outcome.prevBestSweep)}</strong></div>
       <div class="stat"><span>Eaten</span><strong>${run.eaten}</strong></div>
       <div class="stat"><span>Survived</span><strong>${mmss(run.time)}</strong></div>
-      <div class="stat"><span>Deepest</span><strong>${esc(zoneName(run.maxDepth))}</strong></div>
+      <div class="stat"><span>Points</span><strong>${fmt(run.score)}</strong></div>
       <div class="stat"><span>Longest chain</span><strong>${run.bestCombo}${run.bestCombo >= save.best.combo && run.bestCombo > 1 ? ' <em>best</em>' : ''}</strong></div>
       <div class="stat"><span>Pearls</span><strong>${run.pearls}${run.chest ? ' + chest' : ''}</strong></div>
     </div>
@@ -289,7 +334,6 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
     ${disc}
     ${wonderHtml}
     ${done}
-    ${nextHtml}
     <div class="results-actions">
       <button class="btn btn-primary" data-action="play">Swim again</button>
       <div class="split">
@@ -312,11 +356,6 @@ function sweepNote(n: number, prev: number): string {
   return '';
 }
 
-function zoneName(depth: number): string {
-  let name = ZONES[0].name;
-  for (const z of ZONES) if (depth >= z.top) name = z.name;
-  return name;
-}
 
 // ------------------------------------------------------------------ field guide
 

@@ -1,7 +1,7 @@
 import type { PowerId } from './powerups';
 
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'legendary';
-export type ZoneId = 'shallows' | 'twilight' | 'abyss';
+export type ZoneId = 'shallows' | 'gardens' | 'twilight' | 'forgotten' | 'abyss' | 'hadal';
 export type PathId = 'glow' | 'surge' | 'sting';
 export type Role = 'player' | 'prey' | 'predator' | 'ambient';
 

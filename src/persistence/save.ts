@@ -2,6 +2,8 @@ import { DEFAULT_UNLOCKS, SKINS_BY_ID, TRAITS_BY_ID, type UnlockId } from '../co
 import { SPECIES_BY_ID } from '../content/species';
 import { CHALLENGES } from '../content/challenges';
 import { isFormId, type FormId } from '../content/forms';
+import { ZONES_BY_ID } from '../content/world';
+import type { ZoneId } from '../content/types';
 
 export const SAVE_KEY = 'jelli.save.v1';
 export const SAVE_VERSION = 1;
@@ -24,7 +26,7 @@ export interface SaveData {
   discovered: Record<string, DiscoveryRecord>;
   challenges: Record<string, number>;
   unlocks: UnlockId[];
-  best: { score: number; mass: number; combo: number; sweep: number };
+  best: { score: number; mass: number; combo: number; sweep: number; depth: number };
   stats: { runs: number; eaten: number; longest: number; pearls: number; chests: number };
   selected: { skin: string; trait: string | null };
   settings: Settings;
@@ -35,6 +37,8 @@ export interface SaveData {
   heirloom: FormId | null;
   /** Dives in which something too vast to see was glimpsed, by species. */
   glimpses: Record<string, number>;
+  /** Every biome any Jelli has reached. */
+  biomes: ZoneId[];
 }
 
 export function defaultSave(): SaveData {
@@ -43,7 +47,7 @@ export function defaultSave(): SaveData {
     discovered: {},
     challenges: {},
     unlocks: [...DEFAULT_UNLOCKS],
-    best: { score: 0, mass: 0, combo: 0, sweep: 0 },
+    best: { score: 0, mass: 0, combo: 0, sweep: 0, depth: 0 },
     stats: { runs: 0, eaten: 0, longest: 0, pearls: 0, chests: 0 },
     selected: { skin: 'moon', trait: null },
     settings: { volume: 0.7, muted: false, reducedMotion: null },
@@ -51,6 +55,7 @@ export function defaultSave(): SaveData {
     forms: [],
     heirloom: null,
     glimpses: {},
+    biomes: ['shallows'],
   };
 }
 
@@ -103,6 +108,7 @@ export function sanitizeSave(raw: unknown): SaveData {
     save.best.mass = num(raw.best.mass, 0);
     save.best.combo = Math.floor(num(raw.best.combo, 0));
     save.best.sweep = Math.floor(num(raw.best.sweep, 0));
+    save.best.depth = num(raw.best.depth, 0);
   }
 
   if (isObj(raw.stats)) {
@@ -131,6 +137,9 @@ export function sanitizeSave(raw: unknown): SaveData {
 
   if (Array.isArray(raw.forms)) save.forms = [...new Set(raw.forms.filter(isFormId))];
   if (isFormId(raw.heirloom)) save.heirloom = raw.heirloom;
+  if (Array.isArray(raw.biomes)) {
+    for (const id of raw.biomes) if (typeof id === 'string' && id in ZONES_BY_ID && !save.biomes.includes(id as ZoneId)) save.biomes.push(id as ZoneId);
+  }
   if (isObj(raw.glimpses)) {
     for (const [id, n] of Object.entries(raw.glimpses)) {
       if (id in SPECIES_BY_ID) save.glimpses[id] = Math.floor(num(n, 0));
