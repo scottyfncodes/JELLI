@@ -632,6 +632,39 @@ export interface JellyBody {
   gulp: number;
   /** Glow color of the last meal, seen through the bell while it digests. */
   gut: string;
+  /** 0..1 contraction of the margin, trailing the crown's so each pulse ripples down the bell. */
+  rimLag?: number;
+  /** Sideways lean of the crown into a turn, as a fraction of the bell's height. */
+  lean?: number;
+  /** The caller draws the marginal tentacles itself (as trailing chains in world space). */
+  trailing?: boolean;
+}
+
+/**
+ * Bell half-width and height. The crown follows the contraction; the margin follows `rimLag`,
+ * which trails it, so the bell squeezes from the top down instead of shrinking as one piece.
+ */
+export function bellSize(r: number, contraction: number, body: JellyBody | null): { w: number; h: number } {
+  const m = body?.maturity ?? 0;
+  const gulp = body?.gulp ?? 0;
+  const rim = body?.rimLag ?? contraction;
+  return {
+    w: r * (1.06 - 0.26 * rim) * (1 + 0.06 * m + 0.1 * gulp),
+    h: r * (0.78 + 0.26 * contraction) * (1 + 0.14 * m + 0.06 * gulp),
+  };
+}
+
+/** How many marginal tentacles a jelly carries and how long they run. */
+export function marginalTentacles(r: number, tiers: Tiers | null, maturity: number): { count: number; lenBase: number } {
+  return {
+    count: 7 + Math.floor(maturity * 10) + (tiers?.sting ?? 0) * 2,
+    lenBase: r * (2.8 + (tiers?.surge ?? 0) * 0.5) * (1 + 0.5 * maturity),
+  };
+}
+
+/** Length of marginal tentacle i, so every caller gives each tentacle the same length. */
+export function marginalLength(lenBase: number, i: number): number {
+  return lenBase * (0.7 + 0.3 * Math.sin(i * 2.3 + 1));
 }
 
 /**
@@ -655,8 +688,8 @@ export function drawJelly(
   const m = body?.maturity ?? 0;
   const gulp = body?.gulp ?? 0;
   // A well-fed bell domes higher; a fresh meal makes it bulge for a moment.
-  const w = r * (1.02 - 0.16 * contraction) * (1 + 0.06 * m + 0.1 * gulp);
-  const h = r * (0.82 + 0.16 * contraction) * (1 + 0.14 * m + 0.06 * gulp);
+  const { w, h } = bellSize(r, contraction, body);
+  const rim = body?.rimLag ?? contraction;
   const rimY = r * 0.2;
   const glow = tiers?.glow ?? 0;
   const surge = tiers?.surge ?? 0;
@@ -667,6 +700,12 @@ export function drawJelly(
   if (!flat) {
     drawGlow(ctx, style.glow, 0, -r * 0.2, r * (2.6 + glow * 0.5), 0.28 + glow * 0.08);
     if (glow >= 2) drawGlow(ctx, '#ffd27a', 0, -r * 0.2, r * 3.6, 0.12 + (glow - 2) * 0.08);
+  }
+  // Lean: the soft crown drags behind a turn (x shifts in proportion to height above the rim).
+  const lean = body?.lean ?? 0;
+  if (lean) {
+    ctx.save();
+    ctx.transform(1, 0, lean, 1, -lean * rimY, 0);
   }
 
   if (has('aurora')) {
@@ -697,9 +736,9 @@ export function drawJelly(
   // Tentacles stream behind the bell as long, flowing ribbons. A travelling wave runs down
   // each one, growing toward the tip, and turns bend the tips furthest (sway).
   // Feeding sprouts more and longer marginal tentacles.
-  const count = 7 + Math.floor(m * 10) + sting * 2;
+  const { count, lenBase } = marginalTentacles(r, tiers, m);
   const tentColor = sting > 0 && !flat ? '#c59bff' : style.tentacle;
-  const lenBase = r * (2.8 + surge * 0.5) * (1 + 0.5 * m);
+  const drawMargin = !body?.trailing;
   const tentX = (i: number, x0: number, f: number) => {
     const ph = t * 2.2 + i * 0.9;
     const wave = Math.sin(ph - f * 5.5) * r * 0.34 + Math.sin(ph * 1.6 - f * 9 + i) * r * 0.1;
@@ -708,28 +747,30 @@ export function drawJelly(
   const SEGS = flat ? 5 : 10;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  ctx.strokeStyle = rgba(tentColor, al(0.5));
-  ctx.lineWidth = Math.max(0.6, r * (0.055 + sting * 0.008));
-  ctx.beginPath();
-  for (let i = 0; i < count; i++) {
-    const k = count === 1 ? 0.5 : i / (count - 1);
-    const x0 = (k - 0.5) * w * 1.7;
-    const len = lenBase * (0.7 + 0.3 * Math.sin(i * 2.3 + 1));
-    ctx.moveTo(x0, rimY);
-    for (let j = 1; j <= SEGS; j++) {
-      const f = j / SEGS;
-      ctx.lineTo(tentX(i, x0, f), rimY + len * f * (1 - 0.1 * Math.abs(sway) * f));
+  if (drawMargin) {
+    ctx.strokeStyle = rgba(tentColor, al(0.5));
+    ctx.lineWidth = Math.max(0.6, r * (0.055 + sting * 0.008));
+    ctx.beginPath();
+    for (let i = 0; i < count; i++) {
+      const k = count === 1 ? 0.5 : i / (count - 1);
+      const x0 = (k - 0.5) * w * 1.7;
+      const len = marginalLength(lenBase, i);
+      ctx.moveTo(x0, rimY);
+      for (let j = 1; j <= SEGS; j++) {
+        const f = j / SEGS;
+        ctx.lineTo(tentX(i, x0, f), rimY + len * f * (1 - 0.1 * Math.abs(sway) * f));
+      }
     }
+    ctx.stroke();
   }
-  ctx.stroke();
 
-  if (sting > 0 && !flat) {
+  if (sting > 0 && !flat && drawMargin) {
     // Barbed nettles along the tentacles.
     ctx.fillStyle = rgba('#e3ccff', 0.85);
     for (let i = 0; i < count; i += 2) {
       const k = i / (count - 1);
       const x0 = (k - 0.5) * w * 1.7;
-      const len = lenBase * (0.7 + 0.3 * Math.sin(i * 2.3 + 1));
+      const len = marginalLength(lenBase, i);
       for (let j = 1; j <= 2 + sting; j++) {
         const f = j / (3 + sting);
         ctx.beginPath();
@@ -746,7 +787,7 @@ export function drawJelly(
   ctx.beginPath();
   for (let i = 0; i < 4; i++) {
     const x0 = (i - 1.5) * r * 0.18;
-    const s = Math.sin(t * 2 + i * 1.7) * r * 0.15 + sway * r * 0.3;
+    const s = Math.sin(t * 2 + i * 1.7) * r * 0.15 + sway * r * 0.7;
     ctx.moveTo(x0, rimY - r * 0.05);
     ctx.quadraticCurveTo(x0 + s, rimY + armLen * 0.5, x0 * 1.3 + s * 1.5, rimY + armLen);
   }
@@ -758,7 +799,7 @@ export function drawJelly(
     ctx.beginPath();
     for (let i = 0; i < 4; i++) {
       const x0 = (i - 1.5) * r * 0.18;
-      const s = Math.sin(t * 2 + i * 1.7) * r * 0.15 + sway * r * 0.3;
+      const s = Math.sin(t * 2 + i * 1.7) * r * 0.15 + sway * r * 0.7;
       for (let k = 0; k <= 8; k++) {
         const f = k / 8;
         const x = x0 + s * f * 1.4 + Math.sin(f * 14 + t * 3 + i) * r * 0.12 * f + (i < 2 ? -1 : 1) * r * 0.06;
@@ -809,16 +850,21 @@ export function drawJelly(
   }
 
   // Bell
+  // Relaxed, the margin flares out; squeezed, it tucks in under the crown.
+  const flare = 1.04 + 0.14 * (1 - rim);
+  const rimDrop = r * 0.06 * (1 - rim);
   ctx.beginPath();
-  ctx.moveTo(-w, rimY);
-  ctx.bezierCurveTo(-w * 1.05, -h * 0.55, -w * 0.55, -h, 0, -h);
-  ctx.bezierCurveTo(w * 0.55, -h, w * 1.05, -h * 0.55, w, rimY);
-  // Scalloped margin: more, finer lobes as the bell matures.
+  ctx.moveTo(-w, rimY - rimDrop);
+  ctx.bezierCurveTo(-w * flare, -h * 0.5, -w * 0.55, -h, 0, -h);
+  ctx.bezierCurveTo(w * 0.55, -h, w * flare, -h * 0.5, w, rimY - rimDrop);
+  // Scalloped margin: more, finer lobes as the bell matures, each fluttering on its own.
   const lobes = 8 + 2 * Math.floor(m * 5);
   for (let i = lobes - 1; i >= 0; i--) {
     const xa = -w + ((i + 0.5) / lobes) * w * 2;
     const xb = -w + (i / lobes) * w * 2;
-    ctx.quadraticCurveTo(xa, rimY + r * 0.12, xb, rimY);
+    const flutter = flat ? 0 : Math.sin(t * 4.2 - i * 0.9) * r * 0.04;
+    const yb = i === 0 ? rimY - rimDrop : rimY + Math.sin(t * 3 - i * 1.3) * r * 0.015;
+    ctx.quadraticCurveTo(xa, rimY + r * 0.12 + flutter, xb, yb);
   }
   ctx.closePath();
   if (flat) {
@@ -838,8 +884,8 @@ export function drawJelly(
       ctx.strokeStyle = pg;
       ctx.lineWidth = Math.max(1, r * 0.09);
     } else {
-      ctx.strokeStyle = rgba(style.rim, 0.75);
-      ctx.lineWidth = Math.max(0.8, r * 0.06);
+      ctx.strokeStyle = rgba(style.rim, 0.5);
+      ctx.lineWidth = Math.max(0.7, r * 0.045);
     }
     ctx.stroke();
 
@@ -988,4 +1034,5 @@ export function drawJelly(
     ctx.arc(lureX, lureY, Math.max(0.8, r * 0.11), 0, TAU);
     ctx.fill();
   }
+  if (lean) ctx.restore();
 }
