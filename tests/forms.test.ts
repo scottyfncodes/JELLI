@@ -63,7 +63,7 @@ describe('diet steers evolution', () => {
   });
 
   it('every path can be fed in every zone', () => {
-    for (const zone of ['shallows', 'twilight', 'abyss'] as const) {
+    for (const zone of ['shallows', 'gardens', 'twilight', 'forgotten', 'abyss', 'hadal'] as const) {
       const diets = new Set(SPECIES.filter((s) => s.zones.includes(zone) && s.weight > 0 && s.diet).map((s) => s.diet));
       expect([...diets].sort(), zone).toEqual(['glow', 'sting', 'surge']);
     }
@@ -150,7 +150,7 @@ describe('the Phantom', () => {
   function phantomWorld(glow: number) {
     const w = makeWorld({ tiers: { glow } });
     const p = w.player;
-    p.y = 10400;
+    p.y = 12400;
     p.invuln = 99;
     w.creatures.length = 0;
     const ph = w.spawn(SPECIES_BY_ID.phantom, p.x + 200, p.y + 150);
@@ -159,9 +159,9 @@ describe('the Phantom', () => {
 
   it('only appears deep in the Abyss', () => {
     const w = makeWorld();
-    w.player.y = 8600;
+    w.player.y = 11000;
     expect(w.eligibleRares().some((d) => d.id === 'phantom')).toBe(false);
-    w.player.y = 10200;
+    w.player.y = 12500;
     expect(w.eligibleRares().some((d) => d.id === 'phantom')).toBe(true);
   });
 

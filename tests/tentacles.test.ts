@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { World, type Creature, type TentaclePhase } from '../src/sim/world';
 import { SPECIES_BY_ID } from '../src/content/species';
-import { WORLD, ZONES } from '../src/content/world';
+import { WORLD, ZONES, depthMeters } from '../src/content/world';
 import { tentacleReach } from '../src/sim/rules';
 import { radiusForMass } from '../src/content/progression';
 import { mulberry32 } from '../src/core/math';
@@ -81,12 +81,14 @@ describe('tentacle hunting', () => {
   it('strikes forward: prey trailing behind is left alone unless it brushes the bell', () => {
     const w = makeWorld();
     const p = w.player;
+    // Facing down into the deep, with a krill trailing above (an idle jelly sinks away from it).
+    p.heading = Math.PI / 2;
     const reach = tentacleReach(p.r);
-    const behind = still(w, 'glimmer-krill', p.x, p.y + reach * 0.85);
+    const behind = still(w, 'glimmer-krill', p.x, p.y - reach * 0.85);
     for (let i = 0; i < 30; i++) w.update(1 / 60, idle);
     expect(behind.claimed).toBe(false);
     // Turning to face it brings it into the arc.
-    for (let i = 0; i < 90 && !behind.dead; i++) w.update(1 / 60, { ax: 0, ay: 0.5, burst: false });
+    for (let i = 0; i < 90 && !behind.dead; i++) w.update(1 / 60, { ax: 0, ay: -0.5, burst: false });
     expect(behind.dead).toBe(true);
     const touching = still(w, 'glimmer-krill', p.x - Math.cos(p.heading) * p.r, p.y - Math.sin(p.heading) * p.r);
     for (let i = 0; i < 120 && !touching.dead; i++) w.update(1 / 60, idle);
@@ -295,37 +297,55 @@ describe('tentacle hunting', () => {
   });
 });
 
-describe('expanded world', () => {
-  it('is far wider and deeper, with zones covering the full depth', () => {
-    expect(WORLD.width).toBeGreaterThanOrEqual(6000);
-    expect(WORLD.height).toBeGreaterThanOrEqual(12000);
+describe('the endless shaft', () => {
+  it('is a few screens wide and has no floor, with biomes covering every depth', () => {
+    expect(WORLD.width).toBeGreaterThanOrEqual(2400);
+    expect(WORLD.height).toBe(Number.POSITIVE_INFINITY);
     expect(ZONES[0].top).toBe(0);
     for (let i = 1; i < ZONES.length; i++) expect(ZONES[i].top).toBe(ZONES[i - 1].bottom);
-    expect(ZONES[ZONES.length - 1].bottom).toBe(WORLD.height);
+    expect(ZONES[ZONES.length - 1].bottom).toBe(Number.POSITIVE_INFINITY);
+    expect(depthMeters(ZONES[ZONES.length - 1].top)).toBe(6000);
+    expect(depthMeters(40000)).toBeGreaterThan(depthMeters(30000));
   });
 
-  it('spreads reef and currents across the whole map, inside its bounds', () => {
+  it('generates reef and currents ahead of the jelly as it sinks, inside the walls', () => {
     const w = makeWorld();
+    const p = w.player;
+    p.invuln = 1e9;
+    const deepest = () => Math.max(...w.corals.map((c) => c.maxY));
+    expect(deepest()).toBeLessThan(6000);
+    p.y = 20000;
+    w.update(1 / 60, idle);
+    expect(deepest()).toBeGreaterThan(22000);
     const open = w.corals.filter((c) => c.minX > 200 && c.maxX < w.width - 200);
-    expect(open.some((c) => c.minX > w.width * 0.8)).toBe(true);
-    expect(open.some((c) => c.maxX < w.width * 0.2)).toBe(true);
-    expect(open.some((c) => c.minY > w.height * 0.85)).toBe(true);
+    expect(open.some((c) => c.minX > w.width * 0.7)).toBe(true);
+    expect(open.some((c) => c.maxX < w.width * 0.3)).toBe(true);
+    expect(w.currents.some((c) => c.fy > 100)).toBe(true);
     for (const cur of w.currents) {
       expect(cur.x).toBeGreaterThanOrEqual(0);
       expect(cur.x + cur.w).toBeLessThanOrEqual(w.width);
-      expect(cur.y + cur.h).toBeLessThanOrEqual(w.height);
     }
+    // Each biome's reef knows where it grew, so it can look the part.
+    expect(new Set(w.corals.map((c) => c.zone))).toContain('hadal');
   });
 
-  it('keeps the jelly inside the map at every edge', () => {
+  it('is the same ocean every time for the same seed', () => {
+    const a = makeWorld();
+    const b = makeWorld();
+    a.ensureGenerated(9000);
+    b.ensureGenerated(9000);
+    expect(a.corals.length).toBe(b.corals.length);
+    expect(a.corals[a.corals.length - 1].minY).toBe(b.corals[b.corals.length - 1].minY);
+  });
+
+  it('keeps the jelly inside the walls and below the surface', () => {
     const w = makeWorld();
     const p = w.player;
     p.invuln = 1e9;
     for (const [x, y, ax, ay] of [
       [w.width - 20, 3000, 1, 0],
       [20, 3000, -1, 0],
-      [3000, w.height - 20, 0, 1],
-      [3000, 10, 0, -1],
+      [1500, 10, 0, -1],
     ]) {
       p.x = x;
       p.y = y;
@@ -333,22 +353,43 @@ describe('expanded world', () => {
       expect(p.x).toBeGreaterThanOrEqual(p.r);
       expect(p.x).toBeLessThanOrEqual(w.width - p.r);
       expect(p.y).toBeGreaterThanOrEqual(p.r);
-      expect(p.y).toBeLessThanOrEqual(w.height - p.r);
     }
   });
 
-  it('spawns life around the jelly anywhere in the deep, far corners', () => {
+  it('sinks fast and rises slow', () => {
+    const run = (ay: number) => {
+      const w = makeWorld();
+      const p = w.player;
+      p.invuln = 1e9;
+      w.creatures.length = 0;
+      // Open water: no reef or currents in the way (generated first, so none appears mid-test).
+      w.ensureGenerated(12000);
+      w.coralGrid.clear();
+      w.currents.length = 0;
+      p.y = 6000;
+      const y0 = p.y;
+      for (let i = 0; i < 120; i++) w.update(1 / 60, { ax: 0, ay, burst: false });
+      return p.y - y0;
+    };
+    const down = run(1);
+    const up = -run(-1);
+    expect(down).toBeGreaterThan(up * 1.4);
+    // Left alone, a jelly drifts slowly down.
+    expect(run(0)).toBeGreaterThan(5);
+  });
+
+  it('spawns life around the jelly anywhere in the deep', () => {
     const w = makeWorld();
     const p = w.player;
     p.invuln = 1e9;
-    p.x = w.width - 900;
-    p.y = w.height - 900;
+    p.x = w.width - 600;
+    p.y = 18000;
     for (let i = 0; i < 60 * 6; i++) w.update(1 / 60, idle);
     expect(w.creatures.length).toBeGreaterThan(8);
+    expect(w.creatures.some((c) => c.def.zones.includes('hadal'))).toBe(true);
     for (const c of w.creatures) {
       expect(c.x).toBeGreaterThan(0);
       expect(c.x).toBeLessThan(w.width);
-      expect(c.y).toBeLessThan(w.height);
     }
   });
 });

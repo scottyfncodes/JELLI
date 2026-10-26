@@ -41,7 +41,7 @@ describe('growth and stages', () => {
 describe('content data', () => {
   it('has a healthy roster of species with unique ids, including the player', () => {
     expect(SPECIES.length).toBeGreaterThanOrEqual(12);
-    expect(SPECIES.length).toBeLessThanOrEqual(24);
+    expect(SPECIES.length).toBeLessThanOrEqual(28);
     expect(new Set(SPECIES.map((s) => s.id)).size).toBe(SPECIES.length);
     expect(SPECIES.some((s) => s.role === 'player')).toBe(true);
   });
@@ -72,7 +72,7 @@ describe('content data', () => {
 describe('run outcome and challenges', () => {
   it('records best score, stats and completes challenges with rewards', () => {
     const save = defaultSave();
-    const run = { ...emptyRunStats(), score: 5000, mass: 120, stage: 3, eaten: 50, evolutions: 2, maxDepth: 8400, time: 140 };
+    const run = { ...emptyRunStats(), score: 5000, mass: 120, stage: 3, eaten: 50, evolutions: 2, maxDepth: 11000, time: 140 };
     const out = applyRun(save, run, 1000);
     expect(out.newBest).toBe(true);
     expect(save.best.score).toBe(5000);
