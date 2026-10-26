@@ -64,6 +64,8 @@ class Game {
   private tutorial = { step: 0, t: 0, eats: 0 };
   /** Personal best when this run began, for the mid-run "new best" moment. */
   private bestAtStart = 0;
+  /** Biggest sweep on record when this run began, for the mid-run record moment. */
+  private sweepRecord = 0;
   private noticeCooldown = 0;
 
   constructor() {
@@ -376,6 +378,8 @@ class Game {
     const heir = this.save.heirloom;
     this.zoneToast(this.world.zone.name, heir ? `Hatched wearing ${FORMS[heir].name}` : 'Eat smaller creatures to grow');
     this.bestAtStart = this.save.best.score;
+    this.sweepRecord = this.save.best.sweep;
+    this.ui.sweepPop.classList.remove('go');
     this.ui.hudBest.textContent = this.bestAtStart > 0 ? `Best ${fmt(this.bestAtStart)}` : '';
     this.ui.hudBest.classList.remove('beaten');
   }
@@ -547,6 +551,26 @@ class Game {
           this.renderer.addShake(0.35);
         }
         break;
+      case 'sweep': {
+        // The net closes. One catch is just a snag; a haul gets its own moment, bigger the bigger it is.
+        if (e.n < 2) break;
+        this.audio.sweep(e.n);
+        const color = this.renderer.playerStyle.glow;
+        ps.emit(PKind.Ring, e.x, e.y, 0, 0, 0.6, p.r, color, 140 + e.n * 22, 0);
+        ps.burst(e.x, e.y, 10 + e.n * 4, 120 + e.n * 18, 3, color, 0.7);
+        this.renderer.addShake(Math.min(0.5, 0.08 + e.n * 0.04));
+        const record = e.n > this.sweepRecord && e.n >= 3;
+        if (record) this.sweepRecord = e.n;
+        const pop = this.ui.sweepPop;
+        this.ui.sweepN.textContent = `Sweep ×${e.n}`;
+        this.ui.sweepBonus.textContent = record ? `New record · +${fmt(e.bonus)}` : `+${fmt(e.bonus)}`;
+        pop.classList.toggle('record', record);
+        pop.classList.toggle('big', e.n >= 6);
+        pop.classList.remove('go');
+        void pop.offsetWidth;
+        pop.classList.add('go');
+        break;
+      }
       case 'burst':
         ps.emit(PKind.Ring, e.x, e.y, 0, 0, 0.5, p.r * 0.9, p.tiers.surge ? '#5ee0d0' : '#bfe9ff', 160, 0);
         for (let i = 0; i < 6; i++) ps.emit(PKind.Bubble, e.x, e.y, (Math.random() - 0.5) * 80, (Math.random() - 0.5) * 80, 1.2, 1.5 + Math.random() * 3, '#fff', 0.5, 2);
@@ -877,7 +901,7 @@ class Game {
     const steps = [
       TOUCH ? 'Drag anywhere to swim' : 'Swim with <kbd>WASD</kbd> or <kbd>Arrows</kbd>',
       'Swim near a <b style="color:#8cfaff">glowing ring</b> and your tentacles reel it in',
-      TOUCH ? 'Tap <b>Burst</b>, or tap with a second finger, for a quick dash' : 'Press <kbd>Space</kbd> to burst',
+      TOUCH ? 'Tap <b>Burst</b> into a group of prey: your arms sweep up everything ahead' : 'Press <kbd>Space</kbd> to burst into a group of prey and sweep it up',
       'Red eyes mean danger · What you eat decides how you evolve',
     ];
     const text = steps[this.tutorial.step];

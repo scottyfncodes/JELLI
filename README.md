@@ -9,11 +9,13 @@ You're a thimble-sized moon jelly in Lantern Reef. What you eat decides what you
 - **Touch:** drag anywhere to steer (floating thumb-stick). Tap ⚡ (or tap with a second finger) to burst.
 - **Keyboard:** WASD / arrows to swim, Space to burst, Esc / P to pause, Enter to start.
 - Your tentacles do the hunting: swim past anything wearing a cyan ring and a trailing arm snags it and reels it in. Every meal makes the arms a little longer. Heavy prey can wriggle free, and arms can't reach through coral.
+- **Sweep:** every burst flings all your arms out as a net. Everything edible in the fan ahead of you for that instant is snagged at once and reeled in together, and the score climbs with the square of the haul. Aim the burst through a school before it scatters. The catch: the burst you sweep with is the burst you'd escape with.
 - Red eyes, a `!` and a dashed lunge line warn of a hunter about to strike.
 
 ## Features
 
 - **Core loop:** buoyant, pulse-driven movement with momentum. Food grows you, growth reveals bigger prey, and size works both ways: bigger jellies spot more food, but hunters notice them from further away and they can't slip through tight coral gaps.
+- **Learning from a run:** the results screen leads with why the run ended (a burst you had ready, or one you'd just spent on a sweep) and your biggest sweep against your record.
 - **Catch chains:** catches within 3 seconds of each other build a chain worth up to 3x score, with a rising chime and a draining meter. Pearls keep a chain alive.
 - **Treasure:** pearls rest all over the reef (hoards around reef mounds, strays in open water, glowing in the deep). A sunken pirate ship sits in the lower shallows with a chest worth 1,500 that spills more pearls. Pearls bank across dives.
 - **Chase your best:** your best score sits under the clock, and passing it mid-run gets its own moment.
