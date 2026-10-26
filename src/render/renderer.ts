@@ -2,8 +2,8 @@ import type { World, Creature, CoralCluster, Current } from '../sim/world';
 import { canEat, isThreat } from '../sim/rules';
 import { WORLD, darknessAt } from '../content/world';
 import { BASE_RADIUS, maturity } from '../content/progression';
-import { TAU, clamp, damp, hexToRgb, lerp, rgba } from '../core/math';
-import { drawCreatureShape, drawJelly, jellyStyleForSpecies, lookFor, type JellyBody, type JellyStyle } from './creatures';
+import { TAU, angleLerp, clamp, damp, hexToRgb, lerp, rgba } from '../core/math';
+import { bellSize, drawCreatureShape, drawJelly, jellyStyleForSpecies, lookFor, marginalLength, marginalTentacles, type JellyBody, type JellyStyle } from './creatures';
 import { drawGlow } from './sprites';
 import { drawChest, drawShip } from './wreck';
 import { Particles } from './particles';
@@ -19,6 +19,8 @@ export interface JoystickView {
 
 /** Samples along each hunting tentacle. */
 const TENT_SEGS = 22;
+/** Links in each trailing marginal tentacle. */
+const TRAIL_LINKS = 12;
 
 const WATER_STOPS: [number, string][] = [
   [0, '#2b6eaa'],
@@ -189,6 +191,9 @@ export class Renderer {
 
   snapCamera(world: World): void {
     const p = world.player;
+    // A new jelly: its body faces where it does, and its tentacles start fresh.
+    this.visHeading = p.heading;
+    this.trails = [];
     this.zoom = this.targetZoom(p.r);
     this.camX = p.x + this.focusOffsetX / this.zoom;
     this.camY = p.y + this.focusOffset / this.zoom;
@@ -651,11 +656,21 @@ export class Renderer {
     const x = this.sx(p.x);
     const y = this.sy(p.y);
 
-    let dh = p.heading - this.lastHeading;
+    // The body eases round after the heading instead of snapping to it, with a slow idle rock,
+    // so a turn reads as a soft animal swinging through water rather than a sprite rotating.
+    const rock = (this.reducedMotion ? 0.02 : 0.07) * Math.sin(world.time * 0.9) * (1 - Math.min(1, Math.hypot(p.vx, p.vy) / 120));
+    this.visHeading = angleLerp(this.visHeading, p.heading, 1 - Math.exp(-5 * dt));
+    const heading = this.visHeading + rock;
+    let dh = heading - this.lastHeading;
     if (dh > Math.PI) dh -= TAU;
     if (dh < -Math.PI) dh += TAU;
-    this.lastHeading = p.heading;
+    this.lastHeading = heading;
     this.sway = damp(this.sway, clamp((-dh / Math.max(dt, 1e-3)) * 0.25, -1, 1), 4, dt);
+    // The margin squeezes a beat after the crown, so each pulse ripples down the bell.
+    this.body.rimLag = damp(this.body.rimLag ?? 0, p.thrust, 6, dt);
+    this.body.lean = clamp(this.sway * 0.3, -0.3, 0.3);
+    this.body.trailing = true;
+    this.bodyHeading = heading;
 
     let alpha = 1;
     let scale = 1;
@@ -704,18 +719,132 @@ export class Renderer {
 
     this.body.maturity = maturity(p.food);
     this.body.gulp = damp(this.body.gulp, 0, 2.2, dt);
+    this.drawTrails(world, tr * scale, alpha, dt);
     this.drawTentacles(world, tr * scale, alpha);
 
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.translate(x, y);
     ctx.scale(z * scale, z * scale);
-    ctx.rotate(p.heading + Math.PI / 2);
+    ctx.rotate(heading + Math.PI / 2);
     drawJelly(ctx, tr, world.time, p.thrust, this.playerStyle, p.tiers, false, this.sway, this.body, p.forms);
     ctx.restore();
   }
 
   private body: JellyBody = { maturity: 0, gulp: 0, gut: '#ffffff' };
+  /** The heading the body is drawn at: it trails the swim heading for a softer turn. */
+  private visHeading = -Math.PI / 2;
+  private bodyHeading = -Math.PI / 2;
+  /** Marginal tentacles as chains of [x, y, prevX, prevY] links in world space. */
+  private trails: Float32Array[] = [];
+  private bodyPt = { x: 0, y: 0 };
+
+  /** A point in the jelly's own frame (bell facing -y) to world space, at the drawn heading. */
+  private bodyPoint(world: World, lx: number, ly: number, out: { x: number; y: number }): { x: number; y: number } {
+    const p = world.player;
+    const a = this.bodyHeading + Math.PI / 2;
+    const cos = Math.cos(a);
+    const sin = Math.sin(a);
+    out.x = p.x + lx * cos - ly * sin;
+    out.y = p.y + lx * sin + ly * cos;
+    return out;
+  }
+
+  /**
+   * Marginal tentacles that really trail. Each is a chain of links hanging from the rim:
+   * every link keeps its momentum, eases toward a relaxed line streaming behind the bell
+   * (stiff near the rim, loose at the tip), and stays a fixed length from the link before it.
+   * Turns and bursts drag the tips round behind the body instead of swinging them with it.
+   */
+  private drawTrails(world: World, r: number, alpha: number, dt: number): void {
+    const p = world.player;
+    const tiers = p.tiers;
+    const { count, lenBase } = marginalTentacles(r, tiers, this.body.maturity);
+    const { w } = bellSize(r, p.thrust, this.body);
+    const rimY = r * 0.2;
+    const N = TRAIL_LINKS;
+    const h = this.bodyHeading;
+    const time = this.reducedMotion ? world.time * 0.5 : world.time;
+    if (this.trails.length !== count) this.trails = [];
+    const anchor = this.bodyPt;
+    const ctx = this.ctx;
+    const z = this.zoom;
+    const sting = tiers.sting;
+    const color = sting > 0 ? '#c59bff' : this.playerStyle.tentacle;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = rgba(color, 0.5 * alpha);
+    ctx.lineWidth = Math.max(0.6, r * (0.055 + sting * 0.008) * z);
+    ctx.beginPath();
+    for (let i = 0; i < count; i++) {
+      const k = count === 1 ? 0.5 : i / (count - 1);
+      this.bodyPoint(world, (k - 0.5) * w * 1.7, rimY, anchor);
+      const seg = marginalLength(lenBase, i) / N;
+      // Outer tentacles fan out a little from the bell's axis.
+      const fan = h + Math.PI + (k - 0.5) * 0.5;
+      let chain = this.trails[i];
+      if (!chain || Math.hypot(chain[0] - anchor.x, chain[1] - anchor.y) > seg * N) {
+        chain = this.trails[i] = new Float32Array((N + 1) * 4);
+        for (let j = 0; j <= N; j++) {
+          const x = anchor.x + Math.cos(fan) * seg * j;
+          const y = anchor.y + Math.sin(fan) * seg * j;
+          chain.set([x, y, x, y], j * 4);
+        }
+      }
+      chain[0] = chain[2] = anchor.x;
+      chain[1] = chain[3] = anchor.y;
+      if (dt > 0) {
+        for (let j = 1; j <= N; j++) {
+          const f = j / N;
+          const o = j * 4;
+          let x = chain[o];
+          let y = chain[o + 1];
+          // Momentum: water damps it quickly, but the tip still swings through a turn.
+          const vx = (x - chain[o + 2]) * 0.9;
+          const vy = (y - chain[o + 3]) * 0.9;
+          chain[o + 2] = x;
+          chain[o + 3] = y;
+          x += vx;
+          y += vy;
+          // Relaxed line: straight back from the previous link, curling with a wave that travels to the tip.
+          const curl = Math.sin(time * 1.8 + i * 0.9 - f * 3.6) * 0.22 + Math.sin(time * 2.9 + i * 2.1 - f * 6.5) * 0.07;
+          const a = fan + curl * (0.4 + 0.6 * f);
+          const tx = chain[o - 4] + Math.cos(a) * seg;
+          const ty = chain[o - 3] + Math.sin(a) * seg;
+          const pull = 1 - Math.exp(-(9 - 7 * f) * dt);
+          x += (tx - x) * pull;
+          y += (ty - y) * pull;
+          // Keep each link its length from the one before.
+          const dx = x - chain[o - 4];
+          const dy = y - chain[o - 3];
+          const d = Math.hypot(dx, dy) || 1;
+          chain[o] = chain[o - 4] + (dx / d) * seg;
+          chain[o + 1] = chain[o - 3] + (dy / d) * seg;
+        }
+      }
+      // Smooth curve through the link midpoints.
+      ctx.moveTo(this.sx(chain[0]), this.sy(chain[1]));
+      for (let j = 1; j < N; j++) {
+        const o = j * 4;
+        ctx.quadraticCurveTo(this.sx(chain[o]), this.sy(chain[o + 1]), this.sx((chain[o] + chain[o + 4]) / 2), this.sy((chain[o + 1] + chain[o + 5]) / 2));
+      }
+      ctx.lineTo(this.sx(chain[N * 4]), this.sy(chain[N * 4 + 1]));
+    }
+    ctx.stroke();
+    if (sting > 0) {
+      // Barbed nettles along every other tentacle.
+      ctx.fillStyle = rgba('#e3ccff', 0.85 * alpha);
+      for (let i = 0; i < count; i += 2) {
+        const chain = this.trails[i];
+        for (let j = 1; j <= 2 + sting; j++) {
+          const o = Math.round((j / (3 + sting)) * N) * 4;
+          ctx.beginPath();
+          ctx.arc(this.sx(chain[o]), this.sy(chain[o + 1]), Math.max(0.6, r * 0.05 * z), 0, TAU);
+          ctx.fill();
+        }
+      }
+    }
+  }
 
   /** A meal just went down: the bell swells and glows with its color for a moment. */
   feed(color: string): void {
@@ -737,13 +866,13 @@ export class Renderer {
     const z = this.zoom;
     const time = this.reducedMotion ? world.time * 0.4 : world.time;
     const color = p.tiers.sting > 0 ? '#c59bff' : this.playerStyle.tentacle;
-    const fx = Math.cos(p.heading);
-    const fy = Math.sin(p.heading);
+    const fx = Math.cos(this.bodyHeading);
+    const fy = Math.sin(this.bodyHeading);
     const pts = this.ribbon;
     const N = TENT_SEGS;
 
     for (const tt of world.tentacles) {
-      const root = world.tentacleRoot(tt, r, this.tentRoot);
+      const root = this.bodyPoint(world, (tt.slot - 0.5) * r * 1.3, r * 0.2, this.tentRoot);
       const dx = tt.x - root.x;
       const dy = tt.y - root.y;
       const len = Math.hypot(dx, dy);
