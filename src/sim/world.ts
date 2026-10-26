@@ -32,6 +32,7 @@ import {
   isThreat,
   lureRadius,
   pearlScore,
+  sweepBonus,
   tentacleCount,
   tentaclePullSpeed,
   tentacleReach,
@@ -120,6 +121,8 @@ export interface Creature {
   slip: number;
   /** 0..1 how far it has been swallowed. */
   consume: number;
+  /** Seconds it stays startled by a nearby sweep, fleeing the jelly from further away. */
+  spooked: number;
 }
 
 /**
@@ -142,6 +145,8 @@ export interface Tentacle {
   seed: number;
   /** Reach the arm was launched with, so a strike flung during a burst isn't cut short when it ends. */
   range: number;
+  /** Flung out by a sweep for one catch; it holds firm and is gone once the catch is eaten. */
+  sweep?: boolean;
 }
 
 export interface Player {
@@ -201,7 +206,8 @@ export type SimEvent =
   | { type: 'wreck' }
   | { type: 'evolve'; path: PathId; tier: number }
   | { type: 'form'; id: FormId; x: number; y: number }
-  | { type: 'glimpse'; def: SpeciesDef };
+  | { type: 'glimpse'; def: SpeciesDef }
+  | { type: 'sweep'; n: number; bonus: number; x: number; y: number };
 
 export type RunEnd = 'caught' | null;
 
@@ -227,6 +233,17 @@ export const WRECK_HULL: [number, number, number][] = [
   [235, 112, 52],
   [320, 104, 46],
 ];
+/** How long a burst's sweep stays open, catching whatever the net passes. */
+/**
+ * The sweep's net: open for `time` seconds, reaching the arms' length times `reach` plus the bell
+ * times `body`, across a cone ahead of the bell (`cone` is the cosine of its half-angle, about 60°).
+ * Tuned in simulation so a blind burst nets two or three and an aimed one through a school
+ * nets twice that: aim, not luck, decides the haul.
+ */
+export const SWEEP = { time: 0.25, reach: 1, body: 0.6, cone: 0.5 } as const;
+/** A sweep startles uncaught prey this close (plus a few bell widths) for this many seconds. */
+const SPOOK_RADIUS = 220;
+const SPOOK_TIME = 2.5;
 /** A reach that hasn't connected by then gives up. */
 const REACH_TIME = 1.2;
 /** How long the arm clings before reeling in. */
@@ -283,6 +300,15 @@ export class World {
   /** Evolution milestones already reached this run. */
   evolutionsReached = 0;
   zone: ZoneDef = ZONES[0];
+  /** Seconds left in the current sweep, and what it has snagged so far. */
+  sweepT = 0;
+  sweepCount = 0;
+  /** When the last burst fired, and how much the last finished sweep caught. */
+  lastBurstT = -99;
+  lastSweep = 0;
+  /** Where the bell was last frame, so a sweep's haul can ride along with it. */
+  private lastPX = 0;
+  private lastPY = 0;
   /** Catches in the current chain, and seconds left before it breaks. */
   combo = 0;
   comboT = 0;
@@ -330,6 +356,8 @@ export class World {
       forms,
     };
     this.run.forms = [...forms];
+    this.lastPX = this.player.x;
+    this.lastPY = this.player.y;
     this.player.charges = this.player.stats.burstCharges;
     this.syncTentacles();
     for (const t of this.tentacles) this.restPoint(t, this.player.r, t);
@@ -715,6 +743,11 @@ export class World {
       p.pulse = Math.floor(p.pulse) + 0.25;
       this.events.push({ type: 'burst', x: p.x, y: p.y });
       if (st.stingNova > 0) this.stingNova(st.stingNova);
+      // Every burst casts the arms out as a net: whatever it sweeps through in the next moment is snagged.
+      if (this.sweepT > 0) this.closeSweep();
+      this.sweepT = SWEEP.time;
+      this.sweepCount = 0;
+      this.lastBurstT = this.time;
     }
     p.burstT = Math.max(0, p.burstT - dt);
 
@@ -813,6 +846,7 @@ export class World {
       c.phase += dt;
       c.timer -= dt;
       c.slip = Math.max(0, c.slip - dt);
+      c.spooked = Math.max(0, c.spooked - dt);
       // A caught creature goes where the tentacle takes it, wriggling.
       if (c.held) {
         c.vx = 0;
@@ -900,7 +934,7 @@ export class World {
     const ny = dy / dist;
     const reach = this.playerReach();
     const playerCanEat = p.alive && canEat(reach, c.r, def);
-    const threatened = playerCanEat && dist < 110 + def.speed * 1.2 + reach * 2;
+    const threatened = playerCanEat && (dist < 110 + def.speed * 1.2 + reach * 2 || (c.spooked > 0 && dist < SPOOK_RADIUS + reach * 4));
 
     if (def.hunter) {
       if (playerCanEat || !isThreat(reach, c.r, def)) {
@@ -1182,12 +1216,14 @@ export class World {
   /** Grows the set of arms to match the jelly's stage and spreads them across the rim. */
   private syncTentacles(): void {
     const want = Math.max(tentacleCount(this.player.stage), busyArms(this.player.stage) + this.player.stats.extraArms + 1);
-    while (this.tentacles.length < want) {
+    const arms = this.tentacles.filter((t) => !t.sweep);
+    while (arms.length < want) {
       const p = this.player;
-      this.tentacles.push({ slot: 0.5, phase: 'idle', target: null, x: p.x, y: p.y, t: 0, cooldown: 0, seed: this.tentacles.length * 2.39, range: 0 });
+      const t: Tentacle = { slot: 0.5, phase: 'idle', target: null, x: p.x, y: p.y, t: 0, cooldown: 0, seed: arms.length * 2.39, range: 0 };
+      this.tentacles.push(t);
+      arms.push(t);
     }
-    const n = this.tentacles.length;
-    this.tentacles.forEach((t, i) => (t.slot = (i + 0.5) / n));
+    arms.forEach((t, i) => (t.slot = (i + 0.5) / arms.length));
   }
 
   /** True when coral stands between two points. */
@@ -1332,13 +1368,19 @@ export class World {
             }
           } else {
             // Prey close to the jelly's size can wriggle free; anything it outgrew mid-catch slips out.
-            const fight = escapeRate(R, c.r, c.def.role === 'predator');
+            // A sweep's net holds firm; a single arm's grip can be fought.
+            const fight = t.sweep ? 0 : escapeRate(R, c.r, c.def.role === 'predator');
             if (!canEat(R, c.r, c.def) || (fight > 0 && this.rand() < fight * dt)) {
               this.letGo(t, true);
               t.cooldown = 0.5;
               break;
             }
-            const left = World.approach(t, mouth.x, mouth.y, tentaclePullSpeed(R, c.r), dt);
+            // A sweep's haul rides along with the bell and comes in fast, so the gulps land right after the snap.
+            if (t.sweep) {
+              t.x += p.x - this.lastPX;
+              t.y += p.y - this.lastPY;
+            }
+            const left = World.approach(t, mouth.x, mouth.y, tentaclePullSpeed(R, c.r) * (t.sweep ? 2.4 : 1), dt);
             if (left <= R * 0.35) {
               t.phase = 'eat';
               t.t = 0;
@@ -1384,6 +1426,85 @@ export class World {
     }
 
     if (picking) this.pickTargets(reach);
+    if (this.sweepT > 0) {
+      this.sweepNet();
+      this.sweepT -= dt;
+      if (this.sweepT <= 0) this.closeSweep();
+    }
+    this.lastPX = p.x;
+    this.lastPY = p.y;
+    // Sweep arms vanish once their catch is eaten or lost.
+    for (let i = this.tentacles.length - 1; i >= 0; i--) {
+      const t = this.tentacles[i];
+      if (t.sweep && t.phase === 'idle') this.tentacles.splice(i, 1);
+    }
+  }
+
+  /** How far the sweep's net reaches from the bell: a wide flick of every arm. */
+  sweepReach(): number {
+    return this.tentacleReach() * SWEEP.reach + this.playerReach() * SWEEP.body;
+  }
+
+  /**
+   * The net: every edible creature in the half-circle ahead of the bell, within the sweep's
+   * reach and not behind coral, is snagged at once by its own arm. The jelly is still moving
+   * fast from the burst, so the net rakes a whole corridor: aim it through a school.
+   */
+  private sweepNet(): void {
+    const p = this.player;
+    if (!p.alive) return;
+    const reach = this.sweepReach();
+    const hx = Math.cos(p.heading);
+    const hy = Math.sin(p.heading);
+    const R = this.playerReach();
+    for (const c of this.creatures) {
+      if (c.held || c.slip > 0 || !this.huntable(c)) continue;
+      const dx = c.x - p.x;
+      const dy = c.y - p.y;
+      const d = Math.hypot(dx, dy) || 1;
+      if (d - c.r * 0.5 > reach) continue;
+      if ((dx * hx + dy * hy) / d < SWEEP.cone && d > R * 1.6 + c.r) continue;
+      if (this.armBlocked(c)) continue;
+      // Whichever arm was already reaching for it lets the net take it.
+      for (const t of this.tentacles) if (t.target === c) this.letGo(t, false);
+      const lateral = (dx * -hy + dy * hx) / reach;
+      const t: Tentacle = {
+        slot: clamp(0.5 + lateral * 0.45, 0.05, 0.95),
+        phase: 'grab',
+        target: c,
+        x: c.x,
+        y: c.y,
+        t: 0,
+        cooldown: 0,
+        seed: this.sweepCount * 1.7 + 0.4,
+        range: reach,
+        sweep: true,
+      };
+      c.claimed = true;
+      c.held = true;
+      this.tentacles.push(t);
+      this.sweepCount += 1;
+      this.events.push({ type: 'grab', x: c.x, y: c.y, def: c.def });
+    }
+  }
+
+  /** The net closes: a big haul pays far more than the same catches one by one. */
+  private closeSweep(): void {
+    const n = this.sweepCount;
+    this.sweepT = 0;
+    this.sweepCount = 0;
+    this.lastSweep = n;
+    this.run.bestSweep = Math.max(this.run.bestSweep, n);
+    // The lash startles everything nearby that it missed: a careless sweep scatters the school behind it.
+    const p = this.player;
+    const spook = SPOOK_RADIUS + this.playerReach() * 4;
+    for (const c of this.creatures) {
+      if (!c.dead && !c.held && c.def.role === 'prey' && Math.hypot(c.x - p.x, c.y - p.y) < spook) c.spooked = SPOOK_TIME;
+    }
+    if (n < 1) return;
+    const bonus = sweepBonus(n);
+    this.run.score += bonus;
+    this.events.push({ type: 'sweep', n, bonus, x: this.player.x, y: this.player.y });
   }
 
   /** Detect: hand each ready arm the nearest free prey on its side with a clear line to it. */
@@ -1403,11 +1524,11 @@ export class World {
       cands.push(c);
     }
     if (!cands.length) return;
-    let free = busyArms(p.stage) + p.stats.extraArms - this.tentacles.filter((t) => t.phase !== 'idle' && t.phase !== 'retract').length;
+    let free = busyArms(p.stage) + p.stats.extraArms - this.tentacles.filter((t) => !t.sweep && t.phase !== 'idle' && t.phase !== 'retract').length;
     const root = this.tmp;
     for (const t of this.tentacles) {
       if (free <= 0) return;
-      if (t.phase !== 'idle' || t.cooldown > 0) continue;
+      if (t.sweep || t.phase !== 'idle' || t.cooldown > 0) continue;
       this.tentacleRoot(t, this.playerReach(), root);
       let best: Creature | null = null;
       let bd = Infinity;
@@ -1539,6 +1660,13 @@ export class World {
     c.state = 'rest';
     c.stateT = 3;
     this.run.caughtBy = c.def.id;
+    // What the jelly had left when it was caught, so the results can say what to try next time.
+    this.run.death = {
+      burstReady: p.charges >= 1,
+      sinceBurst: this.time - this.lastBurstT,
+      lastSweep: this.lastSweep,
+      behavior: c.def.behavior,
+    };
     this.finalizeRun();
     this.events.push({ type: 'caught', def: c.def });
   }
@@ -1790,6 +1918,7 @@ export class World {
       held: false,
       slip: 0,
       consume: 0,
+      spooked: 0,
     };
     if (def.behavior === 'chain') {
       c.chain = [];

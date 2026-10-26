@@ -16,6 +16,8 @@ export interface RunStats {
   powerups: number;
   /** Longest catch chain this run. */
   bestCombo: number;
+  /** Most caught in a single sweep this run. */
+  bestSweep: number;
   pearls: number;
   /** 1 once the pirate chest has been opened this run. */
   chest: number;
@@ -28,6 +30,19 @@ export interface RunStats {
   forms: FormId[];
   /** Species glimpsed but never seen clearly this run. */
   glimpsed: string[];
+  /** The state the jelly was caught in, if it was caught. */
+  death: DeathInfo | null;
+}
+
+export interface DeathInfo {
+  /** A burst was charged and unused. */
+  burstReady: boolean;
+  /** Seconds since the last burst. */
+  sinceBurst: number;
+  /** How much the last sweep caught. */
+  lastSweep: number;
+  /** How the hunter that caught it hunts. */
+  behavior: string;
 }
 
 export function emptyRunStats(): RunStats {
@@ -41,6 +56,7 @@ export function emptyRunStats(): RunStats {
     stings: 0,
     powerups: 0,
     bestCombo: 0,
+    bestSweep: 0,
     pearls: 0,
     chest: 0,
     maxDepth: 0,
@@ -50,6 +66,7 @@ export function emptyRunStats(): RunStats {
     eatenBySpecies: {},
     forms: [],
     glimpsed: [],
+    death: null,
   };
 }
 
@@ -138,12 +155,15 @@ export interface RunOutcome {
   completed: ChallengeDef[];
   unlocked: UnlockId[];
   newBest: boolean;
+  /** The biggest sweep on record before this run. */
+  prevBestSweep: number;
 }
 
 /** Applies a finished run to the save: discoveries, bests, stats, challenges, unlocks. */
 export function applyRun(save: SaveData, run: RunStats, now = Date.now()): RunOutcome {
   const newDiscoveries = recordDiscoveries(save, run.seen, run.eatenBySpecies, now);
   const newBest = run.score > save.best.score;
+  const prevBestSweep = save.best.sweep;
   if (newBest) save.best.score = run.score;
   save.best.mass = Math.max(save.best.mass, run.mass);
   save.stats.runs += 1;
@@ -152,6 +172,7 @@ export function applyRun(save: SaveData, run: RunStats, now = Date.now()): RunOu
   save.stats.pearls += run.pearls ?? 0;
   save.stats.chests += run.chest ?? 0;
   save.best.combo = Math.max(save.best.combo, run.bestCombo ?? 0);
+  save.best.sweep = Math.max(save.best.sweep, run.bestSweep ?? 0);
   // The newest form passes on by default; the results screen lets the player pick another.
   const forms = run.forms ?? [];
   for (const id of forms) recordForm(save, id);
@@ -170,7 +191,7 @@ export function applyRun(save: SaveData, run: RunStats, now = Date.now()): RunOu
       }
     }
   }
-  return { newDiscoveries, completed, unlocked, newBest };
+  return { newDiscoveries, completed, unlocked, newBest, prevBestSweep };
 }
 
 /** The next unfinished challenge, for nudging the player toward another run. */
@@ -203,4 +224,19 @@ export function mystery(save: SaveData, run: RunStats | null): Mystery | null {
   const form = FORM_ORDER.find((id) => !save.forms.includes(id));
   if (form) return { title: 'An unworn form', text: FORMS[form].hint };
   return null;
+}
+
+/**
+ * One line on why the run ended, phrased as something to try next time. Every burst is both
+ * the jelly's escape and its sweep, so the lesson is usually about when it was spent.
+ */
+export function deathLesson(run: RunStats): string | null {
+  const d = run.death;
+  if (!d) return null;
+  const chaser = d.behavior === 'stalk' || d.behavior === 'pack';
+  if (d.burstReady) return chaser ? 'You had a burst ready. Burst away before it closes in.' : 'You had a burst ready. When the red line appears, burst across it.';
+  if (d.lastSweep > 0 && d.sinceBurst < 3) {
+    return `You spent your burst sweeping up ${d.lastSweep} just before it struck. Worth it?`;
+  }
+  return 'Your burst was still recharging. Keep one ready when red eyes are near.';
 }

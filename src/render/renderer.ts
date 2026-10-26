@@ -1,4 +1,4 @@
-import type { World, Creature, CoralCluster, Current } from '../sim/world';
+import { SWEEP, type World, type Creature, type CoralCluster, type Current } from '../sim/world';
 import { canEat, isThreat } from '../sim/rules';
 import { WORLD, darknessAt } from '../content/world';
 import { BASE_RADIUS, maturity } from '../content/progression';
@@ -719,6 +719,7 @@ export class Renderer {
 
     this.body.maturity = maturity(p.food);
     this.body.gulp = damp(this.body.gulp, 0, 2.2, dt);
+    if (world.sweepT > 0 && p.alive) this.drawSweep(world);
     this.drawTrails(world, tr * scale, alpha, dt);
     this.drawTentacles(world, tr * scale, alpha);
 
@@ -738,6 +739,42 @@ export class Renderer {
   /** Marginal tentacles as chains of [x, y, prevX, prevY] links in world space. */
   private trails: Float32Array[] = [];
   private bodyPt = { x: 0, y: 0 };
+
+  /**
+   * The sweep's net while it is open: a fan of light ahead of the bell, the size and angle
+   * that actually catch, so players learn its reach by seeing it.
+   */
+  private drawSweep(world: World): void {
+    const ctx = this.ctx;
+    const p = world.player;
+    const k = clamp(world.sweepT / SWEEP.time, 0, 1);
+    const R = world.sweepReach() * this.zoom * (1.08 - 0.08 * k);
+    const half = Math.acos(SWEEP.cone);
+    const h = p.heading;
+    const x = this.sx(p.x);
+    const y = this.sy(p.y);
+    const color = this.playerStyle.glow;
+    const fade = Math.sqrt(k);
+    const g = ctx.createRadialGradient(x, y, R * 0.15, x, y, R);
+    g.addColorStop(0, rgba(color, 0));
+    g.addColorStop(0.7, rgba(color, 0.14 * fade));
+    g.addColorStop(1, rgba(color, 0.38 * fade));
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.arc(x, y, R, h - half, h + half);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalCompositeOperation = 'lighter';
+    drawGlow(ctx, color, x + Math.cos(h) * R, y + Math.sin(h) * R, R * 0.35, 0.5 * fade);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = rgba('#ffffff', 0.9 * fade);
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(x, y, R, h - half, h + half);
+    ctx.stroke();
+  }
 
   /** A point in the jelly's own frame (bell facing -y) to world space, at the drawn heading. */
   private bodyPoint(world: World, lx: number, ly: number, out: { x: number; y: number }): { x: number; y: number } {

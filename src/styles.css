@@ -1629,3 +1629,90 @@ input[type='range']::-moz-range-thumb {
     grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   }
 }
+
+/* ------------------------------------------------------------ sweep */
+
+/* A sweep's haul, popping just above the jelly. */
+.sweep-pop {
+  position: absolute;
+  left: 50%;
+  top: 34%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  transform: translate(-50%, 0);
+  opacity: 0;
+  pointer-events: none;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.45);
+}
+
+.sweep-pop strong {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.sweep-pop.big strong {
+  font-size: 40px;
+}
+
+.sweep-pop span {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--cyan);
+}
+
+.sweep-pop.record span {
+  color: var(--gold);
+}
+
+.sweep-pop.go {
+  animation: sweep-pop 1.1s var(--ease) both;
+}
+
+@keyframes sweep-pop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 8px) scale(0.85);
+  }
+  14% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1.06);
+  }
+  26% {
+    transform: translate(-50%, 0) scale(1);
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -14px) scale(1);
+  }
+}
+
+.reduced-motion .sweep-pop.go {
+  animation-name: sweep-fade;
+}
+
+@keyframes sweep-fade {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  12%,
+  75% {
+    opacity: 1;
+  }
+}
+
+.stat small {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-faint);
+}

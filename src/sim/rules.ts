@@ -77,3 +77,11 @@ export function pearlScore(zone: ZoneId): number {
 export function lureRadius(magnet: number, playerR: number): number {
   return magnet > 0 ? magnet * 1.6 + playerR * 2 : 0;
 }
+
+/**
+ * Score for a sweep that snags n at once, on top of each catch. It climbs steeply (cubic), so
+ * one well-aimed haul through a school is worth far more than several blind grabs of two or three.
+ */
+export function sweepBonus(n: number): number {
+  return n >= 2 ? 5 * n * (n - 1) * (n - 1) : 0;
+}

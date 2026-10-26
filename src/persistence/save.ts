@@ -24,7 +24,7 @@ export interface SaveData {
   discovered: Record<string, DiscoveryRecord>;
   challenges: Record<string, number>;
   unlocks: UnlockId[];
-  best: { score: number; mass: number; combo: number };
+  best: { score: number; mass: number; combo: number; sweep: number };
   stats: { runs: number; eaten: number; longest: number; pearls: number; chests: number };
   selected: { skin: string; trait: string | null };
   settings: Settings;
@@ -43,7 +43,7 @@ export function defaultSave(): SaveData {
     discovered: {},
     challenges: {},
     unlocks: [...DEFAULT_UNLOCKS],
-    best: { score: 0, mass: 0, combo: 0 },
+    best: { score: 0, mass: 0, combo: 0, sweep: 0 },
     stats: { runs: 0, eaten: 0, longest: 0, pearls: 0, chests: 0 },
     selected: { skin: 'moon', trait: null },
     settings: { volume: 0.7, muted: false, reducedMotion: null },
@@ -102,6 +102,7 @@ export function sanitizeSave(raw: unknown): SaveData {
     save.best.score = Math.floor(num(raw.best.score, 0));
     save.best.mass = num(raw.best.mass, 0);
     save.best.combo = Math.floor(num(raw.best.combo, 0));
+    save.best.sweep = Math.floor(num(raw.best.sweep, 0));
   }
 
   if (isObj(raw.stats)) {

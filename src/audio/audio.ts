@@ -188,6 +188,13 @@ export class AudioEngine {
     this.tone(420 + Math.random() * 60, 0.07, 'triangle', 0.06, 0, 260);
   }
 
+  /** A sweep closes on its haul: a bright arpeggio that climbs higher the more it caught. */
+  sweep(n: number): void {
+    const steps = [0, 4, 7, 12, 16, 19, 24, 28, 31, 36];
+    const k = Math.min(n, steps.length);
+    for (let i = 0; i < k; i++) this.tone(659.25 * Math.pow(2, steps[i] / 12), 0.18, 'triangle', 0.06, i * 0.045);
+  }
+
   burst(): void {
     this.whoosh(0.45, 300, 1600, 0.5);
     this.tone(180, 0.25, 'sine', 0.12, 0, 90);

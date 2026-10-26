@@ -6,7 +6,7 @@ import { CHALLENGES } from '../content/challenges';
 import { SKINS, SKINS_BY_ID, TRAITS, TRAITS_BY_ID, type UnlockId } from '../content/unlocks';
 import type { PathId, SpeciesDef } from '../content/types';
 import type { SaveData } from '../persistence/save';
-import { countDiscovered, metricValue, mystery, nextChallenge, type RunOutcome, type RunStats } from '../core/progress';
+import { countDiscovered, deathLesson, metricValue, mystery, nextChallenge, type RunOutcome, type RunStats } from '../core/progress';
 import { FORMS, FORM_BY_SOURCE, FORM_ORDER, type FormId } from '../content/forms';
 import type { JellyStyle } from '../render/creatures';
 import { ICONS } from './icons';
@@ -71,6 +71,7 @@ export function buildUI(root: HTMLElement, touch: boolean): void {
     <div class="toasts" data-bind="toasts" aria-live="polite"></div>
     <div class="hint" data-bind="hint"></div>
     <div class="powers" data-bind="powers"></div>
+    <div class="sweep-pop" data-bind="sweepPop" aria-live="off"><strong data-bind="sweepN"></strong><span data-bind="sweepBonus"></span></div>
     <div class="combo" data-bind="combo" aria-live="off"><span class="combo-n" data-bind="comboN"></span><span class="combo-mult" data-bind="comboMult"></span><span class="combo-bar"><i data-bind="comboBar"></i></span></div>
     <div class="sting-chip" data-bind="sting">${ICONS.sting.replace('aria-hidden', 'width="14" height="14" aria-hidden')}<span data-bind="stingText">Sting ready</span></div>
     <div class="burst-label">${touch ? 'Burst' : 'Space'}</div>
@@ -218,11 +219,12 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
   const caughtBy = run.caughtBy ? SPECIES_BY_ID[run.caughtBy] : null;
   const title = caughtBy ? `Caught by a ${caughtBy.name}` : 'Run ended';
   const longest = save.stats.runs > 1 && run.time >= save.stats.longest && run.time > 0;
-  const sub = caughtBy
+  // Why it ended comes first: it is the thing to try differently next run.
+  const sub = deathLesson(run) ?? (caughtBy
     ? longest
       ? 'Your longest swim yet. The reef will remember.'
       : 'Every jelly is somebody’s dinner. Grow faster next time.'
-    : 'A short swim, but every dive counts.';
+    : 'A short swim, but every dive counts.');
   const stageName = STAGES[run.stage - 1]?.name ?? '';
   const evo = PATH_ORDER.filter((p) => tiers[p] > 0)
     .map((p) => `<span class="chip"><span class="dot" style="--c:${PATHS[p].color}"></span>${PATHS[p].name} ${tiers[p]}</span>`)
@@ -276,7 +278,7 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
       </div>
     </div>
     <div class="stat-grid">
-      <div class="stat"><span>Size</span><strong>${esc(stageName)}</strong></div>
+      <div class="stat"><span>Biggest sweep</span><strong>${run.bestSweep}${sweepNote(run.bestSweep, outcome.prevBestSweep)}</strong></div>
       <div class="stat"><span>Eaten</span><strong>${run.eaten}</strong></div>
       <div class="stat"><span>Survived</span><strong>${mmss(run.time)}</strong></div>
       <div class="stat"><span>Deepest</span><strong>${esc(zoneName(run.maxDepth))}</strong></div>
@@ -301,6 +303,13 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
   renderJelli(ui.results.querySelector<HTMLCanvasElement>('canvas[data-jelli]')!, jelli.style, tiers, jelli.forms, jelli.maturity, 132);
   const heirEl = ui.results.querySelector<HTMLElement>('[data-bind="heirs"]');
   if (heirEl) renderHeirs(heirEl, jelli.forms, save.heirloom);
+}
+
+/** Beside the run's biggest sweep: a new record, or how close it came. */
+function sweepNote(n: number, prev: number): string {
+  if (n > prev && n >= 2) return ' <em>record</em>';
+  if (prev > n && prev - n <= 2) return ` <small>record ${prev}</small>`;
+  return '';
 }
 
 function zoneName(depth: number): string {
