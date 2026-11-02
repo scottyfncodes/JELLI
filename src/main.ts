@@ -8,10 +8,11 @@ import { Renderer } from './render/renderer';
 import { Input } from './core/input';
 import { AudioEngine } from './audio/audio';
 import { SaveStore, type SaveData } from './persistence/save';
-import { applyRun, recordDiscoveries, recordForm, recordGlimpse } from './core/progress';
+import { applyRun, recordDiscoveries, recordForm, recordGlimpse, recordPlace, recordTreasure } from './core/progress';
+import { ENCOUNTERS, LANDMARKS_BY_ID, TREASURES_BY_ID } from './content/landmarks';
 import { PATHS, type Tiers } from './content/evolutions';
 import { FORMS, isFormId } from './content/forms';
-import { EVOLUTION_FOOD, STAGES, evolutionProgress, maturity } from './content/progression';
+import { STAGES, evolutionProgress, maturity } from './content/progression';
 import { depthMeters, zoneIndex } from './content/world';
 import { RARITY_LABEL, SPECIES_BY_ID } from './content/species';
 import { SKINS_BY_ID, TRAITS_BY_ID } from './content/unlocks';
@@ -70,6 +71,8 @@ class Game {
   /** Biggest sweep on record when this run began, for the mid-run record moment. */
   private sweepRecord = 0;
   private noticeCooldown = 0;
+  /** One-off lines already shown this dive. */
+  private said = new Set<string>();
 
   constructor() {
     buildUI(this.uiRoot, TOUCH);
@@ -262,6 +265,10 @@ class Game {
         this.audio.click();
         this.openOverlay('guide');
         break;
+      case 'guideTab':
+        this.audio.click();
+        renderGuide(this.ui, this.save, el.dataset.tab === 'places' ? 'places' : 'life');
+        break;
       case 'lineage':
         this.audio.click();
         this.openOverlay('lineage');
@@ -377,8 +384,15 @@ class Game {
     for (const s of ['title', 'pause', 'results']) this.show(s, false);
     this.show('hud', true);
     this.ui.toasts.innerHTML = '';
+    this.said.clear();
     this.hudCache = Game.freshHud();
     this.tutorial = { step: this.save.tutorialDone ? 99 : 0, t: 0, eats: 0 };
+    // Players who learned to swim before the lash existed get one line about it.
+    if (this.save.tutorialDone && !this.save.tips.includes('lash')) {
+      this.tutorial.step = 50;
+      this.save.tips.push('lash');
+      this.persist();
+    }
     this.updateHint();
     const heir = this.save.heirloom;
     this.zoneToast(this.world.zone.name, heir ? `Hatched wearing ${FORMS[heir].name}` : 'Feed up, then dive');
@@ -418,6 +432,7 @@ class Game {
       w.run.mass = w.player.mass;
       w.run.stage = w.player.stage;
       w.run.score += Math.floor(w.time * 5);
+      w.run.seen = w.seenIds();
     }
     this.finishRun();
   }
@@ -451,6 +466,9 @@ class Game {
 
     if (this.state === 'play') {
       this.input.consume(this.simInput);
+      const tap = this.input.consumeTap();
+      if (tap) this.lashAt(tap.x, tap.y);
+      this.audio.tick(dt, Math.min(1, depthMeters(this.world.player.y) / 6000));
       const steps = dt > 1 / 45 ? 2 : 1;
       for (let i = 0; i < steps; i++) {
         this.world.update(dt / steps, this.simInput);
@@ -478,6 +496,15 @@ class Game {
       r.render(this.world, 0, null);
     }
   };
+
+  /** A tap aims the lash: the nearest free arm strikes at whatever was tapped, from far further than a snag. */
+  private lashAt(sx: number, sy: number): void {
+    const r = this.renderer;
+    const wx = (sx - r.w / 2) / r.zoom + r.camX;
+    const wy = (sy - r.h / 2) / r.zoom + r.camY;
+    // Fingers are big: anything within about 40 screen pixels of the tap counts.
+    this.world.lash(wx, wy, 40 / r.zoom);
+  }
 
   private demoStep(dt: number): void {
     const w = this.world;
@@ -574,6 +601,7 @@ class Game {
         break;
       }
       case 'burst':
+        this.renderer.addFlash(e.x, e.y, 240, 0.6);
         ps.emit(PKind.Ring, e.x, e.y, 0, 0, 0.5, p.r * 0.9, p.tiers.surge ? '#5ee0d0' : '#bfe9ff', 160, 0);
         for (let i = 0; i < 6; i++) ps.emit(PKind.Bubble, e.x, e.y, (Math.random() - 0.5) * 80, (Math.random() - 0.5) * 80, 1.2, 1.5 + Math.random() * 3, '#fff', 0.5, 2);
         this.audio.burst();
@@ -645,7 +673,7 @@ class Game {
         ps.emit(PKind.Ring, p.x, p.y, 0, 0, 0.9, p.r, path.color, 260, 0);
         this.flash();
         const tier = path.tiers[e.tier - 1];
-        this.toast(`<b>${tier.title}</b> ${tier.short}`, path.color, `${path.name} ${e.tier}`);
+        this.toast(`<b>${tier.title}</b> ${tier.short}`, path.color, `${path.name} instinct ${e.tier}`);
         break;
       }
       case 'form': {
@@ -669,7 +697,7 @@ class Game {
         break;
       case 'rare':
         // Something too vast to see announces itself with a glimpse instead.
-        if (e.def.revealLight) break;
+        if (e.def.revealLight || e.def.id === 'lantern-whale') break;
         if (!this.world.hasSeen(e.def.id)) this.toast('<b>Something rare stirs nearby…</b>', '#ffd27a', p.stats.rareCompass ? 'Follow the gold' : '');
         break;
       case 'power': {
@@ -693,18 +721,88 @@ class Game {
         ps.burst(e.x, e.y, 6 + e.value / 10, 50 + e.value / 2, 1.8, '#fff0fa', 0.5);
         this.audio.pearl();
         break;
-      case 'wreck':
-        this.toast('<b>A sunken pirate ship</b>', '#ffd27a', 'Landmark');
-        break;
       case 'chest':
         ps.burst(e.x, e.y, 46, 260, 5, '#ffd27a', 1.1);
         ps.emit(PKind.Ring, e.x, e.y, 0, 0, 0.8, 20, '#ffd27a', 300, 0);
         this.renderer.addShake(0.3);
+        break;
+      case 'lash':
+        if (e.hit) {
+          this.audio.lash();
+          ps.emit(PKind.Ring, e.x, e.y, 0, 0, 0.35, 4, this.renderer.playerStyle.glow, 90, 0);
+          this.renderer.addFlash(e.x, e.y, 70, 0.4);
+          this.tutorialSignal('lash');
+        } else {
+          // Out of reach: a faint ring where it was aimed, so the player learns the arm's length.
+          this.audio.miss();
+          ps.emit(PKind.Ring, e.x, e.y, 0, 0, 0.45, 6, '#8fa6c9', 40, 0);
+          if (!this.said.has('far')) {
+            this.said.add('far');
+            this.toast('Out of reach. Swim a little closer', '#8fa6c9', '');
+          }
+        }
+        break;
+      case 'pod':
+        this.audio.pod();
+        this.renderer.addFlash(e.x, e.y, 340, 1.4);
+        ps.burst(e.x, e.y, 30, 160, 4, e.grove ? '#7dffb9' : '#9dff8a', 1.2);
+        ps.emit(PKind.Ring, e.x, e.y, 0, 0, 0.8, 10, '#d8ffe6', 260, 0);
+        if (!this.said.has('pod')) {
+          this.said.add('pod');
+          this.toast('<b>Glow pod</b> Its light is yours for a while', '#9dff8a', 'Light');
+        }
+        break;
+      case 'place': {
+        const def = LANDMARKS_BY_ID[e.id];
+        const first = recordPlace(this.save, e.id);
+        this.persist();
+        this.audio.place();
         this.flash();
+        ps.emit(PKind.Ring, p.x, p.y, 0, 0, 1.4, p.r, def.color, 520, 0);
+        this.zoneToast(def.name, first ? 'New place · Logged in the Field Guide' : 'You have been here before');
+        break;
+      }
+      case 'reveal': {
+        const def = TREASURES_BY_ID[e.id];
         this.audio.discover(true);
-        this.toast('<b>Pirate treasure!</b> +1,500', '#ffd27a', 'Sunken ship');
+        this.renderer.addFlash(e.x, e.y, 300, 1.2);
+        ps.burst(e.x, e.y, 30, 200, 4, def.color, 1.2);
+        this.toast('<b>Something glints</b> The place has given something up', def.color, 'Treasure');
+        break;
+      }
+      case 'treasure': {
+        const def = TREASURES_BY_ID[e.id];
+        const first = recordTreasure(this.save, e.id);
+        this.persist();
+        this.audio.treasure();
+        this.flash();
+        this.renderer.addShake(0.25);
+        this.renderer.addFlash(e.x, e.y, 360, 1);
+        ps.burst(e.x, e.y, 50, 280, 5, def.color, 1.3);
+        ps.emit(PKind.Ring, e.x, e.y, 0, 0, 0.9, 20, def.color, 320, 0);
+        const bonus = e.id === 'captains-compass' ? 1500 : def.score;
+        this.toast(`<b>${def.name}</b> +${fmt(bonus)}`, def.color, first ? 'New treasure' : 'Treasure', true);
+        break;
+      }
+      case 'encounter': {
+        const enc = ENCOUNTERS[e.kind];
+        if (e.kind === 'whale') this.audio.whale();
+        else if (e.kind === 'bloom') this.audio.bloom();
+        else this.audio.hidden();
+        this.zoneToast(enc.name, enc.line);
+        break;
+      }
+      case 'hidden':
+        if (e.on) {
+          this.audio.hidden();
+          if (!this.said.has('hidden')) {
+            this.said.add('hidden');
+            this.toast('<b>Hidden</b> Hunters lose you in here', '#9df2c0', 'Shelter');
+          }
+        }
         break;
       case 'grab':
+        this.renderer.addFlash(e.x, e.y, 60, 0.35);
         // The arm closes on its catch: a tight ring and a soft pluck.
         ps.emit(PKind.Ring, e.x, e.y, 0, 0, 0.3, Math.max(2, e.def.radius * 0.6), e.def.colors.glow, 70, 0);
         this.audio.grab();
@@ -816,7 +914,7 @@ class Game {
     }
     // The bar fills toward the next evolution; it turns gold once every path is maxed.
     const maxed = w.tiersLeft() === 0;
-    const g = maxed ? 1 : Math.round(evolutionProgress(p.food) * 200) / 200;
+    const g = maxed ? 1 : Math.round(evolutionProgress(w.instinctPoints()) * 200) / 200;
     if (g !== c.growth) {
       c.growth = g;
       ui.growth.style.transform = `scaleX(${g})`;
@@ -824,7 +922,8 @@ class Game {
     // The fill is split by what was eaten: gold for Glow food, teal for Surge, violet for Sting,
     // pale for plain plankton. The biggest colored share is the next evolution.
     const d = p.diet;
-    const plain = Math.max(0, p.food - (EVOLUTION_FOOD[w.evolutionsReached - 1] ?? 0) - d.glow - d.surge - d.sting);
+    // Exploring fills the meter too, in the pale share alongside plain plankton.
+    const plain = Math.max(0, w.instinctPoints() - w.instinctFloor() - d.glow - d.surge - d.sting);
     const dietKey = maxed ? 'max' : [d.glow, d.surge, d.sting, plain].map((v) => Math.round(v)).join(',');
     if (dietKey !== c.diet) {
       c.diet = dietKey;
@@ -882,14 +981,20 @@ class Game {
 
   // ------------------------------------------------------------ tutorial
 
-  private tutorialSignal(kind: 'eat' | 'burst'): void {
+  private tutorialSignal(kind: 'eat' | 'burst' | 'lash'): void {
     const t = this.tutorial;
     if (this.state !== 'play') return;
     if (t.step === 1 && kind === 'eat') {
       t.eats++;
       if (t.eats >= 3) this.advanceTutorial();
-    } else if (t.step === 2 && kind === 'burst') {
+    } else if (t.step === 2 && kind === 'lash') {
       this.advanceTutorial();
+    } else if (t.step === 3 && kind === 'burst') {
+      this.advanceTutorial();
+    } else if (t.step === 50 && kind === 'lash') {
+      // A returning player has learned the lash.
+      t.step = 99;
+      this.updateHint();
     }
   }
 
@@ -904,7 +1009,7 @@ class Game {
     if (t.step === 0 && Math.hypot(this.simInput.ax, this.simInput.ay) > 0.3) {
       t.t += dt;
       if (t.t > 0.9) this.advanceTutorial();
-    } else if (t.step === 3) {
+    } else if (t.step === 4) {
       t.t += dt;
       if (t.t > 4.5) {
         t.step = 99;
@@ -919,10 +1024,11 @@ class Game {
     const steps = [
       TOUCH ? 'Drag anywhere to swim' : 'Swim with <kbd>WASD</kbd> or <kbd>Arrows</kbd>',
       'Swim near a <b style="color:#8cfaff">glowing ring</b> and your tentacles reel it in',
+      TOUCH ? '<b>Tap</b> prey a little further off: an arm lashes out for it' : '<b>Click</b> prey a little further off: an arm lashes out for it',
       TOUCH ? 'Tap <b>Burst</b> into a group of prey: your arms sweep up everything ahead' : 'Press <kbd>Space</kbd> to burst into a group of prey and sweep it up',
-      'Dive as deep as you dare · Bigger hunters wait below',
+      'Dive as deep as you dare · Something new waits in every biome',
     ];
-    const text = steps[this.tutorial.step];
+    const text = this.tutorial.step === 50 ? (TOUCH ? '<b>New:</b> tap prey or pearls further off and an arm lashes out for them' : '<b>New:</b> click prey or pearls further off and an arm lashes out for them') : steps[this.tutorial.step];
     this.ui.hint.classList.toggle('show', !!text);
     if (text) this.ui.hint.innerHTML = text;
   }

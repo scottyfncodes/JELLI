@@ -603,6 +603,86 @@ export function drawCreatureShape(ctx: CanvasRenderingContext2D, def: SpeciesDef
       }
       break;
     }
+    case 'comb': {
+      // Comb jelly: a glassy lobe, its eight comb rows breaking light into travelling rainbows.
+      ctx.fillStyle = rgba(look.body, a(0.32));
+      ellipse(ctx, 0, 0, r * 1.25, r * 0.85);
+      ctx.fill();
+      ctx.strokeStyle = rgba(look.body, a(0.55));
+      ctx.lineWidth = Math.max(0.5, r * 0.06);
+      ctx.stroke();
+      if (look.flat) break;
+      for (let row = 0; row < 4; row++) {
+        const yy = (row - 1.5) * r * 0.36;
+        const span = r * 1.15 * Math.sqrt(1 - Math.pow((row - 1.5) / 2.2, 2));
+        for (let k = 0; k < 7; k++) {
+          const f = k / 6;
+          const x = -span + f * span * 2;
+          const hue = (t * 160 - k * 40 + row * 50) % 360;
+          ctx.fillStyle = `hsla(${hue}, 95%, 72%, 0.9)`;
+          ellipse(ctx, x, yy, r * 0.09, r * 0.05);
+          ctx.fill();
+        }
+      }
+      ctx.fillStyle = rgba(look.accent, 0.5);
+      ellipse(ctx, r * 0.9, 0, r * 0.18, r * 0.3);
+      ctx.fill();
+      break;
+    }
+    case 'whale': {
+      // A great whale: a long, gentle body with pleated throat, long pectoral fins and a lit flank.
+      const beat = Math.sin(t * 0.9);
+      const tail = beat * r * 0.12;
+      const body = rgba(look.body, a(1));
+      ctx.fillStyle = body;
+      ctx.beginPath();
+      ctx.moveTo(r * 1.35, r * 0.05);
+      ctx.bezierCurveTo(r * 1.3, -r * 0.42, r * 0.4, -r * 0.5, -r * 0.4, -r * 0.3);
+      ctx.bezierCurveTo(-r * 0.9, -r * 0.18, -r * 1.25, -r * 0.08 + tail * 0.4, -r * 1.45, tail);
+      ctx.bezierCurveTo(-r * 1.25, r * 0.1 + tail * 0.4, -r * 0.9, r * 0.22, -r * 0.4, r * 0.3);
+      ctx.bezierCurveTo(r * 0.4, r * 0.48, r * 1.2, r * 0.4, r * 1.35, r * 0.05);
+      ctx.fill();
+      // Flukes.
+      ctx.beginPath();
+      ctx.moveTo(-r * 1.4, tail);
+      ctx.quadraticCurveTo(-r * 1.6, tail - r * 0.35, -r * 1.85, tail - r * 0.38 + beat * r * 0.05);
+      ctx.quadraticCurveTo(-r * 1.7, tail, -r * 1.85, tail + r * 0.38 + beat * r * 0.05);
+      ctx.quadraticCurveTo(-r * 1.6, tail + r * 0.35, -r * 1.4, tail);
+      ctx.fill();
+      // Long pectoral fin, sweeping slowly.
+      ctx.beginPath();
+      ctx.moveTo(r * 0.55, r * 0.28);
+      ctx.quadraticCurveTo(r * 0.25, r * (0.75 + beat * 0.08), -r * 0.25, r * (0.95 + beat * 0.1));
+      ctx.quadraticCurveTo(r * 0.15, r * 0.6, r * 0.3, r * 0.3);
+      ctx.fill();
+      if (!look.flat) {
+        // Pale pleated belly.
+        ctx.strokeStyle = rgba(look.accent, 0.35);
+        ctx.lineWidth = Math.max(0.8, r * 0.015);
+        ctx.beginPath();
+        for (let i = 0; i < 7; i++) {
+          const yy = r * (0.12 + i * 0.04);
+          ctx.moveTo(r * 1.2 - i * r * 0.03, yy);
+          ctx.quadraticCurveTo(r * 0.5, yy + r * 0.06, -r * 0.1, yy + r * 0.02);
+        }
+        ctx.stroke();
+        // A row of lights along the flank.
+        for (let i = 0; i < 11; i++) {
+          const f = i / 10;
+          const x = r * 1.0 - f * r * 2.1;
+          const y = -r * 0.06 + Math.sin(f * Math.PI) * r * 0.06 + (f > 0.7 ? tail * (f - 0.7) : 0);
+          const tw = 0.55 + 0.45 * Math.sin(t * 1.4 - i * 0.5);
+          drawGlow(ctx, look.glow, x, y, r * 0.16, tw);
+          ctx.fillStyle = rgba('#eaffff', 0.9);
+          ellipse(ctx, x, y, r * 0.02, r * 0.02);
+          ctx.fill();
+        }
+        ctx.fillStyle = '#0a1830';
+        ellipse(ctx, r * 0.95, -r * 0.05, r * 0.035, r * 0.03);
+        ctx.fill();
+      }
+      break;
+    }
     case 'jelly':
       break;
   }
@@ -638,6 +718,12 @@ export interface JellyBody {
   lean?: number;
   /** The caller draws the marginal tentacles itself (as trailing chains in world space). */
   trailing?: boolean;
+  /** 0..1 inner bioluminescence: brighter in dark water. */
+  lum?: number;
+  /** 0..1 a fright: the bell flushes and clenches when a hunter locks on. */
+  startle?: number;
+  /** 0..1 the thrill of a catch: arms and bell brighten while an arm holds prey. */
+  hunt?: number;
 }
 
 /**
@@ -871,12 +957,31 @@ export function drawJelly(
     ctx.fillStyle = style.bell;
     ctx.fill();
   } else {
+    // Translucent bell: a bright crown fading to a clear margin, with a second, inner layer
+    // (the subumbrella) seen through it, so the body reads as glassy and layered.
+    const startle = body?.startle ?? 0;
+    const lum = body?.lum ?? 0;
     const g = ctx.createRadialGradient(-w * 0.25, -h * 0.55, r * 0.05, 0, -h * 0.2, r * 1.2);
-    g.addColorStop(0, rgba('#ffffff', 0.75));
-    g.addColorStop(0.35, rgba(style.bell, 0.55));
-    g.addColorStop(1, rgba(style.bell, 0.22));
+    g.addColorStop(0, rgba('#ffffff', 0.7 + 0.2 * startle));
+    g.addColorStop(0.35, rgba(style.bell, 0.5 + 0.15 * startle));
+    g.addColorStop(1, rgba(style.bell, 0.16));
     ctx.fillStyle = g;
     ctx.fill();
+    ctx.save();
+    ctx.clip();
+    // Fresnel rim: the edges of a glass bell catch more light than its face.
+    const fr = ctx.createRadialGradient(0, rimY * 0.5, Math.max(0.1, Math.min(w, h) * 0.55), 0, rimY * 0.5, Math.max(w, h) * 1.12);
+    fr.addColorStop(0, rgba(style.rim, 0));
+    fr.addColorStop(0.75, rgba(style.rim, 0.06));
+    fr.addColorStop(1, rgba(style.rim, 0.42 + 0.2 * startle));
+    ctx.fillStyle = fr;
+    ctx.fillRect(-w * 1.3, -h * 1.2, w * 2.6, h * 1.6);
+    // The subumbrella: an inner dome that squeezes a beat after the crown.
+    ctx.fillStyle = rgba(style.organ, 0.1 + 0.05 * lum);
+    ctx.beginPath();
+    ctx.ellipse(0, rimY - r * 0.04, w * (0.72 - 0.08 * contraction), h * (0.62 + 0.1 * rim), 0, Math.PI, 0);
+    ctx.fill();
+    ctx.restore();
     if (has('prism')) {
       // Prism Bell: colors slide around the rim as it swims.
       const pg = ctx.createLinearGradient(-w, 0, w, 0);
@@ -939,6 +1044,22 @@ export function drawJelly(
         else ctx.lineTo(x, y);
       }
       ctx.stroke();
+    }
+
+    // Inner light: a soft core that brightens on each contraction and in dark water,
+    // with the glow travelling out along the canals.
+    const hunt = body?.hunt ?? 0;
+    const core = (0.25 + 0.55 * lum) * (0.55 + 0.45 * contraction) + 0.35 * hunt + 0.6 * startle;
+    if (core > 0.03) {
+      drawGlow(ctx, style.glow, 0, cy, r * (0.75 + 0.35 * lum), Math.min(1, core));
+      if (lum > 0.2) {
+        const wave = (t * 0.9) % 1;
+        ctx.strokeStyle = rgba(style.glow, 0.35 * lum * (1 - wave));
+        ctx.lineWidth = Math.max(0.6, r * 0.05);
+        ctx.beginPath();
+        ctx.ellipse(0, cy + r * 0.05, w * (0.25 + wave * 0.65), h * (0.18 + wave * 0.45), 0, Math.PI * 1.05, Math.PI * 1.95);
+        ctx.stroke();
+      }
     }
 
     if (gulp > 0.02 && body) {

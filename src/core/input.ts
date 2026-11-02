@@ -12,6 +12,12 @@ export class Input {
   private pointerId: number | null = null;
   private keys = new Set<string>();
   private burstQueued = false;
+  /** A quick tap (not a drag) on the play surface, in screen coordinates, waiting to be read. */
+  private tap: { x: number; y: number } | null = null;
+  private downAt = 0;
+  private downX = 0;
+  private downY = 0;
+  private travel = 0;
   enabled = false;
   onPause: (() => void) | null = null;
   onBurst: (() => void) | null = null;
@@ -33,6 +39,14 @@ export class Input {
     this.joystick.active = false;
     this.joystick.ax = this.joystick.ay = 0;
     this.burstQueued = false;
+    this.tap = null;
+  }
+
+  /** The last quick tap, once. Taps aim the lash. */
+  consumeTap(): { x: number; y: number } | null {
+    const t = this.tap;
+    this.tap = null;
+    return this.enabled ? t : null;
   }
 
   queueBurst(): void {
@@ -60,6 +74,10 @@ export class Input {
       /* capture is best-effort */
     }
     const p = this.local(e);
+    this.downAt = performance.now();
+    this.downX = p.x;
+    this.downY = p.y;
+    this.travel = 0;
     const j = this.joystick;
     j.active = true;
     j.cx = p.x;
@@ -71,6 +89,7 @@ export class Input {
     if (e.pointerId !== this.pointerId) return;
     e.preventDefault();
     const p = this.local(e);
+    this.travel = Math.max(this.travel, Math.hypot(p.x - this.downX, p.y - this.downY));
     const j = this.joystick;
     let dx = p.x - j.cx;
     let dy = p.y - j.cy;
@@ -95,6 +114,8 @@ export class Input {
 
   private up = (e: PointerEvent) => {
     if (e.pointerId !== this.pointerId) return;
+    // A short touch that barely moved is a tap: it aims the lash instead of steering.
+    if (e.type === 'pointerup' && this.travel < 14 && performance.now() - this.downAt < 300) this.tap = { x: this.downX, y: this.downY };
     this.pointerId = null;
     this.joystick.active = false;
     this.joystick.ax = this.joystick.ay = 0;

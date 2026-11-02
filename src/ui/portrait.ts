@@ -24,6 +24,8 @@ const FIT: Partial<Record<SpeciesDef['shape'], number>> = {
   moray: 0.17,
   razorfin: 0.3,
   shark: 0.22,
+  comb: 0.3,
+  whale: 0.2,
 };
 
 function prep(canvas: HTMLCanvasElement, cssSize: number): CanvasRenderingContext2D {

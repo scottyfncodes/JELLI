@@ -228,4 +228,71 @@ export class AudioEngine {
   click(): void {
     this.tone(1200, 0.05, 'sine', 0.06);
   }
+
+  /** An aimed arm cracking out through the water. */
+  lash(): void {
+    this.whoosh(0.18, 700, 3200, 0.22);
+    this.tone(520, 0.09, 'triangle', 0.05, 0.04, 980);
+  }
+
+  /** The target was out of reach: a soft, low note. */
+  miss(): void {
+    this.tone(300, 0.14, 'sine', 0.04, 0, 210);
+  }
+
+  /** A glow pod bursting into borrowed light: glassy and bright. */
+  pod(): void {
+    [1046.5, 1567.98, 2093].forEach((f, i) => this.tone(f, 0.7, 'sine', 0.05, i * 0.05));
+    this.whoosh(0.6, 600, 2600, 0.08);
+  }
+
+  /** Finding a place: a slow, warm chord under a deep note. */
+  place(): void {
+    this.tone(65.4, 2.2, 'sine', 0.16);
+    [261.63, 329.63, 392, 523.25].forEach((f, i) => this.tone(f, 1.8, 'sine', 0.07, 0.12 + i * 0.16));
+  }
+
+  /** A treasure taken: rising, glinting notes. */
+  treasure(): void {
+    [783.99, 987.77, 1174.66, 1567.98, 1975.53].forEach((f, i) => this.tone(f, 0.7, 'triangle', 0.07, i * 0.08));
+    this.whoosh(1, 500, 4000, 0.1);
+  }
+
+  /** The Lantern Whale: a long, sliding moan answered from further off. */
+  whale(): void {
+    this.tone(190, 2.6, 'sine', 0.16, 0, 120);
+    this.tone(380, 2.2, 'sine', 0.035, 0.1, 250);
+    this.tone(150, 2.4, 'sine', 0.1, 2.2, 230);
+  }
+
+  /** A bloom: a long scatter of tiny high notes, like light made audible. */
+  bloom(): void {
+    const scale = [1318.51, 1567.98, 1760, 2093, 2349.32, 2637.02];
+    for (let i = 0; i < 14; i++) this.tone(scale[Math.floor(Math.random() * scale.length)], 0.5, 'sine', 0.025, i * 0.11 + Math.random() * 0.05);
+  }
+
+  /** Slipping into a thicket. */
+  hidden(): void {
+    this.whoosh(0.6, 900, 380, 0.12);
+  }
+
+  private nextCall = 9;
+
+  /**
+   * Life in the distance: bubbles in the shallows, and in the deep, far-off calls that are
+   * felt more than heard. Called every frame of play with how deep the jelly is (0..1).
+   */
+  tick(dt: number, depth01: number): void {
+    if (!this.ctx || this.muted) return;
+    this.nextCall -= dt;
+    if (this.nextCall > 0) return;
+    this.nextCall = 7 + Math.random() * 12;
+    if (depth01 < 0.25) {
+      for (let i = 0; i < 4; i++) this.tone(900 + Math.random() * 700, 0.06, 'sine', 0.015, i * (0.08 + Math.random() * 0.1), 1500 + Math.random() * 600);
+    } else {
+      const f = 48 + Math.random() * 36;
+      this.tone(f, 3, 'sine', 0.05 + 0.08 * depth01, 0, f * (Math.random() < 0.5 ? 0.7 : 1.3));
+      if (Math.random() < 0.5) this.tone(f * 3.01, 2, 'sine', 0.012 * depth01, 0.6);
+    }
+  }
 }

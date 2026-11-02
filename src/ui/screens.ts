@@ -12,6 +12,7 @@ import { FORMS, FORM_BY_SOURCE, FORM_ORDER, type FormId } from '../content/forms
 import type { JellyStyle } from '../render/creatures';
 import { ICONS } from './icons';
 import { POWERS, POWER_ORDER, type PowerTimers } from '../content/powerups';
+import { ENCOUNTERS, LANDMARKS, TREASURES_BY_ID } from '../content/landmarks';
 import { renderForm, renderJelli, renderPortrait, renderSkin } from './portrait';
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
@@ -115,7 +116,12 @@ export function buildUI(root: HTMLElement, touch: boolean): void {
         <div class="progress-line"><i data-bind="guideBar"></i></div>
       </div>
     </div>
+    <div class="tabs" role="tablist" data-bind="guideTabs">
+      <button class="tab" role="tab" data-action="guideTab" data-tab="life">Life</button>
+      <button class="tab" role="tab" data-action="guideTab" data-tab="places">Places</button>
+    </div>
     <div class="guide-grid" data-bind="guideGrid"></div>
+    <div class="places" data-bind="placesList"></div>
     <div class="detail" data-bind="detail">
       <div class="detail-card" data-bind="detailCard"></div>
     </div>
@@ -286,6 +292,22 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
     ? `<section class="section wonder"><h3>Still out there</h3><div class="row-main"><strong>${esc(wonder.title)}</strong><small>${esc(wonder.text)}</small></div></section>`
     : '';
 
+  // What this dive found: places, treasures and rare moments, each marked when it was a first.
+  const foundChips = [
+    ...run.places.map((id) => {
+      const l = LANDMARKS.find((x) => x.id === id)!;
+      return `<span class="chip"><span class="dot" style="--c:${l.color}"></span>${esc(l.name)}${outcome.newPlaces.includes(id) ? ' <em>new</em>' : ''}</span>`;
+    }),
+    ...run.treasures.map((id) => {
+      const t = TREASURES_BY_ID[id];
+      return `<span class="chip"><span class="dot" style="--c:${t.color}"></span>${esc(t.name)}${outcome.newTreasures.includes(id) ? ' <em>new</em>' : ''}</span>`;
+    }),
+    ...run.encounters.map((id) => `<span class="chip"><span class="dot" style="--c:${ENCOUNTERS[id].color}"></span>${esc(ENCOUNTERS[id].name)}</span>`),
+  ];
+  const fresh = outcome.newDiscoveries.filter((id) => id !== 'moon-jelli');
+  const freshCount = fresh.length;
+  const seenCount = Math.max(freshCount, run.seen.filter((id) => id !== 'moon-jelli').length);
+  const foundHtml = foundChips.length ? `<section class="section"><h3>Found on this dive</h3><div class="facts">${foundChips.join('')}</div></section>` : '';
   const disc = outcome.newDiscoveries.length
     ? `<section class="section"><h3>New in the Field Guide</h3><div class="discoveries">${outcome.newDiscoveries
         .map((id) => {
@@ -316,10 +338,10 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
     <div class="jelli-card">
       <canvas data-jelli></canvas>
       <div class="jelli-info">
-        <p class="eyebrow">Your Jelli became</p>
+        <p class="eyebrow">Your Jelli grew into</p>
         <strong>${esc(stageName)}</strong>
         <div class="loadout">${evo}${forms}</div>
-        ${evo || forms ? '' : '<small>No evolutions or forms yet. What it eats decides what it becomes.</small>'}
+        ${evo || forms ? '' : '<small>No instincts or forms yet. Eating and exploring awaken instincts.</small>'}
       </div>
     </div>
     <div class="stat-grid">
@@ -327,9 +349,10 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
       <div class="stat"><span>Eaten</span><strong>${run.eaten}</strong></div>
       <div class="stat"><span>Survived</span><strong>${mmss(run.time)}</strong></div>
       <div class="stat"><span>Points</span><strong>${fmt(run.score)}</strong></div>
-      <div class="stat"><span>Longest chain</span><strong>${run.bestCombo}${run.bestCombo >= save.best.combo && run.bestCombo > 1 ? ' <em>best</em>' : ''}</strong></div>
+      <div class="stat"><span>Species seen</span><strong>${seenCount}${freshCount ? ` <em>${freshCount} new</em>` : ''}</strong></div>
       <div class="stat"><span>Pearls</span><strong>${run.pearls}${run.chest ? ' + chest' : ''}</strong></div>
     </div>
+    ${foundHtml}
     ${heirs}
     ${disc}
     ${wonderHtml}
@@ -359,7 +382,20 @@ function sweepNote(n: number, prev: number): string {
 
 // ------------------------------------------------------------------ field guide
 
-export function renderGuide(ui: Binds, save: SaveData): void {
+export type GuideTab = 'life' | 'places';
+
+export function renderGuide(ui: Binds, save: SaveData, tab: GuideTab = 'life'): void {
+  ui.guideTabs.querySelectorAll<HTMLElement>('[data-tab]').forEach((el) => {
+    const on = el.dataset.tab === tab;
+    el.classList.toggle('on', on);
+    el.setAttribute('aria-selected', String(on));
+  });
+  ui.guideGrid.hidden = tab !== 'life';
+  ui.placesList.hidden = tab !== 'places';
+  if (tab === 'places') {
+    renderPlaces(ui, save);
+    return;
+  }
   const n = countDiscovered(save);
   ui.guideProgress.textContent = `${n} of ${SPECIES.length} species discovered`;
   ui.guideBar.style.width = `${(n / SPECIES.length) * 100}%`;
@@ -375,6 +411,74 @@ export function renderGuide(ui: Binds, save: SaveData): void {
   ui.guideGrid.querySelectorAll<HTMLCanvasElement>('canvas[data-portrait]').forEach((cv) => {
     renderPortrait(cv, SPECIES_BY_ID[cv.dataset.portrait!], cv.dataset.known === '1', 110);
   });
+}
+
+/** Landmarks and their treasures: found ones with field notes, unfound ones with a hint. */
+function renderPlaces(ui: Binds, save: SaveData): void {
+  const found = LANDMARKS.filter((l) => save.places[l.id]).length;
+  const taken = LANDMARKS.filter((l) => save.treasures[l.treasure]).length;
+  ui.guideProgress.textContent = `${found} of ${LANDMARKS.length} places · ${taken} treasures`;
+  ui.guideBar.style.width = `${(found / LANDMARKS.length) * 100}%`;
+  const enc = (Object.keys(ENCOUNTERS) as (keyof typeof ENCOUNTERS)[])
+    .map((id) => {
+      const n = save.encounters[id] ?? 0;
+      return `<span class="chip ${n ? '' : 'muted'}"><span class="dot" style="--c:${n ? ENCOUNTERS[id].color : '#3a4a7a'}"></span>${n ? `${esc(ENCOUNTERS[id].name)} · ${n} ${n === 1 ? 'dive' : 'dives'}` : 'Not yet witnessed'}</span>`;
+    })
+    .join('');
+  ui.placesList.innerHTML =
+    LANDMARKS.map((l) => {
+      const at = save.places[l.id];
+      const z = ZONES[zoneIndex(l.zone)];
+      const tr = TREASURES_BY_ID[l.treasure];
+      const got = save.treasures[l.treasure];
+      const depth = l.id === 'galleon' ? `${fmt(depthMeters(l.minY))} m` : `${fmt(depthMeters(l.minY))} to ${fmt(depthMeters(l.maxY))} m`;
+      return `<article class="place ${at ? '' : 'locked'}" style="--c:${at ? l.color : '#33406e'}">
+        <div class="place-head"><span class="dot"></span><div><h3>${at ? esc(l.name) : 'Unknown place'}</h3><small>${esc(z.name)} · ${depth}</small></div></div>
+        <p>${at ? esc(l.blurb) : `Field notes: “${esc(l.hint)}”`}</p>
+        <div class="facts">
+          ${at ? `<span class="chip">Found ${new Date(at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>` : ''}
+          <span class="chip ${got ? '' : 'muted'}"><span class="dot" style="--c:${got ? tr.color : '#3a4a7a'}"></span>${got ? `${esc(tr.name)} · ${esc(tr.blurb)}` : at ? `Treasure · ${esc(tr.hint)}` : 'Treasure unknown'}</span>
+        </div>
+      </article>`;
+    }).join('') + `<section class="section"><h3>Rare encounters</h3><div class="facts">${enc}</div></section>`;
+}
+
+/** How each way of moving reads in the field notes. */
+const BEHAVIOR_NOTE: Record<SpeciesDef['behavior'], string> = {
+  drift: 'Drifts with the water',
+  dart: 'Holds still, then darts away in a burst',
+  school: 'Swims in schools that scatter from a sweep',
+  puff: 'Swells up spiny when something big comes close',
+  jet: 'Jets away in quick pulses',
+  hide: 'Keeps close to coral',
+  glide: 'Glides on the currents, never hurrying',
+  chain: 'Drifts as a single chain of many bodies',
+  lunge: 'Hunts by lunging in a straight line after a warning',
+  stalk: 'Follows its prey steadily, and keeps following',
+  lure: 'Waits behind a glowing lure',
+  ambush: 'Strikes from a hole in the reef',
+  pack: 'Hunts in packs that swarm together',
+  circle: 'Circles at a distance before it dashes in',
+  loom: 'Drifts along the bottom of the Abyss',
+};
+
+/** What the field notes say about how it behaves, built from its traits. */
+function behaviorNotes(def: SpeciesDef): string[] {
+  const out = [BEHAVIOR_NOTE[def.behavior]];
+  if (def.light === 'drawn') out.push('Drawn to light in dark water');
+  if (def.light === 'shy') out.push('Flees from light in dark water');
+  if (def.shelters) out.push('Hides behind coral when chased');
+  if (def.territory) out.push('Patrols its own patch of water');
+  if (def.glows) out.push('Bioluminescent');
+  return out;
+}
+
+/** The depths a species lives at, in meters. */
+function depthRange(def: SpeciesDef): string {
+  const zs = ZONES.filter((z) => def.zones.includes(z.id));
+  const top = depthMeters(Math.min(...zs.map((z) => z.top)));
+  const bottom = Math.max(...zs.map((z) => z.bottom));
+  return Number.isFinite(bottom) ? `${fmt(top)} to ${fmt(depthMeters(bottom))} m` : `${fmt(top)} m and below`;
 }
 
 function habitat(def: SpeciesDef): string {
@@ -397,8 +501,11 @@ export function renderDetail(ui: Binds, save: SaveData, id: string): void {
     <h3>${known ? esc(def.name) : 'Unknown species'}</h3>
     ${known ? `<div class="latin">${esc(def.latin)}</div>` : ''}
     <p class="blurb">${known ? esc(def.blurb) : `Field notes: “${esc(def.hint)}”`}</p>
+    ${known && def.role !== 'player' ? `<ul class="notes">${behaviorNotes(def).map((n) => `<li>${esc(n)}</li>`).join('')}</ul>` : ''}
     <div class="facts">
+      ${known ? `<span class="chip">Depth · ${depthRange(def)}</span>` : ''}
       ${known ? `<span class="chip">Habitat · ${esc(habitat(def))}</span>` : ''}
+      ${known && rec.firstSeen > 0 && def.role !== 'player' ? `<span class="chip">First seen ${new Date(rec.firstSeen).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>` : ''}
       ${known && def.role !== 'player' ? `<span class="chip">Seen in ${rec.seen} ${rec.seen === 1 ? 'dive' : 'dives'}</span>` : ''}
       ${known && rec.eaten ? `<span class="chip">Eaten ${rec.eaten}</span>` : ''}
       ${known && def.diet ? `<span class="chip"><span class="dot" style="--c:${PATHS[def.diet].color}"></span>Feeds your ${PATHS[def.diet].name}</span>` : ''}
