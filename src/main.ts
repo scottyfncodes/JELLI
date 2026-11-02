@@ -4,7 +4,7 @@ import './styles.css';
 
 import { World, type SimEvent, type SimInput } from './sim/world';
 import { track } from './core/analytics';
-import { Renderer } from './render/renderer';
+import { Renderer, VIEW_SPAN } from './render/renderer';
 import { Input } from './core/input';
 import { AudioEngine } from './audio/audio';
 import { SaveStore, type SaveData } from './persistence/save';
@@ -243,7 +243,8 @@ class Game {
     document.body.classList.toggle('wide', wide);
     r.focusOffset = wide ? 0 : r.h * 0.2;
     r.focusOffsetX = wide ? r.w * 0.22 : 0;
-    r.zoomBoost = wide ? 1.45 : 1.6;
+    // The title keeps its own framing (sized for the old wider view), so the octopus sits clear of the logo.
+    r.zoomBoost = (wide ? 1.45 : 1.6) * (VIEW_SPAN / 215);
   }
 
   private openOverlay(o: Exclude<Overlay, null>): void {
