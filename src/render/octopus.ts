@@ -3,6 +3,7 @@ import type { FormId } from '../content/forms';
 import type { PersonalityId } from '../content/personality';
 import { TAU, clamp, hexToRgb, lerp, rgba } from '../core/math';
 import { drawGlow } from './sprites';
+import type { OctoVariant } from '../content/octopus';
 
 /**
  * The octopus. Drawn in its own frame: mantle toward -y, arms hanging toward +y, one body
@@ -10,7 +11,7 @@ import { drawGlow } from './sprites';
  * a procedural pose in portraits, so every mutation and mood looks the same in both.
  */
 
-export type EyeMood = 'calm' | 'alarm' | 'happy' | 'focus' | 'closed';
+export type EyeMood = 'calm' | 'alarm' | 'happy' | 'focus' | 'closed' | 'wonder';
 
 export interface OctoLook {
   skin: string;
@@ -44,11 +45,37 @@ export interface OctoPose {
   /** 0..1 inner light, stronger in dark water. */
   lum: number;
   personality: PersonalityId | null;
+  /** This particular octopus's looks (spots, eyes, head, irises). */
+  variant?: OctoVariant;
   /** Silhouette for unknown Journal entries. */
   flat?: boolean;
 }
 
 const has = (pose: OctoPose, id: MutationId) => pose.mutations.includes(id);
+
+const DEFAULT_SPOTS: [number, number, number][] = [
+  [-0.32, -0.75, 0.09], [0.22, -0.92, 0.07], [0.38, -0.45, 0.08], [-0.45, -0.25, 0.07], [0.05, -0.55, 0.06], [-0.12, -1.05, 0.05], [0.48, -0.1, 0.06], [-0.2, -0.05, 0.05],
+];
+const SPOT_CACHE = new Map<number, [number, number, number][]>();
+
+/** This octopus's own spot pattern: how many, where and how big. */
+function spotsFor(seed: number): [number, number, number][] {
+  let out = SPOT_CACHE.get(seed);
+  if (out) return out;
+  let a = seed >>> 0;
+  const rng = () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), a | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  out = [];
+  const n = 5 + Math.floor(rng() * 7);
+  for (let i = 0; i < n; i++) out.push([(rng() - 0.5) * 1.1, -0.05 - rng() * 1.0, 0.04 + rng() * 0.07]);
+  if (SPOT_CACHE.size > 64) SPOT_CACHE.clear();
+  SPOT_CACHE.set(seed, out);
+  return out;
+}
 const hasForm = (pose: OctoPose, id: FormId) => pose.forms.includes(id);
 
 function mixHex(a: string, b: string, t: number): string {
@@ -180,7 +207,7 @@ export function drawOctopus(ctx: CanvasRenderingContext2D, look: OctoLook, pose:
   // Mantle: a soft dome lit from above, squeezing on each jet.
   const sq = pose.squeeze;
   const mx = r * (0.82 - 0.1 * sq) * (deep ? 1.08 : 1);
-  const my = r * (1.0 + 0.06 * sq) * (deep ? 1.06 : 1);
+  const my = r * (1.0 + 0.06 * sq) * (deep ? 1.06 : 1) * (pose.variant?.mantle ?? 1);
   const mcy = -r * 0.32;
   const sway = Math.sin(t * 1.1) * r * 0.04;
   ctx.beginPath();
@@ -202,9 +229,7 @@ export function drawOctopus(ctx: CanvasRenderingContext2D, look: OctoLook, pose:
     ctx.save();
     ctx.clip();
     // Chromatophore spots that pulse slowly, and texture when camouflaged.
-    const spots: [number, number, number][] = [
-      [-0.32, -0.75, 0.09], [0.22, -0.92, 0.07], [0.38, -0.45, 0.08], [-0.45, -0.25, 0.07], [0.05, -0.55, 0.06], [-0.12, -1.05, 0.05], [0.48, -0.1, 0.06], [-0.2, -0.05, 0.05],
-    ];
+    const spots: [number, number, number][] = pose.variant ? spotsFor(pose.variant.spots) : DEFAULT_SPOTS;
     const spotColor = pose.camo > 0.2 ? mixHex(pose.camoColor, '#000000', 0.35) : look.spots;
     for (const [sx, sy, sr] of spots) {
       const pulse = 0.75 + 0.25 * Math.sin(t * 1.7 + sx * 9);
@@ -271,6 +296,17 @@ export function drawOctopus(ctx: CanvasRenderingContext2D, look: OctoLook, pose:
     }
   }
 
+  if (!flat && pose.variant?.freckles) {
+    // Freckles under the eyes, a few or none: one of the little things that make each octopus itself.
+    ctx.fillStyle = rgba(look.spots, 0.55);
+    for (const sd of [-1, 1]) {
+      for (let k = 0; k < pose.variant.freckles; k++) {
+        ctx.beginPath();
+        ctx.arc(sd * r * (0.62 + k * 0.07), r * (0.3 + (k % 2) * 0.05), r * 0.025, 0, TAU);
+        ctx.fill();
+      }
+    }
+  }
   drawEyes(ctx, look, pose, skin);
 
   if (!flat && has(pose, 'crushing-beak')) {
@@ -435,7 +471,9 @@ function drawEyes(ctx: CanvasRenderingContext2D, look: OctoLook, pose: OctoPose,
   const { r, t } = pose;
   const keen = has(pose, 'keen-eyes');
   const alarm = pose.mood === 'alarm';
-  const size = r * 0.27 * (keen ? 1.22 : 1) * (alarm ? 1.12 : 1);
+  const wonder = pose.mood === 'wonder';
+  const size = r * 0.27 * (keen ? 1.22 : 1) * (alarm ? 1.12 : wonder ? 1.16 : 1) * (pose.variant?.eye ?? 1);
+  const iris = keen ? (['#ffe28a', '#c88a10'] as const) : (pose.variant?.iris ?? (['#e8a050', '#8a4a20'] as const));
   const lx = clamp(pose.lookX, -1, 1);
   const ly = clamp(pose.lookY, -1, 1);
   for (const sd of [-1, 1]) {
@@ -474,15 +512,16 @@ function drawEyes(ctx: CanvasRenderingContext2D, look: OctoLook, pose: OctoPose,
     const iy = ey + ly * size * 0.28;
     const ir = size * (alarm ? 0.55 : 0.68);
     const ig = ctx.createRadialGradient(ix, iy, ir * 0.2, ix, iy, ir);
-    ig.addColorStop(0, keen ? '#ffe28a' : '#e8a050');
-    ig.addColorStop(1, keen ? '#c88a10' : '#8a4a20');
+    ig.addColorStop(0, iris[0]);
+    ig.addColorStop(1, iris[1]);
     ctx.fillStyle = ig;
     ctx.beginPath();
     ctx.arc(ix, iy, ir, 0, TAU);
     ctx.fill();
     ctx.fillStyle = '#120a10';
-    const pw = ir * (alarm ? 0.55 : 0.82);
-    const ph = ir * (alarm ? 0.32 : 0.36);
+    // In wonder the pupils open wide and round; in alarm they shrink to slits.
+    const pw = ir * (alarm ? 0.55 : wonder ? 0.62 : 0.82);
+    const ph = ir * (alarm ? 0.32 : wonder ? 0.56 : 0.36);
     ctx.beginPath();
     ctx.ellipse(ix, iy, pw, ph, 0, 0, TAU);
     ctx.fill();
@@ -491,8 +530,21 @@ function drawEyes(ctx: CanvasRenderingContext2D, look: OctoLook, pose: OctoPose,
     ctx.arc(ix - ir * 0.35, iy - ir * 0.4, ir * 0.24, 0, TAU);
     ctx.fill();
     ctx.beginPath();
-    ctx.arc(ix + ir * 0.3, iy + ir * 0.25, ir * 0.1, 0, TAU);
+    ctx.arc(ix + ir * 0.3, iy + ir * 0.25, ir * (wonder ? 0.16 : 0.1), 0, TAU);
     ctx.fill();
+    if (wonder) {
+      // A starry glint: something new.
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.lineWidth = Math.max(0.5, ir * 0.08);
+      const gx = ix - ir * 0.35;
+      const gy = iy - ir * 0.4;
+      ctx.beginPath();
+      ctx.moveTo(gx - ir * 0.45, gy);
+      ctx.lineTo(gx + ir * 0.45, gy);
+      ctx.moveTo(gx, gy - ir * 0.45);
+      ctx.lineTo(gx, gy + ir * 0.45);
+      ctx.stroke();
+    }
     // Eyelid: blinks, and lowers in concentration.
     const lid = pose.mood === 'focus' ? 0.42 : 0;
     const shut = clamp(1 - pose.open + lid, 0, 1);

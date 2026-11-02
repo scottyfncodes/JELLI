@@ -16,6 +16,7 @@ import { ICONS } from './icons';
 import { POWERS, POWER_ORDER, type PowerTimers } from '../content/powerups';
 import { ENCOUNTERS, LANDMARKS, RELIC_SLOTS, TREASURES, TREASURES_BY_ID } from '../content/landmarks';
 import { renderForm, renderOctopus, renderPortrait, renderSkin } from './portrait';
+import type { OctoVariant, OctopusId } from '../content/octopus';
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 const fmt = (n: number) => Math.round(n).toLocaleString('en-US');
@@ -44,8 +45,9 @@ export function buildUI(root: HTMLElement, touch: boolean): void {
   <section class="screen title" data-screen="title">
     <div class="title-corner"><button class="icon-btn" data-action="settings" aria-label="Settings">${ICONS.gear}</button></div>
     <div class="title-wrap">
-      <h1 class="logo">Jelli</h1>
-      <p class="tagline">You begin as a tiny octopus.<br>What you become is up to you.</p>
+      ${wordmark()}
+      <p class="tagline">You begin as a tiny octopus. What you become is up to you.</p>
+      <p class="meet" data-bind="meet"></p>
     </div>
     <div class="title-actions">
       <button class="btn btn-primary" data-action="play">Play</button>
@@ -154,7 +156,19 @@ export function buildUI(root: HTMLElement, touch: boolean): void {
 
 // ------------------------------------------------------------------ title
 
+/**
+ * The SQUIDO wordmark: soft, chunky letters that bob out of line, a tentacle curling off the
+ * Q's tail, and a final O that is an eye, which blinks and glances about.
+ */
+function wordmark(): string {
+  const tail = `<svg class="q-tail" viewBox="0 0 60 64" aria-hidden="true"><path d="M4 4 C 16 18 38 12 44 30 C 50 48 30 60 20 50 C 12 42 22 32 30 40" fill="none" stroke="url(#wm-arm)" stroke-width="9" stroke-linecap="round"/><g fill="#ffe2d2"><circle cx="20" cy="15" r="2.6"/><circle cx="34" cy="20" r="2.4"/><circle cx="43" cy="33" r="2.2"/><circle cx="39" cy="47" r="1.9"/></g><defs><linearGradient id="wm-arm" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff9f7c"/><stop offset="1" stop-color="#e0507a"/></linearGradient></defs></svg>`;
+  const letters = ['S', 'Q', 'U', 'I', 'D'].map((ch, i) => `<span class="l l${i}">${ch}${ch === 'Q' ? tail : ''}</span>`).join('');
+  return `<h1 class="logo" aria-label="SQUIDO"><span class="wm" aria-hidden="true">${letters}<span class="l l5">O<span class="wm-eye"><i></i></span></span></span></h1>`;
+}
+
 export function renderTitle(ui: Binds, save: SaveData): void {
+  const o = save.octopus;
+  ui.meet.innerHTML = `Meet <b>${esc(o.name)}</b> · Generation ${fmt(o.generation)}`;
   ui.guideCount.textContent = `${countDiscovered(save)}/${SPECIES.length}`;
   const pearls = save.stats.pearls > 0 ? ` · ${fmt(save.stats.pearls)} ${save.stats.pearls === 1 ? 'pearl' : 'pearls'}` : '';
   ui.best.textContent =
@@ -196,7 +210,12 @@ export function renderMutationPips(el: HTMLElement, mutations: readonly Mutation
 }
 
 /** The evolution choice: up to three mutations, each drawn on your octopus as it would look. */
-export function renderEvolve(ui: Binds, offers: MutationId[], view: { style: JellyStyle; mutations: readonly MutationId[]; forms: readonly FormId[]; maturity: number; personality: PersonalityId | null }, pending: number): void {
+export function renderEvolve(
+  ui: Binds,
+  offers: MutationId[],
+  view: { style: JellyStyle; mutations: readonly MutationId[]; forms: readonly FormId[]; maturity: number; personality: PersonalityId | null; variant?: OctoVariant },
+  pending: number,
+): void {
   ui.evolveNote.textContent = pending > 1 ? `Choose one. ${pending - 1} more ${pending === 2 ? 'change is' : 'changes are'} waiting after this.` : 'Choose one. It stays for the rest of the dive.';
   ui.evolveCards.innerHTML = offers
     .map((id) => {
@@ -214,7 +233,7 @@ export function renderEvolve(ui: Binds, offers: MutationId[], view: { style: Jel
     })
     .join('');
   ui.evolveCards.querySelectorAll<HTMLCanvasElement>('canvas[data-evo]').forEach((cv) => {
-    renderOctopus(cv, view.style, [...view.mutations, cv.dataset.evo as MutationId], view.forms, view.maturity, 96, view.personality);
+    renderOctopus(cv, view.style, [...view.mutations, cv.dataset.evo as MutationId], view.forms, view.maturity, 96, view.personality, 1.2, view.variant);
   });
 }
 
@@ -232,7 +251,7 @@ function stripPos(y: number): number {
 }
 
 /**
- * The biome strip under the depth readout: one band per biome, dark until some Jelli has
+ * The biome strip under the depth readout: one band per biome, dark until some octopus has
  * reached it, with a gold tick at your record and a dot for where you are now.
  */
 export function renderBiomeStrip(el: HTMLElement, seen: readonly ZoneId[], record: number): void {
@@ -270,12 +289,15 @@ export function renderPowers(el: HTMLElement, powers: PowerTimers): void {
 
 // ------------------------------------------------------------------ results
 
-/** The jelly a run ended with, for its portrait on the results screen. */
-export interface JelliView {
+/** The octopus a dive ended with, for its portrait on the results screen. */
+export interface OctopusView {
   style: JellyStyle;
   mutations: MutationId[];
   personality: PersonalityId | null;
   forms: FormId[];
+  /** Who it was, and how it looked. */
+  who: OctopusId;
+  variant: OctoVariant;
   maturity: number;
 }
 
@@ -283,7 +305,7 @@ function formChip(id: FormId): string {
   return `<span class="chip"><span class="dot" style="--c:${FORMS[id].color}"></span>${esc(FORMS[id].name)}</span>`;
 }
 
-/** The forms this Jelli could pass on, with the chosen one marked. */
+/** The forms this octopus could pass on, with the chosen one marked. */
 export function renderHeirs(el: HTMLElement, forms: FormId[], heirloom: FormId | null): void {
   el.innerHTML = forms
     .map(
@@ -293,7 +315,7 @@ export function renderHeirs(el: HTMLElement, forms: FormId[], heirloom: FormId |
     .join('');
 }
 
-export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, save: SaveData, jelli: JelliView): void {
+export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, save: SaveData, octo: OctopusView): void {
   const caughtBy = run.caughtBy ? SPECIES_BY_ID[run.caughtBy] : null;
   const zone = zoneAt(run.maxDepth);
   const how = caughtBy ? `Caught by a ${caughtBy.name}` : 'You surfaced';
@@ -319,16 +341,16 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
     ? `<section class="section wonder below" style="--c:${below.color}"><h3>Below ${fmt(depthMeters(below.top))} m</h3><div class="row-main"><strong>???</strong><small>${esc(below.teaser)}</small></div></section>`
     : '';
   const stageName = STAGES[run.stage - 1]?.name ?? '';
-  const evo = jelli.mutations
+  const evo = octo.mutations
     .map((id) => `<span class="chip"><span class="dot" style="--c:${CATEGORY[MUTATIONS_BY_ID[id].category].color}"></span>${esc(MUTATIONS_BY_ID[id].name)}${outcome.newMutations.includes(id) ? ' <em>new</em>' : ''}</span>`)
     .join('');
   const mood = outcome.personality;
   const moodHtml = mood
     ? `<section class="section persona" style="--c:${PERSONALITIES[mood].color}"><h3>${outcome.personalityNew ? 'A personality has emerged' : 'Personality'}</h3><div class="row-main"><strong>${esc(PERSONALITIES[mood].name)}</strong><small>${esc(PERSONALITIES[mood].line)} ${esc(PERSONALITIES[mood].perk)}</small></div></section>`
     : '';
-  const forms = jelli.forms.map(formChip).join('');
-  const heirs = jelli.forms.length
-    ? `<section class="section"><h3>Pass one on</h3><p class="section-note">Your next octopus hatches wearing it.</p><div class="heirs" data-bind="heirs"></div></section>`
+  const forms = octo.forms.map(formChip).join('');
+  const heirs = octo.forms.length
+    ? `<section class="section"><h3>Pass one on</h3><p class="section-note">${esc(save.octopus.name)}, the next to hatch, will wear it.</p><div class="heirs" data-bind="heirs"></div></section>`
     : '';
   const wonder = below ? null : mystery(save, run);
   const wonderHtml = wonder
@@ -371,7 +393,7 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
 
   ui.results.innerHTML = `
     <div class="results-head">
-      <p class="eyebrow">You reached</p>
+      <p class="eyebrow">${esc(octo.who.name)} reached</p>
       <div class="big-score">${fmt(depth)} m</div>
       <h2>${esc(zone.name)}</h2>
       ${record}
@@ -379,10 +401,10 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
     </div>
     ${descent}
     ${belowHtml}
-    <div class="jelli-card">
-      <canvas data-jelli></canvas>
-      <div class="jelli-info">
-        <p class="eyebrow">Your octopus became</p>
+    <div class="octo-card">
+      <canvas data-octo></canvas>
+      <div class="octo-info">
+        <p class="eyebrow">${esc(octo.who.name)} · Generation ${fmt(octo.who.generation)}</p>
         <strong>${esc(stageName)}</strong>
         <div class="loadout">${evo}${forms}</div>
         ${evo || forms ? '' : '<small>No mutations yet. Eat and explore to fill the growth meter, then choose what changes.</small>'}
@@ -403,7 +425,7 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
     ${wonderHtml}
     ${done}
     <div class="results-actions">
-      <button class="btn btn-primary" data-action="play">Swim again</button>
+      <button class="btn btn-primary" data-action="play" aria-label="Hatch ${esc(save.octopus.name)}, generation ${fmt(save.octopus.generation)}">Hatch ${esc(save.octopus.name)}</button>
       <div class="split">
         <button class="btn btn-ghost" data-action="guide">Journal</button>
         <button class="btn btn-ghost" data-action="home">Home</button>
@@ -412,9 +434,9 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
   ui.results.querySelectorAll<HTMLCanvasElement>('canvas[data-portrait]').forEach((cv) => {
     renderPortrait(cv, SPECIES_BY_ID[cv.dataset.portrait!], true, 84);
   });
-  renderOctopus(ui.results.querySelector<HTMLCanvasElement>('canvas[data-jelli]')!, jelli.style, jelli.mutations, jelli.forms, jelli.maturity, 132, jelli.personality);
+  renderOctopus(ui.results.querySelector<HTMLCanvasElement>('canvas[data-octo]')!, octo.style, octo.mutations, octo.forms, octo.maturity, 132, octo.personality, 1.2, octo.variant);
   const heirEl = ui.results.querySelector<HTMLElement>('[data-bind="heirs"]');
-  if (heirEl) renderHeirs(heirEl, jelli.forms, save.heirloom);
+  if (heirEl) renderHeirs(heirEl, octo.forms, save.heirloom);
 }
 
 /** Beside the run's biggest sweep: a new record, or how close it came. */

@@ -1,13 +1,20 @@
-# Jelli
+# SQUIDO
 
 **You begin as a tiny octopus. What you become is up to you.** A mobile-first underwater evolution and survival game for the HaveAnApp portfolio.
 
 Eat, grow, explore, evolve, adapt, survive. A hatchling octopus no bigger than a thumbnail sets out into an ocean with no floor. Fill the growth meter by eating and exploring, choose how its body changes, and discover the character it grows into.
 
+## Brand
+
+SQUIDO was called Jelli until the octopus became its star. The wordmark is HTML and CSS (`wordmark()` in `src/ui/screens.ts`): Fraunces at its heaviest with the SOFT axis turned up, letters set slightly out of line, a tentacle curling off the Q, and an O that is an eye which blinks and glances about. The icon (`public/icon.svg`, with PNGs rendered from it) is the octopus itself. Coral is for the octopus and anything you press; turquoise is for life and light.
+
+Some identifiers keep the old name on purpose, because changing them would lose players' data or break continuity: the save key `jelli.save.v1`, the player species id `moon-jelli`, and the analytics app id `jelli`.
+
 ## The octopus
 
+- **Somebody in particular:** every octopus hatches with a name, a generation in its line ("Meet Olive · Generation 4"), and looks of its own from a seed: where its spots fall, its eye size, head shape, iris color and freckles. When a dive ends, the next generation is ready to hatch.
 - **Eight living arms:** each arm is a physics chain that trails, curls and drags through turns and jets. Arms that hunt are solved with inverse kinematics (FABRIK) so their tips land on prey, pearls and glow pods, and when the octopus is still an arm reaches out to feel the nearest rock.
-- **A face:** big eyes with horizontal pupils that follow food, the catch, or a hunter about to strike; blinks, idle glances, a happy squint after a meal, narrowed eyes while hunting, wide eyes and blanched skin in a fright.
+- **A face:** big eyes with horizontal pupils that follow food, the catch, or a hunter about to strike; blinks, idle glances, a happy squint after a meal, wide starry-eyed wonder (with arms flared) at a new species, place or treasure, narrowed eyes while hunting, wide eyes and blanched skin in a fright.
 - **Evolution:** each time the growth meter fills, the world pauses and three mutations are offered, each drawn on your own octopus. 18 mutations across movement, hunting, defense, senses and specialization: Jet Siphon, Twin Jet, Webbed Arms, Long Arms, Strong or Hooked Suckers (pick one), Crushing Beak, Ink Sac, Venom, Blue Rings, Chromatophores, Regrowth, Keen Eyes, Feeler Skin, Bioluminescence, Deep Body, Abyssal Heart and Gigantism. Most carry a real cost, and every one changes how the octopus looks. What you have been eating leads the offer.
 - **Depth is earned:** below the Twilight Drop the water presses back. A Deep Body opens two more biomes; an Abyssal Heart opens everything below.
 - **Personality:** never chosen. Hunting makes it bold, hiding cautious, exploring curious, pods, pearls and currents playful, treasures and clams resourceful. Once one trait clearly leads, the octopus says so, idles and moves differently, gains a small edge, and is offered more of the mutations that suit it. It carries across dives and slowly shifts if you play differently.
@@ -53,10 +60,10 @@ Eat, grow, explore, evolve, adapt, survive. A hatchling octopus no bigger than a
 - **Treasure:** pearls rest all over the reef (hoards around reef mounds, strays in open water, glowing in the deep). A sunken pirate ship sits in the shallows with a chest worth 1,500 that spills more pearls. Pearls bank across dives.
 - **Chase your best:** your best score sits under the clock, and passing it mid-run gets its own moment.
 - **You are what you eat:** most prey belong to a kind of food (glowing prey to Glow, quick prey to Swift, spiny prey and hunters to Spiny; plain krill to none). The growth meter fills in those colors, and the kind you ate most leads the next mutation offer. Up to 9 mutations a dive. Eating also grows the octopus through four sizes: Hatchling, Juvenile, Adult and Giant.
-- **Forms:** eating a hunter or a rare creature grows part of it onto Jelli for the rest of the dive, each with a visible change and a small ability. Razor Fringe (Razorfin) adds an arm, Needle Crown (Needlefin) flings bursts further, Moray Mottle (Coral Moray) reaches through coral, Lantern Belt (Lanternshark) widens your light, Angler Lure (Lure Angler) draws prey in, Gulper Maw (Gulper Eel, only edible while swollen with Titan) feeds you more, Prism Bell (Prism Seahorse) stretches chains, Gilded Spiral (Golden Nautilus) pulls in pearls, and Aurora Curtain (Aurora Jelly) hides you from hunters.
-- **Lineage:** when a dive ends you pick one form to pass on, and the next Jelli hatches wearing it (it shows on the title screen too). Every form ever worn is collected in Lineage, with field notes for the ones still unknown.
+- **Forms:** eating a hunter or a rare creature grows part of it onto your octopus for the rest of the dive, each with a visible change and a small ability. Razor Fringe (Razorfin) adds an arm, Needle Crown (Needlefin) flings bursts further, Moray Mottle (Coral Moray) reaches through coral, Lantern Belt (Lanternshark) widens your light, Angler Lure (Lure Angler) draws prey in, Gulper Maw (Gulper Eel, only edible while swollen with Titan) feeds you more, Prism Skin (Prism Seahorse) stretches chains, Gilded Spiral (Golden Nautilus) pulls in pearls, and Aurora Curtain (Aurora Jelly) hides you from hunters.
+- **Lineage:** when a dive ends you pick one form to pass on, and the next octopus hatches wearing it (it shows on the title screen too). Every form ever worn is collected in Lineage, with field notes for the ones still unknown.
 - **The Phantom:** a colossal jelly that drifts through the deep Abyss. Without enough light you only glimpse its rim lights in the dark (logged in the Journal as "Glimpsed"); with a light of 440 or more (Keen Eyes and Bioluminescence, or Keen Eyes plus a Lantern Belt, a glow pod or a Lantern Seed) you see it and discover it.
-- **Still out there:** the results screen shows the Jelli you became, then one thing still to find: something glimpsed, a hunter you met but never ate, or a Field Guide hint.
+- **Still out there:** the results screen shows the octopus you became, then one thing still to find: something glimpsed, a hunter you met but never ate, or a Journal hint.
 - **World:** a 3,000-unit-wide shaft with no floor, generated in bands as you sink: reef walls, outcrops and mounds, pearls, and each biome's currents.
 - **Hunters:** six hunting styles. The Needlefin lunges in a straight line, the Gulper Eel stalks, the Lure Angler waits behind its light, the Coral Moray strikes from the reef, Razorfin packs swarm, and the Lanternshark circles before dashing. Every attack is telegraphed.
 - **Power-ups:** the Titan Krill and Spark Minnow sparkle with a dashed ring, and the rare fish grant power-ups too:
@@ -80,7 +87,7 @@ npm test           # vitest: rules, evolution, progression, persistence, world s
 npm run build      # typecheck + production build to dist/
 ```
 
-Add `?debug` to the URL to expose `window.jelli` for automated playtesting.
+Add `?debug` to the URL to expose `window.squido` (also `window.jelli`, for older scripts) for automated playtesting.
 
 ## Architecture
 

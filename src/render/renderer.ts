@@ -8,6 +8,7 @@ import { drawCreatureShape, drawJelly, jellyStyleForSpecies, lookFor, type Jelly
 import { drawGlow } from './sprites';
 import { ARM_COUNT, armLength, drawOctopus, proceduralArms, type EyeMood, type OctoLook } from './octopus';
 import { OctoRig } from './octorig';
+import type { OctoVariant } from '../content/octopus';
 import { Backdrop, coralPiece } from './backdrop';
 import { css, mixRGB, paletteAt, waterColor, type Palette } from './biomeArt';
 import { drawChest, drawShip } from './wreck';
@@ -1072,6 +1073,14 @@ export class Renderer {
   private saccadeX = 0;
   private saccadeY = 0;
   private happyT = 0;
+  private wonderT = 0;
+  /** This octopus's own looks. */
+  playerVariant: OctoVariant | undefined;
+
+  /** Something new: the octopus goes wide-eyed and flares its arms. */
+  wonder(): void {
+    this.wonderT = 1.3;
+  }
   private camoK = 0;
   private squeeze = 0;
 
@@ -1132,7 +1141,7 @@ export class Renderer {
       angle: this.bodyAngle,
       r,
       len,
-      spread: lerp(spreadBase, 0.18, fast),
+      spread: lerp(spreadBase + Math.min(1, this.wonderT * 2) * 0.3, 0.18, fast),
       curl: lerp(curlBase, 0.12, fast),
       time: t,
       dt,
@@ -1185,7 +1194,9 @@ export class Renderer {
     this.lookX = damp(this.lookX, lx * ca - ly * sa, 12, dt);
     this.lookY = damp(this.lookY, lx * sa + ly * ca, 12, dt);
     this.happyT = Math.max(0, this.happyT - dt);
+    this.wonderT = Math.max(0, this.wonderT - dt);
     if (this.happyT > 0 && mood2 === 'calm') mood2 = 'happy';
+    else if (this.wonderT > 0 && (mood2 === 'calm' || mood2 === 'focus')) mood2 = 'wonder';
     if (!p.alive) mood2 = 'closed';
     this.blinkT -= dt;
     if (this.blinkT <= 0) this.blinkT = 2.5 + Math.random() * 3.5;
@@ -1222,6 +1233,7 @@ export class Renderer {
         alarm: (this.body.startle ?? 0) * 0.8,
         lum: this.body.lum ?? 0,
         personality: mood,
+        variant: this.playerVariant,
       },
       this.rig.local,
     );

@@ -183,7 +183,7 @@ export function recordDiscoveries(save: SaveData, seen: Iterable<string>, eaten:
   return fresh;
 }
 
-/** Adds a form to the collection. Returns true the first time any Jelli wears it. */
+/** Adds a form to the collection. Returns true the first time any octopus wears it. */
 export function recordForm(save: SaveData, id: FormId): boolean {
   if (save.forms.includes(id)) return false;
   save.forms.push(id);
@@ -216,14 +216,14 @@ export interface RunOutcome {
   personalityNew: boolean;
 }
 
-/** Records a landmark in the save. Returns true the first time any Jelli finds it. */
+/** Records a landmark in the save. Returns true the first time any octopus finds it. */
 export function recordPlace(save: SaveData, id: LandmarkId, now = Date.now()): boolean {
   if (save.places[id]) return false;
   save.places[id] = now;
   return true;
 }
 
-/** Records a treasure in the save. Returns true the first time any Jelli takes it. */
+/** Records a treasure in the save. Returns true the first time any octopus takes it. */
 export function recordTreasure(save: SaveData, id: TreasureId, now = Date.now()): boolean {
   if (save.treasures[id]) return false;
   save.treasures[id] = now;
@@ -293,7 +293,7 @@ export function mystery(save: SaveData, run: RunStats | null): Mystery | null {
   if (vast) {
     const n = save.glimpses[vast.id] ?? 0;
     return run?.glimpsed.includes(vast.id)
-      ? { title: 'Something vast drifted past', text: 'It moved just beyond your light at the bottom of the Abyss. A brighter Jelli might see what it was.' }
+      ? { title: 'Something vast drifted past', text: 'It moved just beyond your light at the bottom of the Abyss. A brighter octopus might see what it was.' }
       : { title: 'Something vast waits in the Abyss', text: `Glimpsed in ${n} ${n === 1 ? 'dive' : 'dives'}. Your light has never reached it.` };
   }
   // A hunter or rare met, but never eaten: what would it do to you?
@@ -317,7 +317,7 @@ export function deathLesson(run: RunStats): string | null {
   const d = run.death;
   if (!d) return null;
   const chaser = d.behavior === 'stalk' || d.behavior === 'pack';
-  // The deep asks for a different Jelli: light to see by, and size to not be a snack.
+  // The deep asks for a different octopus: light to see by, and size to not be a snack.
   if ((d.dark ?? 0) > 0.6 && (d.light ?? 999) < 400) return 'In the dark you saw it too late. Keen Eyes or Bioluminescence would light the way.';
   if ((d.size ?? 0) > 2.2) return 'It was more than twice your size. Grow before diving this deep, or jet past it faster.';
   if (d.burstReady) return chaser ? 'You had a jet ready. Jet away before it closes in.' : 'You had a jet ready. When the red line appears, jet across it.';

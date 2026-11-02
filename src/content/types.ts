@@ -104,7 +104,7 @@ export interface SpeciesDef {
   power?: PowerId;
   /** Regular spawns tuck in against coral (ambush hunters). */
   spawnNearCoral?: boolean;
-  /** The evolution path eating this creature pushes Jelli toward. Plain plankton has none. */
+  /** The evolution path eating this creature pushes the octopus toward. Plain plankton has none. */
   diet?: PathId;
   /** Touching it stings: the octopus is knocked back, numbed and loses its jet charge. */
   stings?: boolean;

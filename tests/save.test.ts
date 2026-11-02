@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SAVE_KEY, SaveStore, defaultSave, sanitizeSave, type KeyValueStore } from '../src/persistence/save';
+import { hatchOctopus, nextOctopus, variantFor } from '../src/content/octopus';
 
 class MemoryKV implements KeyValueStore {
   data = new Map<string, string>();
@@ -73,5 +74,34 @@ describe('save data', () => {
     store.save(save);
     expect(store.persistent).toBe(false);
     expect(store.load().best.score).toBe(77);
+  });
+});
+
+describe('SQUIDO octopus identity', () => {
+  it('keeps the same storage key, so the rename never resets progress', () => {
+    expect(SAVE_KEY).toBe('jelli.save.v1');
+  });
+
+  it('an older save without an octopus picks up the line at the right generation', () => {
+    const old = sanitizeSave({ version: 1, stats: { runs: 6 }, best: { depth: 4000 } });
+    expect(old.octopus.generation).toBe(7);
+    expect(old.octopus.name.length).toBeGreaterThan(1);
+    expect(old.best.depth).toBe(4000);
+  });
+
+  it('a saved octopus survives a reload, and junk names are replaced', () => {
+    const save = defaultSave();
+    save.octopus = { name: 'Marzipan', generation: 12, seed: 99 };
+    expect(sanitizeSave(JSON.parse(JSON.stringify(save))).octopus).toEqual({ name: 'Marzipan', generation: 12, seed: 99 });
+    expect(sanitizeSave({ octopus: { name: '', generation: -3 } }).octopus.name.length).toBeGreaterThan(1);
+  });
+
+  it('each new hatchling is the next generation, with a new name and its own looks', () => {
+    const a = hatchOctopus(3, 12345);
+    const b = nextOctopus(a, 777);
+    expect(b.generation).toBe(4);
+    expect(b.name).not.toBe(a.name);
+    expect(variantFor(a.seed)).not.toEqual(variantFor(b.seed));
+    expect(variantFor(a.seed)).toEqual(variantFor(a.seed));
   });
 });

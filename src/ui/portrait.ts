@@ -3,6 +3,7 @@ import type { SkinDef } from '../content/unlocks';
 import type { MutationId } from '../content/mutations';
 import type { PersonalityId } from '../content/personality';
 import { drawOctopus, proceduralArms, type OctoLook } from '../render/octopus';
+import type { OctoVariant } from '../content/octopus';
 import type { FormId } from '../content/forms';
 import { drawCreatureShape, drawJelly, jellyStyleForSpecies, lookFor, type JellyStyle } from '../render/creatures';
 import { drawGlow } from '../render/sprites';
@@ -85,14 +86,14 @@ function octoLook(style: JellyStyle): OctoLook {
 }
 
 /** Draws a posed octopus centred in a portrait, with the given mutations, forms and character. */
-function posedOctopus(ctx: CanvasRenderingContext2D, s: number, style: JellyStyle, mutations: readonly MutationId[], forms: readonly FormId[], maturity: number, personality: PersonalityId | null, flat = false, t = 1.2): void {
+function posedOctopus(ctx: CanvasRenderingContext2D, s: number, style: JellyStyle, mutations: readonly MutationId[], forms: readonly FormId[], maturity: number, personality: PersonalityId | null, flat = false, t = 1.2, variant?: OctoVariant): void {
   const r = s * 0.17 * (mutations.includes('gigantism') ? 1.12 : 1);
   ctx.save();
   ctx.translate(s / 2, s * 0.42);
   drawOctopus(
     ctx,
     flat ? { skin: SILHOUETTE, spots: SILHOUETTE, arm: SILHOUETTE, rim: SILHOUETTE, glow: SILHOUETTE } : octoLook(style),
-    { r, t, squeeze: 0.2, mutations, forms, armsLost: 0, regrow: 1, lookX: 0.15, lookY: 0.25, open: 1, mood: 'calm', camo: 0, camoColor: '#000000', alarm: 0, lum: 0.3, personality, flat },
+    { r, t, squeeze: 0.2, mutations, forms, armsLost: 0, regrow: 1, lookX: 0.15, lookY: 0.25, open: 1, mood: 'calm', camo: 0, camoColor: '#000000', alarm: 0, lum: 0.3, personality, flat, variant },
     proceduralArms(r, t, mutations, maturity, personality),
   );
   ctx.restore();
@@ -105,10 +106,10 @@ export function renderSkin(canvas: HTMLCanvasElement, skin: SkinDef, cssSize: nu
 }
 
 /** A particular octopus as it grew: its colors, mutations, forms, size and character. */
-export function renderOctopus(canvas: HTMLCanvasElement, style: JellyStyle, mutations: readonly MutationId[], forms: readonly FormId[], maturity: number, cssSize: number, personality: PersonalityId | null = null, t = 1.2): void {
+export function renderOctopus(canvas: HTMLCanvasElement, style: JellyStyle, mutations: readonly MutationId[], forms: readonly FormId[], maturity: number, cssSize: number, personality: PersonalityId | null = null, t = 1.2, variant?: OctoVariant): void {
   const ctx = prep(canvas, cssSize);
   backdrop(ctx, cssSize, style.glow);
-  posedOctopus(ctx, cssSize, style, mutations, forms, maturity, personality, false, t);
+  posedOctopus(ctx, cssSize, style, mutations, forms, maturity, personality, false, t, variant);
 }
 
 /** One form worn by a plain octopus, or its silhouette while still unknown. */

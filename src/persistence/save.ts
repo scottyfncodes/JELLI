@@ -4,6 +4,7 @@ import { CHALLENGES } from '../content/challenges';
 import { isFormId, type FormId } from '../content/forms';
 import { ZONES_BY_ID } from '../content/world';
 import type { ZoneId } from '../content/types';
+import { hatchOctopus, type OctopusId } from '../content/octopus';
 import { isMutationId, type MutationId } from '../content/mutations';
 import { PERSONALITY_ORDER, emptyPersonality, type Personality } from '../content/personality';
 import { RELIC_SLOTS, isEncounterId, isLandmarkId, isTreasureId, type EncounterId, type LandmarkId, type TreasureId } from '../content/landmarks';
@@ -34,13 +35,13 @@ export interface SaveData {
   selected: { skin: string; trait: string | null };
   settings: Settings;
   tutorialDone: boolean;
-  /** Every form any Jelli has worn. */
+  /** Every form any octopus has worn. */
   forms: FormId[];
-  /** The form the next Jelli hatches with. */
+  /** The form the next octopus hatches with. */
   heirloom: FormId | null;
   /** Dives in which something too vast to see was glimpsed, by species. */
   glimpses: Record<string, number>;
-  /** Every biome any Jelli has reached. */
+  /** Every biome any octopus has reached. */
   biomes: ZoneId[];
   /** Landmarks found, with when each was first found. */
   places: Partial<Record<LandmarkId, number>>;
@@ -54,6 +55,8 @@ export interface SaveData {
   mutations: MutationId[];
   /** The personality built up across dives (fades a little each dive). */
   personality: Personality;
+  /** The octopus that hatches next: its name, its generation in the line, and the seed of its looks. */
+  octopus: OctopusId;
   /** One-time tips already shown (for players who finished the tutorial before a feature existed). */
   tips: string[];
 }
@@ -79,6 +82,7 @@ export function defaultSave(): SaveData {
     relics: [],
     mutations: [],
     personality: emptyPersonality(),
+    octopus: hatchOctopus(1, 1),
     tips: [],
   };
 }
@@ -179,6 +183,12 @@ export function sanitizeSave(raw: unknown): SaveData {
   if (Array.isArray(raw.mutations)) save.mutations = [...new Set(raw.mutations.filter(isMutationId))];
   if (isObj(raw.personality)) {
     for (const id of PERSONALITY_ORDER) save.personality[id] = num(raw.personality[id], 0, 0, 1e6);
+  }
+  // Older saves hatched octopuses before they had names: pick the line up at the right generation.
+  if (isObj(raw.octopus) && typeof raw.octopus.name === 'string' && raw.octopus.name.length > 0 && raw.octopus.name.length <= 24) {
+    save.octopus = { name: raw.octopus.name, generation: Math.max(1, Math.floor(num(raw.octopus.generation, 1, 1, 1e6))), seed: Math.floor(num(raw.octopus.seed, 1, 0, 2 ** 32 - 1)) };
+  } else {
+    save.octopus = hatchOctopus(save.stats.runs + 1, (save.stats.runs + 1) * 2654435761);
   }
   if (Array.isArray(raw.tips)) save.tips = [...new Set(raw.tips.filter((t): t is string => typeof t === 'string' && t.length < 40))].slice(0, 32);
   if (isObj(raw.glimpses)) {

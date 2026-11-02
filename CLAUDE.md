@@ -1,4 +1,4 @@
-# Jelli: notes for contributors and agents
+# SQUIDO: notes for contributors and agents
 
 Run `npm run typecheck && npm run lint && npm test && npm run build` before pushing.
 

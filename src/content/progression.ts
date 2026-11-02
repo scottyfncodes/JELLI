@@ -98,7 +98,7 @@ export function maxSpeedFor(radius: number, speedMult: number): number {
   return 235 * Math.pow(BASE_RADIUS / radius, 0.27) * speedMult;
 }
 
-/** Bigger jellies are easier for hunters to notice. */
+/** Bigger octopuses are easier for hunters to notice. */
 export function detectionScale(radius: number): number {
   return 0.72 + 0.28 * Math.pow(radius / BASE_RADIUS, 0.65);
 }

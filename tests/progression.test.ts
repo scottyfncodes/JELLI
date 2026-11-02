@@ -33,7 +33,7 @@ describe('growth and stages', () => {
     expect(growthGain(10, 200)).toBeLessThan(10);
   });
 
-  it('bigger jellies are noticed from further away', () => {
+  it('bigger octopuses are noticed from further away', () => {
     expect(detectionScale(30)).toBeGreaterThan(detectionScale(10));
   });
 });

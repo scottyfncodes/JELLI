@@ -7,7 +7,7 @@ import type { SpeciesDef } from './types';
 export const SPECIES: SpeciesDef[] = [
   {
     id: 'moon-jelli',
-    name: 'Jelli',
+    name: 'Reef Octopus',
     latin: 'Octopus curiosus',
     rarity: 'common',
     role: 'player',
@@ -313,7 +313,7 @@ export const SPECIES: SpeciesDef[] = [
     group: [3, 4],
     growth: 6,
     score: 120,
-    blurb: 'Small, quick and never alone. Razorfin packs harry little jellies. Grow a little and the hunters become a snack.',
+    blurb: 'Small, quick and never alone. Razorfin packs harry little octopuses. Grow a little and the hunters become a snack.',
     hint: 'Small red hunters that move as a pack.',
     hunter: { detect: 250, telegraph: 0.55, chaseSpeed: 205, chaseTime: 2.4, rest: 2 },
   },
@@ -427,7 +427,7 @@ export const SPECIES: SpeciesDef[] = [
     weight: 0,
     growth: 9,
     score: 380,
-    blurb: 'A distant cousin who only reveals itself to jellies that glow brightly enough to answer its light.',
+    blurb: 'A drifting jelly that only reveals itself to an octopus glowing brightly enough to answer its light.',
     hint: 'Only shows itself to an octopus with a light of its own.',
     rare: { chance: 0.32, requiresPath: { path: 'glow', tier: 2 } },
     power: 'veil',
