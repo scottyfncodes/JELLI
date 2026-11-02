@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Jelli — an underwater arcade survival game. Eat. Grow. Evolve. Discover.",
+  "description": "Jelli: an underwater exploration and survival game. How deep can you go?",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

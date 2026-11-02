@@ -4,6 +4,7 @@ import { CHALLENGES } from '../content/challenges';
 import { isFormId, type FormId } from '../content/forms';
 import { ZONES_BY_ID } from '../content/world';
 import type { ZoneId } from '../content/types';
+import { isEncounterId, isLandmarkId, isTreasureId, type EncounterId, type LandmarkId, type TreasureId } from '../content/landmarks';
 
 export const SAVE_KEY = 'jelli.save.v1';
 export const SAVE_VERSION = 1;
@@ -39,6 +40,14 @@ export interface SaveData {
   glimpses: Record<string, number>;
   /** Every biome any Jelli has reached. */
   biomes: ZoneId[];
+  /** Landmarks found, with when each was first found. */
+  places: Partial<Record<LandmarkId, number>>;
+  /** Treasures recovered, with when each was first taken. */
+  treasures: Partial<Record<TreasureId, number>>;
+  /** How many dives have met each rare encounter. */
+  encounters: Partial<Record<EncounterId, number>>;
+  /** One-time tips already shown (for players who finished the tutorial before a feature existed). */
+  tips: string[];
 }
 
 export function defaultSave(): SaveData {
@@ -56,6 +65,10 @@ export function defaultSave(): SaveData {
     heirloom: null,
     glimpses: {},
     biomes: ['shallows'],
+    places: {},
+    treasures: {},
+    encounters: {},
+    tips: [],
   };
 }
 
@@ -140,6 +153,16 @@ export function sanitizeSave(raw: unknown): SaveData {
   if (Array.isArray(raw.biomes)) {
     for (const id of raw.biomes) if (typeof id === 'string' && id in ZONES_BY_ID && !save.biomes.includes(id as ZoneId)) save.biomes.push(id as ZoneId);
   }
+  if (isObj(raw.places)) {
+    for (const [id, at] of Object.entries(raw.places)) if (isLandmarkId(id)) save.places[id] = num(at, 0);
+  }
+  if (isObj(raw.treasures)) {
+    for (const [id, at] of Object.entries(raw.treasures)) if (isTreasureId(id)) save.treasures[id] = num(at, 0);
+  }
+  if (isObj(raw.encounters)) {
+    for (const [id, n] of Object.entries(raw.encounters)) if (isEncounterId(id)) save.encounters[id] = Math.floor(num(n, 0));
+  }
+  if (Array.isArray(raw.tips)) save.tips = [...new Set(raw.tips.filter((t): t is string => typeof t === 'string' && t.length < 40))].slice(0, 32);
   if (isObj(raw.glimpses)) {
     for (const [id, n] of Object.entries(raw.glimpses)) {
       if (id in SPECIES_BY_ID) save.glimpses[id] = Math.floor(num(n, 0));

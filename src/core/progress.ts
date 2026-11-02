@@ -5,6 +5,7 @@ import { FORMS, FORM_ORDER, type FormId } from '../content/forms';
 import type { UnlockId } from '../content/unlocks';
 import type { SaveData } from '../persistence/save';
 import type { ZoneId } from '../content/types';
+import type { EncounterId, LandmarkId, TreasureId } from '../content/landmarks';
 
 /** Everything the end-of-run summary and challenges need to know about a run. */
 export interface RunStats {
@@ -36,6 +37,16 @@ export interface RunStats {
   death: DeathInfo | null;
   /** Biomes reached this run, in the order they were reached. */
   biomes: ZoneId[];
+  /** Landmarks found this run. */
+  places: LandmarkId[];
+  /** Treasures recovered this run. */
+  treasures: TreasureId[];
+  /** Rare encounters witnessed this run. */
+  encounters: EncounterId[];
+  /** Glow pods lit this run. */
+  pods: number;
+  /** Aimed tentacle strikes this run. */
+  lashes: number;
 }
 
 export interface DeathInfo {
@@ -78,6 +89,11 @@ export function emptyRunStats(): RunStats {
     glimpsed: [],
     death: null,
     biomes: ['shallows'],
+    places: [],
+    treasures: [],
+    encounters: [],
+    pods: 0,
+    lashes: 0,
   };
 }
 
@@ -99,6 +115,10 @@ export function metricValue(metric: ChallengeMetric, run: RunStats | null, save:
       return save.forms.length;
     case 'life.phantom':
       return save.discovered.phantom ? 1 : 0;
+    case 'life.places':
+      return Object.keys(save.places).length;
+    case 'life.treasures':
+      return Object.keys(save.treasures).length;
   }
   if (!run) return 0;
   switch (metric) {
@@ -126,6 +146,8 @@ export function metricValue(metric: ChallengeMetric, run: RunStats | null, save:
       return run.chest;
     case 'run.forms':
       return run.forms?.length ?? 0;
+    case 'run.lashes':
+      return run.lashes ?? 0;
   }
   return 0;
 }
@@ -172,6 +194,23 @@ export interface RunOutcome {
   prevBestDepth: number;
   /** Biomes reached for the first time ever this run. */
   newBiomes: ZoneId[];
+  /** Places found and treasures taken for the first time ever this run. */
+  newPlaces: LandmarkId[];
+  newTreasures: TreasureId[];
+}
+
+/** Records a landmark in the save. Returns true the first time any Jelli finds it. */
+export function recordPlace(save: SaveData, id: LandmarkId, now = Date.now()): boolean {
+  if (save.places[id]) return false;
+  save.places[id] = now;
+  return true;
+}
+
+/** Records a treasure in the save. Returns true the first time any Jelli takes it. */
+export function recordTreasure(save: SaveData, id: TreasureId, now = Date.now()): boolean {
+  if (save.treasures[id]) return false;
+  save.treasures[id] = now;
+  return true;
 }
 
 /** Applies a finished run to the save: discoveries, bests, stats, challenges, unlocks. */
@@ -181,6 +220,9 @@ export function applyRun(save: SaveData, run: RunStats, now = Date.now()): RunOu
   const prevBestSweep = save.best.sweep;
   const prevBestDepth = save.best.depth;
   const newBiomes = (run.biomes ?? []).filter((id) => !save.biomes.includes(id));
+  const newPlaces = (run.places ?? []).filter((id) => recordPlace(save, id, now));
+  const newTreasures = (run.treasures ?? []).filter((id) => recordTreasure(save, id, now));
+  for (const id of run.encounters ?? []) save.encounters[id] = (save.encounters[id] ?? 0) + 1;
   if (newBest) save.best.score = run.score;
   save.best.mass = Math.max(save.best.mass, run.mass);
   save.stats.runs += 1;
@@ -210,7 +252,7 @@ export function applyRun(save: SaveData, run: RunStats, now = Date.now()): RunOu
       }
     }
   }
-  return { newDiscoveries, completed, unlocked, newBest, prevBestSweep, prevBestDepth, newBiomes };
+  return { newDiscoveries, completed, unlocked, newBest, prevBestSweep, prevBestDepth, newBiomes, newPlaces, newTreasures };
 }
 
 /** The next unfinished challenge, for nudging the player toward another run. */

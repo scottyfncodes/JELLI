@@ -20,7 +20,10 @@ export type ChallengeMetric =
   | 'life.pearls'
   | 'life.discovered'
   | 'life.rareDiscovered'
-  | 'life.legendaryDiscovered';
+  | 'life.legendaryDiscovered'
+  | 'life.places'
+  | 'life.treasures'
+  | 'run.lashes';
 
 export interface ChallengeDef {
   id: string;
@@ -32,7 +35,7 @@ export interface ChallengeDef {
 }
 
 export const CHALLENGES: ChallengeDef[] = [
-  { id: 'first-bloom', title: 'First Bloom', desc: 'Evolve for the first time.', metric: 'run.evolutions', goal: 1, reward: 'skin:coral' },
+  { id: 'first-bloom', title: 'First Bloom', desc: 'Awaken your first instinct.', metric: 'run.evolutions', goal: 1, reward: 'skin:coral' },
   { id: 'feast', title: 'Feeding Frenzy', desc: 'Eat 45 creatures in a single run.', metric: 'run.eaten', goal: 45, reward: 'trait:seed-surge' },
   { id: 'deep-diver', title: 'Deep Diver', desc: 'Reach the Abyss.', metric: 'run.maxDepth', goal: ZONES_BY_ID.abyss.top, reward: 'trait:seed-glow' },
   { id: 'tide-rider', title: 'Tide Rider', desc: 'Survive for 3 minutes in a single run.', metric: 'run.time', goal: 180, reward: 'trait:seed-sting' },
@@ -51,4 +54,7 @@ export const CHALLENGES: ChallengeDef[] = [
   { id: 'first-form', title: 'What You Eat', desc: 'Take on a new form by eating a hunter or a rare creature.', metric: 'life.forms', goal: 1 },
   { id: 'chimera', title: 'Chimera', desc: 'Wear 3 forms in a single run.', metric: 'run.forms', goal: 3 },
   { id: 'phantom', title: 'Into the Light', desc: 'See the Phantom with your own light.', metric: 'life.phantom', goal: 1, reward: 'skin:phantom' },
+  { id: 'lash', title: 'Long Reach', desc: 'Lash 10 creatures or pearls in a single dive.', metric: 'run.lashes', goal: 10 },
+  { id: 'cartographer', title: 'Cartographer', desc: 'Find 3 landmarks.', metric: 'life.places', goal: 3 },
+  { id: 'treasure-hunter', title: 'Treasure Hunter', desc: 'Recover 4 treasures.', metric: 'life.treasures', goal: 4 },
 ];

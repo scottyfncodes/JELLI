@@ -1,6 +1,7 @@
 import { SPECIES, PLAYER_SPECIES } from '../content/species';
 import type { PathId, PlayerStats, SpeciesDef, ZoneId } from '../content/types';
-import { WORLD, ZONES, darknessAt, zoneAt, zoneIndex, type ZoneDef } from '../content/world';
+import { WORLD, ZONES, darknessAt, depthMeters, zoneAt, zoneIndex, type ZoneDef } from '../content/world';
+import { LANDMARKS, LANDMARKS_BY_ID, TREASURES_BY_ID, type EncounterId, type LandmarkDef, type LandmarkId, type TreasureId } from '../content/landmarks';
 import { BASE_STATS, MAX_TIER, computeStats, dietPath, emptyDiet, emptyTiers, type Diet, type Tiers } from '../content/evolutions';
 import { FORM_BY_SOURCE, type FormId } from '../content/forms';
 import {
@@ -11,6 +12,7 @@ import {
   depthPressure,
   escalation,
   evolutionsEarned,
+  EVOLUTION_FOOD,
   extraHunters,
   hunterScale,
   growthGain,
@@ -66,6 +68,63 @@ export interface Current {
   h: number;
   fx: number;
   fy: number;
+  /** A hydrothermal plume rising off a vent. */
+  vent?: boolean;
+}
+
+/** A bioluminescent pod on the reef: touch it (or flick an arm at it) and it bursts into light the jelly can borrow. */
+export interface Pod {
+  x: number;
+  y: number;
+  r: number;
+  /** Seconds until it has regrown; 0 when ready. */
+  regrow: number;
+  seed: number;
+  /** Part of the Lantern Grove's ring. */
+  grove: boolean;
+}
+
+/** A thicket to hide in: hunters lose track of a jelly inside it. */
+export interface Shelter {
+  x: number;
+  y: number;
+  r: number;
+  kind: 'kelp' | 'anemone';
+  seed: number;
+}
+
+/** A hydrothermal vent: a hot chimney with a plume that throws the jelly upward. */
+export interface Vent {
+  x: number;
+  y: number;
+  h: number;
+  seed: number;
+}
+
+/** A landmark placed in this dive's ocean, and the state of its treasure. */
+export interface Landmark {
+  def: LandmarkDef;
+  x: number;
+  y: number;
+  /** Mirrors it left to right, to face open water. */
+  side: number;
+  found: boolean;
+  /** Where its treasure rests, whether it has been revealed, and whether it has been taken. */
+  tx: number;
+  ty: number;
+  revealed: boolean;
+  taken: boolean;
+  /** Seconds since the treasure was revealed or the place woke (drives its animation). */
+  wakeT: number;
+}
+
+/** A rare moment in progress. */
+export interface Encounter {
+  kind: EncounterId;
+  x: number;
+  y: number;
+  t: number;
+  dur: number;
 }
 
 /** A collectible pearl resting in the reef. */
@@ -73,6 +132,8 @@ export interface Pearl {
   x: number;
   y: number;
   taken: boolean;
+  /** Carried by an arm toward the mouth. */
+  held?: boolean;
   /** Animation offset so pearls don't shimmer in sync. */
   seed: number;
 }
@@ -126,6 +187,9 @@ export interface Creature {
   consume: number;
   /** Seconds it stays startled by a nearby sweep, fleeing the jelly from further away. */
   spooked: number;
+  /** A migrating school leader's heading, and how long it keeps to it. */
+  travel: number;
+  travelT: number;
 }
 
 /**
@@ -150,6 +214,10 @@ export interface Tentacle {
   range: number;
   /** Flung out by a sweep for one catch; it holds firm and is gone once the catch is eaten. */
   sweep?: boolean;
+  /** Aimed by the player: a long, fast lash. */
+  lash?: boolean;
+  /** A pearl or glow pod the arm is reaching for instead of prey. */
+  item?: Pearl | Pod | null;
 }
 
 export interface Player {
@@ -181,6 +249,12 @@ export interface Player {
   diet: Diet;
   /** Forms grown from remarkable meals (and the inherited one), in the order they grew. */
   forms: FormId[];
+  /** Seconds of borrowed light left from a glow pod or a bloom. */
+  glowT: number;
+  /** Instinct earned by exploring: new depths, discoveries, places and treasures. */
+  explore: number;
+  /** Tucked inside a shelter, out of hunters' sight. */
+  hidden: boolean;
 }
 
 export interface SimInput {
@@ -210,7 +284,14 @@ export type SimEvent =
   | { type: 'evolve'; path: PathId; tier: number }
   | { type: 'form'; id: FormId; x: number; y: number }
   | { type: 'glimpse'; def: SpeciesDef }
-  | { type: 'sweep'; n: number; bonus: number; x: number; y: number };
+  | { type: 'sweep'; n: number; bonus: number; x: number; y: number }
+  | { type: 'lash'; x: number; y: number; hit: boolean }
+  | { type: 'pod'; x: number; y: number; grove: boolean }
+  | { type: 'place'; id: LandmarkId; x: number; y: number }
+  | { type: 'reveal'; id: TreasureId; x: number; y: number }
+  | { type: 'treasure'; id: TreasureId; x: number; y: number }
+  | { type: 'encounter'; kind: EncounterId }
+  | { type: 'hidden'; on: boolean };
 
 export type RunEnd = 'caught' | null;
 
@@ -259,6 +340,20 @@ const REACH_TIME = 1.2;
 const GRAB_TIME = 0.12;
 /** How long swallowing takes at the bell. */
 export const EAT_TIME = 0.22;
+/** Extra light a glow pod or a bloom lends the jelly while it lasts. */
+export const BORROWED_LIGHT = 200;
+/** Seconds of light a glow pod lends, and how long it takes to regrow. */
+export const POD_LIGHT = 14;
+const POD_REGROW = 45;
+/**
+ * The lash: a tapped target is struck by the nearest free arm, reaching this many times
+ * further than a casual snag, and twice as fast.
+ */
+export const LASH = { reach: 1.75, speed: 2.1, cooldown: 0.3 } as const;
+/** Instinct earned by exploring (food earns it too, one point per point of growth). */
+export const EXPLORE = { depth100: 2.5, discovery: 5, pod: 3, place: 12, treasure: 18, encounter: 8 } as const;
+/** Chance an outcrop carries a glow pod, by biome. */
+const POD_CHANCE: Record<ZoneId, number> = { shallows: 0, gardens: 0.32, twilight: 0.18, forgotten: 0.2, abyss: 0.3, hadal: 0.24 };
 const START_X = WORLD.width / 2;
 const START_Y = 430;
 
@@ -300,6 +395,12 @@ export class World {
   readonly events: SimEvent[] = [];
   readonly pearls: Pearl[] = [];
   readonly wreck: Wreck = { x: 0, y: 0, tilt: 0, chestX: 0, chestY: 0, chestOpen: false, found: false };
+  readonly pods: Pod[] = [];
+  readonly shelters: Shelter[] = [];
+  readonly vents: Vent[] = [];
+  readonly landmarks: Landmark[] = [];
+  /** A rare moment in progress, if any. */
+  encounter: Encounter | null = null;
   readonly player: Player;
   readonly run: RunStats = emptyRunStats();
   readonly demo: boolean;
@@ -334,6 +435,10 @@ export class World {
   private rareTimer = 3;
   private seen = new Set<string>();
   private rand: () => number;
+  private encounterTimer = 40;
+  /** Deepest hundred meters reached this run, for exploration instinct. */
+  private depthMark = 0;
+  private lashCd = 0;
 
   constructor(opts: WorldOptions = {}) {
     const seed = opts.seed ?? Math.floor(Math.random() * 1e9);
@@ -366,6 +471,9 @@ export class World {
       food: 0,
       diet: emptyDiet(),
       forms,
+      glowT: 0,
+      explore: 0,
+      hidden: false,
     };
     this.run.forms = [...forms];
     this.lastPX = this.player.x;
@@ -374,7 +482,9 @@ export class World {
     this.syncTentacles();
     for (const t of this.tentacles) this.restPoint(t, this.player.r, t);
     this.seed = seed;
-    this.placeWreck(mulberry32(seed));
+    const layout = mulberry32(seed);
+    this.placeWreck(layout);
+    this.placeLandmarks(layout);
     this.ensureGenerated(START_Y + 3000);
     this.markSeen(PLAYER_SPECIES);
   }
@@ -409,7 +519,7 @@ export class World {
       }
       return this.addCoral(circles, rng);
     };
-    const nearWreck = (x: number, y: number, pad: number) => Math.hypot(x - this.wreck.x, y - this.wreck.y) < 360 + pad;
+    const nearWreck = (x: number, y: number, pad: number) => Math.hypot(x - this.wreck.x, y - this.wreck.y) < 360 + pad || this.nearLandmark(x, y, pad);
     const nearStart = (x: number, y: number, pad: number) => Math.hypot(x - START_X, y - START_Y) < pad;
 
     // Reef walls hugging both edges.
@@ -449,6 +559,11 @@ export class World {
         // Keep outcrops apart so every gap stays a real, readable passage.
         if (this.coralWithin(x, y, r + 150)) continue;
         const cl = addCluster(x, y, 3 + Math.floor(rng() * 4), 22, r, 70);
+        // Glow pods grow on the crowns of outcrops below the sunlight.
+        if (rng() < POD_CHANCE[zone.id]) {
+          const top = cl.circles.reduce((a, b) => (b.y - b.r < a.y - a.r ? b : a));
+          this.pods.push({ x: top.x, y: top.y - top.r - 9, r: 9, regrow: 0, seed: rng() * TAU, grove: false });
+        }
         if (rng() < zone.gaps) {
           const gap = 30 + rng() * 22;
           const r2 = 40 + rng() * 30;
@@ -469,6 +584,24 @@ export class World {
     }
     if (rng() < zone.downCurrents) {
       this.currents.push({ x: 250 + rng() * (W - 700), y: top + rng() * 300, w: 200, h: BAND * 0.75 + rng() * 500, fx: 0, fy: 130 + rng() * 60 });
+    }
+    // Shelters: kelp thickets in the shallows, anemone beds in the gardens.
+    const shelterKind = zone.id === 'shallows' ? 'kelp' : zone.id === 'gardens' ? 'anemone' : null;
+    if (shelterKind && top >= 400) {
+      for (let k = 0; k < 2; k++) {
+        if (rng() > 0.55) continue;
+        const sr = 110 + rng() * 60;
+        const sx = 300 + rng() * (W - 600);
+        const sy = top + 100 + rng() * (BAND - 200);
+        if (nearStart(sx, sy, 600) || nearWreck(sx, sy, sr) || this.coralWithin(sx, sy, sr * 0.6)) continue;
+        this.shelters.push({ x: sx, y: sy, r: sr, kind: shelterKind, seed: rng() * 1000 });
+      }
+    }
+    // Hydrothermal vents in the Abyss and below.
+    if ((zone.id === 'abyss' || zone.id === 'hadal') && rng() < 0.5) {
+      const vx = 300 + rng() * (W - 600);
+      const vy = top + 300 + rng() * (BAND - 500);
+      if (!nearWreck(vx, vy, 300) && !this.coralWithin(vx, vy, 160)) this.addVent(vx, vy, 120 + rng() * 80, rng);
     }
     // Reef that grew across a band edge can bury pearls laid down by the band above: clear them.
     for (let i = this.pearls.length - 1; i >= 0; i--) {
@@ -497,6 +630,107 @@ export class World {
     const chest = at(-330, 58);
     wr.chestX = chest.x;
     wr.chestY = chest.y;
+  }
+
+  /**
+   * Each landmark rests somewhere in its depth range, set toward one wall so finding it means
+   * leaving the straight line down. Their solid parts collide like reef.
+   */
+  private placeLandmarks(rng: () => number): void {
+    const W = this.width;
+    // The galleon is the wreck; it lies left of centre, so the cathedral grows on the right.
+    const wr = this.wreck;
+    this.landmarks.push({ def: LANDMARKS_BY_ID.galleon, x: wr.x, y: wr.y, side: 1, found: false, tx: wr.chestX, ty: wr.chestY, revealed: true, taken: false, wakeT: 0 });
+    for (const def of LANDMARKS) {
+      if (def.id === 'galleon') continue;
+      const right = def.id === 'kelp-cathedral' ? true : rng() < 0.5;
+      const x = right ? W - 480 - rng() * 320 : 480 + rng() * 320;
+      const y = def.minY + rng() * (def.maxY - def.minY);
+      const lm: Landmark = { def, x, y, side: right ? -1 : 1, found: false, tx: x, ty: y, revealed: false, taken: false, wakeT: 0 };
+      this.landmarks.push(lm);
+      this.buildLandmark(lm, rng);
+    }
+  }
+
+  private buildLandmark(lm: Landmark, rng: () => number): void {
+    const { x, y } = lm;
+    const solid = (cx: number, cy: number, r: number) => this.indexCoral({ x: cx, y: cy, r });
+    switch (lm.def.id) {
+      case 'kelp-cathedral':
+        this.shelters.push({ x, y, r: 280, kind: 'kelp', seed: 7 });
+        lm.revealed = true;
+        break;
+      case 'lantern-grove': {
+        // A ring of giant pods around a hollow; the seed appears once enough are lit.
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * TAU + 0.3;
+          this.pods.push({ x: x + Math.cos(a) * 230, y: y + Math.sin(a) * 170, r: 16, regrow: 0, seed: i * 1.7, grove: true });
+          solid(x + Math.cos(a) * 230, y + Math.sin(a) * 170 + 30, 22);
+        }
+        break;
+      }
+      case 'whale-fall': {
+        // Skull, spine and ribs on a rock ledge. The flute rests inside the ribcage.
+        const d = lm.side;
+        for (let i = -6; i <= 6; i++) solid(x + i * 60, y + 120 + Math.abs(i) * 4, 46);
+        solid(x - d * 330, y + 20, 62);
+        for (let i = 0; i < 12; i++) solid(x - d * 260 + d * i * 46, y + 40 - Math.sin((i / 11) * Math.PI) * 12, 15);
+        for (let k = 0; k < 6; k++) {
+          const bx = x - d * 170 + d * k * 62;
+          for (let j = 1; j <= 5; j++) {
+            const q = j / 5;
+            solid(bx + d * Math.sin(q * 1.4) * 40, y + 30 - q * 150, 9);
+          }
+        }
+        lm.tx = x - d * 20;
+        lm.ty = y - 40;
+        lm.revealed = true;
+        break;
+      }
+      case 'drowned-gate': {
+        for (const sx of [-150, 150]) for (let j = 0; j < 6; j++) solid(x + sx, y - j * 52, 38);
+        for (let i = -4; i <= 4; i++) solid(x + i * 42, y - 300, 30);
+        for (let i = -5; i <= 5; i++) solid(x + i * 50, y + 70, 40);
+        lm.tx = x;
+        lm.ty = y - 400;
+        break;
+      }
+      case 'vent-field': {
+        this.addVent(x - 190, y + 40, 150, rng);
+        this.addVent(x, y, 260, rng);
+        this.addVent(x + 200, y + 30, 120, rng);
+        // The opal lies at the roots of the tallest smoker, beside the heat.
+        lm.tx = x + 64;
+        lm.ty = y - 26;
+        lm.revealed = true;
+        break;
+      }
+      case 'crystal-heart':
+        solid(x, y, 92);
+        lm.tx = x;
+        lm.ty = y;
+        lm.revealed = true;
+        break;
+    }
+  }
+
+  /** A vent chimney (solid) with a hot plume rising off it. */
+  private addVent(x: number, y: number, h: number, rng: () => number): void {
+    for (let j = 0; j < 5; j++) {
+      const q = j / 4;
+      this.indexCoral({ x: x + (rng() - 0.5) * 6, y: y - q * h, r: lerp(34, 14, q) });
+    }
+    this.vents.push({ x, y, h, seed: rng() * 1000 });
+    this.currents.push({ x: x - 55, y: y - h - 620, w: 110, h: 600, fx: 0, fy: -190, vent: true });
+  }
+
+  /** True near a landmark's footprint (keeps reef and shelters from growing into it). */
+  private nearLandmark(x: number, y: number, pad: number): boolean {
+    for (const lm of this.landmarks) {
+      if (lm.def.id === 'galleon') continue;
+      if (Math.hypot(x - lm.x, y - lm.y) < 420 + pad) return true;
+    }
+    return false;
   }
 
   private indexCoral(c: Coral): void {
@@ -653,7 +887,13 @@ export class World {
   /** Visible radius around the player, shrinking from the full view to the light radius as water darkens. */
   visibleRadius(): number {
     const dark = darknessAt(this.player.y);
-    return lerp(this.viewRadius, Math.min(this.viewRadius, this.player.stats.lightRadius), clamp(dark / 0.8, 0, 1));
+    return lerp(this.viewRadius, Math.min(this.viewRadius, this.lightRadius()), clamp(dark / 0.8, 0, 1));
+  }
+
+  /** How far the jelly's light reaches right now: its own, plus any glow it has borrowed. */
+  lightRadius(): number {
+    const p = this.player;
+    return p.stats.lightRadius + BORROWED_LIGHT * clamp(p.glowT / 2, 0, 1);
   }
 
   stingReady(): boolean {
@@ -687,6 +927,7 @@ export class World {
     }
 
     this.updatePlayer(dt, input);
+    this.updateHidden();
     this.updateCreatures(dt);
     this.updateTentacles(dt);
     this.resolveContacts(dt);
@@ -694,6 +935,7 @@ export class World {
     this.updateDiscovery();
     this.lastDt = dt;
     this.updateTreasure();
+    this.updateFeatures(dt);
     if (this.comboT > 0) {
       this.comboT -= dt;
       if (this.comboT <= 0) this.combo = 0;
@@ -804,6 +1046,7 @@ export class World {
 
     p.invuln = Math.max(0, p.invuln - dt);
     p.stingCd = Math.max(0, p.stingCd - dt);
+    p.glowT = Math.max(0, p.glowT - dt);
     for (const k in p.powers) {
       const id = k as PowerId;
       p.powers[id] = Math.max(0, p.powers[id] - dt);
@@ -970,6 +1213,22 @@ export class World {
       return;
     }
 
+    // In dark water some creatures are drawn to the jelly's light, and some flee it.
+    if (def.light && p.alive && dist < this.lightRadius() * 1.15 && darknessAt(c.y) > 0.35) {
+      if (def.light === 'shy') {
+        this.steer(c, -nx, -ny, def.speed * 1.7, 2.5, dt);
+        return;
+      }
+      if (!threatened || dist > reach * 4) {
+        // Circle in the glow at a respectful distance, like moths round a lamp.
+        const ring = reach * 3 + 30;
+        const tx = dist > ring ? nx : -ny;
+        const ty = dist > ring ? ny : nx;
+        this.steer(c, tx, ty, def.speed * (dist > ring ? 0.9 : 0.6), 1.2, dt);
+        return;
+      }
+    }
+
     // Glow: small prey is drawn to the jelly's light instead of fleeing it.
     if (playerCanEat && c.r < reach * 0.55 && dist < lureRadius(p.stats.magnet, reach)) {
       this.steer(c, nx, ny, def.speed * 0.7, 1.5, dt);
@@ -983,6 +1242,21 @@ export class World {
         break;
       }
       case 'dart': {
+        if (c.state === 'flee' && c.stateT > 0) {
+          // Tucked behind its coral, out of the arms' reach.
+          c.stateT -= dt;
+          const hx = c.homeX - c.x;
+          const hy = c.homeY - c.y;
+          const hd = Math.hypot(hx, hy);
+          if (hd > 4) this.steer(c, hx / hd, hy / hd, Math.min(def.speed * 3.6, hd * 6), 6, dt);
+          else {
+            c.vx *= Math.exp(-6 * dt);
+            c.vy *= Math.exp(-6 * dt);
+          }
+          if (c.stateT <= 0) c.state = 'wander';
+          break;
+        }
+        if (threatened && c.timer <= 0 && def.shelters && this.hideBehindCoral(c, p)) break;
         if (threatened && c.timer <= 0) {
           const a = Math.atan2(-ny, -nx) + (this.rand() - 0.5) * 1.2;
           c.vx = Math.cos(a) * def.speed * 3.6;
@@ -997,7 +1271,11 @@ export class World {
         break;
       }
       case 'school': {
-        if (threatened) this.steer(c, -nx, -ny, def.speed * 1.5, 3, dt);
+        if (c.travelT > 0 && !c.leader) {
+          // A migrating school keeps its heading whatever the jelly does.
+          c.travelT -= dt;
+          this.steer(c, Math.cos(c.travel), Math.sin(c.travel) + Math.sin(c.phase * 0.6) * 0.15, def.speed * 1.7, 2, dt);
+        } else if (threatened) this.steer(c, -nx, -ny, def.speed * 1.5, 3, dt);
         else if (!this.followLeader(c, dt)) this.wander(c, dt, def.speed * 0.8, 1.2);
         break;
       }
@@ -1066,6 +1344,37 @@ export class World {
     }
   }
 
+  /** Darts to the far side of the nearest coral from the jelly. Returns false with no coral close by. */
+  private hideBehindCoral(c: Creature, p: Player): boolean {
+    let best: Coral | null = null;
+    let bd = 240;
+    const gx = Math.floor(c.x / 200);
+    const gy = Math.floor(c.y / 200);
+    for (let i = gx - 1; i <= gx + 1; i++) {
+      for (let j = gy - 1; j <= gy + 1; j++) {
+        const cell = this.coralGrid.get(i * 1000 + j);
+        if (!cell) continue;
+        for (const co of cell) {
+          const d = Math.hypot(co.x - c.x, co.y - c.y) - co.r;
+          if (d < bd && co.r > 20) {
+            bd = d;
+            best = co;
+          }
+        }
+      }
+    }
+    if (!best) return false;
+    const ax = best.x - p.x;
+    const ay = best.y - p.y;
+    const am = Math.hypot(ax, ay) || 1;
+    c.homeX = best.x + (ax / am) * (best.r + c.r + 3);
+    c.homeY = best.y + (ay / am) * (best.r + c.r + 3);
+    c.state = 'flee';
+    c.stateT = 2.5 + this.rand() * 1.5;
+    c.timer = 1;
+    return true;
+  }
+
   /** Formation swimming behind a group leader. Returns false when there is no leader. */
   private followLeader(c: Creature, dt: number): boolean {
     const lead = c.leader && !c.leader.dead && !c.leader.held ? c.leader : null;
@@ -1096,8 +1405,14 @@ export class World {
     const h = c.def.hunter!;
     const b = c.def.behavior;
     const detect = h.detect * detectionScale(p.r) * p.stats.detectMult;
-    const veiled = p.powers.veil > 0;
+    const veiled = p.powers.veil > 0 || p.hidden;
     c.stateT -= dt;
+    // A territorial hunter won't follow far from its patch.
+    const home = h && c.def.territory ? Math.hypot(c.x - c.homeX, c.y - c.homeY) : 0;
+    if (c.def.territory && c.state === 'chase' && home > c.def.territory * 1.6) {
+      c.state = 'rest';
+      c.stateT = h.rest;
+    }
     if (veiled && (c.state === 'notice' || c.state === 'orbit' || (c.state === 'chase' && (b === 'stalk' || b === 'pack')))) {
       c.state = 'rest';
       c.stateT = 0.8;
@@ -1118,6 +1433,11 @@ export class World {
           c.heading = angleLerp(c.heading, look, 1 - Math.exp(-2 * dt));
         } else if (b === 'pack') {
           if (!this.followLeader(c, dt)) this.wander(c, dt, c.def.speed);
+        } else if (c.def.territory && home > c.def.territory) {
+          // Patrol: turn back toward the middle of its patch.
+          const hx = c.homeX - c.x;
+          const hy = c.homeY - c.y;
+          this.steer(c, hx / home, hy / home, c.def.speed, 1.5, dt);
         } else this.wander(c, dt, c.def.speed);
         const visible = Math.abs(c.x - p.x) < this.viewHW - c.r * 0.3 && Math.abs(c.y - p.y) < this.viewHH - c.r * 0.3;
         if (p.alive && p.invuln <= 0 && !veiled && dist < detect && visible && !this.demo) {
@@ -1272,6 +1592,11 @@ export class World {
 
   /** Drops whatever the arm holds or reaches for and sends it home. */
   private letGo(t: Tentacle, escaped: boolean): void {
+    if (t.item) {
+      if ('taken' in t.item) t.item.held = false;
+      t.item = null;
+    }
+    t.lash = false;
     const c = t.target;
     if (c) {
       c.claimed = false;
@@ -1333,6 +1658,10 @@ export class World {
     for (const t of this.tentacles) {
       t.t += dt;
       t.cooldown = Math.max(0, t.cooldown - dt);
+      if (t.item) {
+        this.updateItemArm(t, dt, reach, speed, mouth);
+        continue;
+      }
       const c = t.target;
       switch (t.phase) {
         case 'idle': {
@@ -1369,7 +1698,7 @@ export class World {
           // The arm is part of a moving body: its tip travels with the bell, so a diving jelly can still strike.
           t.x += p.x - this.lastPX;
           t.y += p.y - this.lastPY;
-          const left = World.approach(t, c.x, c.y, speed, dt);
+          const left = World.approach(t, c.x, c.y, speed * (t.lash ? LASH.speed : 1), dt);
           if (left <= c.r * 0.9 + 2) {
             t.phase = 'grab';
             t.t = 0;
@@ -1432,6 +1761,7 @@ export class World {
             c.held = false;
             c.claimed = false;
             t.target = null;
+            t.lash = false;
             t.phase = 'idle';
             t.t = 0;
             t.cooldown = 1.1;
@@ -1461,6 +1791,63 @@ export class World {
     for (let i = this.tentacles.length - 1; i >= 0; i--) {
       const t = this.tentacles[i];
       if (t.sweep && t.phase === 'idle') this.tentacles.splice(i, 1);
+    }
+  }
+
+  /**
+   * An arm working on a pearl or a glow pod: it reaches out, taps a pod to burst it, or plucks
+   * a pearl and carries it back to the bell.
+   */
+  private updateItemArm(t: Tentacle, dt: number, reach: number, speed: number, mouth: { x: number; y: number }): void {
+    const p = this.player;
+    const it = t.item!;
+    const isPearl = 'taken' in it;
+    if (!p.alive || (isPearl ? it.taken : it.regrow > 0 && t.phase === 'reach')) {
+      this.letGo(t, false);
+      return;
+    }
+    if (t.phase === 'reach') {
+      t.x += p.x - this.lastPX;
+      t.y += p.y - this.lastPY;
+      if (Math.hypot(it.x - p.x, it.y - p.y) > Math.max(reach, t.range) * 1.2 || t.t > REACH_TIME) {
+        this.letGo(t, false);
+        t.cooldown = 0.5;
+        return;
+      }
+      const left = World.approach(t, it.x, it.y, speed * (t.lash ? LASH.speed : 1), dt);
+      if (left <= 4) {
+        if (isPearl) {
+          it.held = true;
+          t.phase = 'pull';
+          t.t = 0;
+          this.events.push({ type: 'grab', x: it.x, y: it.y, def: PLAYER_SPECIES });
+        } else {
+          this.burstPod(it);
+          t.item = null;
+          t.lash = false;
+          t.phase = 'retract';
+          t.t = 0;
+          t.cooldown = 0.4;
+        }
+      }
+      return;
+    }
+    // Carrying a pearl home.
+    if (isPearl) {
+      t.x += p.x - this.lastPX;
+      t.y += p.y - this.lastPY;
+      const left = World.approach(t, mouth.x, mouth.y, tentaclePullSpeed(this.playerReach(), 4) * 1.4, dt);
+      it.x = t.x;
+      it.y = t.y;
+      if (left <= this.playerReach() * 0.4) {
+        it.held = false;
+        this.collectPearl(it);
+        t.item = null;
+        t.lash = false;
+        t.phase = 'idle';
+        t.t = 0;
+        t.cooldown = 0.4;
+      }
     }
   }
 
@@ -1547,8 +1934,11 @@ export class World {
       if (this.armBlocked(c)) continue;
       cands.push(c);
     }
-    if (!cands.length) return;
     let free = busyArms(p.stage) + p.stats.extraArms - this.tentacles.filter((t) => !t.sweep && t.phase !== 'idle' && t.phase !== 'retract').length;
+    if (!cands.length) {
+      this.pickPearl(reach, free);
+      return;
+    }
     const root = this.tmp;
     for (const t of this.tentacles) {
       if (free <= 0) return;
@@ -1572,6 +1962,30 @@ export class World {
       t.t = 0;
       t.range = reach;
     }
+  }
+
+  /** With no prey about, an idle arm plucks a pearl within reach. */
+  private pickPearl(reach: number, free: number): void {
+    if (free <= 0) return;
+    const p = this.player;
+    let best: Pearl | null = null;
+    let bd = reach;
+    for (const pr of this.pearls) {
+      if (pr.taken || pr.held || Math.abs(pr.x - p.x) > reach || Math.abs(pr.y - p.y) > reach) continue;
+      const d = Math.hypot(pr.x - p.x, pr.y - p.y);
+      if (d >= bd || d < p.r + 12) continue;
+      if (this.tentacles.some((t) => t.item === pr)) continue;
+      if (p.stats.coralReach <= 0 && this.blocked(p.x, p.y, pr.x, pr.y)) continue;
+      bd = d;
+      best = pr;
+    }
+    if (!best) return;
+    const t = this.tentacles.find((tt) => !tt.sweep && tt.phase === 'idle' && tt.cooldown <= 0);
+    if (!t) return;
+    t.item = best;
+    t.phase = 'reach';
+    t.t = 0;
+    t.range = reach;
   }
 
   // ---------------------------------------------------------------- contacts
@@ -1663,15 +2077,8 @@ export class World {
       p.stage += 1;
       if (p.stage <= STAGES.length) this.events.push({ type: 'stage', stage: p.stage });
     }
-    // Feeding earns evolutions until every path is maxed. No menu: the diet decides.
-    const earned = this.demo ? 0 : evolutionsEarned(p.food);
-    while (this.evolutionsReached < earned) {
-      this.evolutionsReached += 1;
-      const path = dietPath(p.diet, p.tiers);
-      if (!path) continue;
-      this.evolve(path);
-      p.diet = emptyDiet();
-    }
+    // Feeding (and exploring) awakens instincts until every path is maxed. No menu: the diet decides which.
+    this.checkInstincts();
   }
 
   private catchPlayer(c: Creature): void {
@@ -1691,7 +2098,7 @@ export class World {
       lastSweep: this.lastSweep,
       behavior: c.def.behavior,
       dark: darknessAt(p.y),
-      light: p.stats.lightRadius,
+      light: this.lightRadius(),
       size: c.r / this.playerReach(),
     };
     this.finalizeRun();
@@ -1716,7 +2123,7 @@ export class World {
     const reach = p.r + 12;
     const pull = p.stats.pearlMagnet;
     for (const pr of this.pearls) {
-      if (pull > 0 && !pr.taken && Math.abs(pr.x - p.x) < pull && Math.abs(pr.y - p.y) < pull) {
+      if (pull > 0 && !pr.taken && !pr.held && Math.abs(pr.x - p.x) < pull && Math.abs(pr.y - p.y) < pull) {
         // The Gilded Spiral draws pearls in, faster the closer they are.
         const dx = p.x - pr.x;
         const dy = p.y - pr.y;
@@ -1727,26 +2134,21 @@ export class World {
           pr.y += (dy / d) * step;
         }
       }
-      if (pr.taken || Math.abs(pr.x - p.x) > reach || Math.abs(pr.y - p.y) > reach) continue;
+      if (pr.taken || pr.held || Math.abs(pr.x - p.x) > reach || Math.abs(pr.y - p.y) > reach) continue;
       if (Math.hypot(pr.x - p.x, pr.y - p.y) > reach) continue;
-      pr.taken = true;
-      this.run.pearls += 1;
-      const value = pearlScore(zoneAt(pr.y).id);
-      this.run.score += value;
-      // A pearl keeps a running chain alive.
-      if (this.combo > 0) this.comboT = this.comboWindow();
-      this.events.push({ type: 'pearl', x: pr.x, y: pr.y, value });
+      this.collectPearl(pr);
     }
     const wr = this.wreck;
     if (!wr.found && Math.hypot(wr.x - p.x, wr.y - p.y) < 520) {
       wr.found = true;
-      this.events.push({ type: 'wreck' });
     }
     if (!wr.chestOpen && Math.hypot(wr.chestX - p.x, wr.chestY - p.y) < p.r + 24) {
       wr.chestOpen = true;
       this.run.chest = 1;
       this.run.score += CHEST_SCORE;
       this.events.push({ type: 'chest', x: wr.chestX, y: wr.chestY });
+      const galleon = this.landmarks.find((l) => l.def.id === 'galleon');
+      if (galleon && !galleon.taken) this.takeTreasure(galleon);
       // The lid bursts open and spills a few more pearls to scoop up.
       for (let i = 0; i < 8; i++) {
         const a = -Math.PI / 2 + (i - 3.5) * 0.32;
@@ -1758,6 +2160,294 @@ export class World {
     }
   }
 
+  // ---------------------------------------------------------------- the world's features
+
+  /** Instinct earned so far: everything eaten plus everything explored. */
+  instinctPoints(): number {
+    return this.player.food + this.player.explore;
+  }
+
+  /** Adds exploration instinct, which can awaken a new instinct just like a meal. */
+  addExplore(points: number): void {
+    if (this.demo || !this.player.alive) return;
+    this.player.explore += points;
+    this.checkInstincts();
+  }
+
+  /** Earns instincts (path tiers) for every threshold crossed. What it ate decides which. */
+  private checkInstincts(): void {
+    const p = this.player;
+    const earned = this.demo ? 0 : evolutionsEarned(this.instinctPoints());
+    while (this.evolutionsReached < earned) {
+      this.evolutionsReached += 1;
+      const path = dietPath(p.diet, p.tiers);
+      if (!path) continue;
+      this.evolve(path);
+      p.diet = emptyDiet();
+    }
+  }
+
+  /** Food and exploration since the last instinct, for the HUD's split meter. */
+  instinctFloor(): number {
+    return EVOLUTION_FOOD[this.evolutionsReached - 1] ?? 0;
+  }
+
+  /** Shelter: inside a thicket, hunters can't see you. Runs before the hunters think. */
+  private updateHidden(): void {
+    const p = this.player;
+    // Shelter: inside a thicket, hunters can't see you.
+    let hidden = false;
+    for (const sh of this.shelters) {
+      if (Math.abs(sh.x - p.x) > sh.r || Math.abs(sh.y - p.y) > sh.r) continue;
+      if (Math.hypot(sh.x - p.x, sh.y - p.y) < sh.r - p.r * 0.5) {
+        hidden = true;
+        break;
+      }
+    }
+    if (hidden !== p.hidden) {
+      p.hidden = hidden;
+      this.events.push({ type: 'hidden', on: hidden });
+    }
+
+  }
+
+  private updateFeatures(dt: number): void {
+    const p = this.player;
+    this.lashCd = Math.max(0, this.lashCd - dt);
+    // New depth is worth something in itself.
+    const mark = Math.floor(depthMeters(p.y) / 100);
+    if (mark > this.depthMark) {
+      // Only depth actually swum counts: a jump of several hundred meters in one step (a debug
+      // teleport) moves the mark without paying out.
+      if (mark - this.depthMark <= 2) this.addExplore(EXPLORE.depth100 * (mark - this.depthMark));
+      this.depthMark = mark;
+    }
+
+    // Glow pods: brush one and it bursts into light; it regrows in time.
+    for (const pod of this.pods) {
+      if (pod.regrow > 0) {
+        pod.regrow = Math.max(0, pod.regrow - dt);
+        continue;
+      }
+      if (Math.abs(pod.x - p.x) > 60 || Math.abs(pod.y - p.y) > 60) continue;
+      if (Math.hypot(pod.x - p.x, pod.y - p.y) < p.r + pod.r + 4) this.burstPod(pod);
+    }
+
+    for (const lm of this.landmarks) this.updateLandmark(lm, dt);
+    this.updateEncounter(dt);
+  }
+
+  /** A pod bursts: the jelly borrows its light for a while. */
+  burstPod(pod: Pod): void {
+    const p = this.player;
+    if (pod.regrow > 0 || !p.alive) return;
+    pod.regrow = POD_REGROW;
+    p.glowT = Math.max(p.glowT, POD_LIGHT);
+    this.run.pods += 1;
+    this.events.push({ type: 'pod', x: pod.x, y: pod.y, grove: pod.grove });
+    this.addExplore(EXPLORE.pod);
+  }
+
+  private updateLandmark(lm: Landmark, dt: number): void {
+    const p = this.player;
+    if (lm.revealed) lm.wakeT += dt;
+    if (!p.alive) return;
+    const d = Math.hypot(lm.x - p.x, lm.y - p.y);
+    if (!lm.found && d < lm.def.findRadius) {
+      lm.found = true;
+      if (!this.run.places.includes(lm.def.id)) this.run.places.push(lm.def.id);
+      this.events.push({ type: 'place', id: lm.def.id, x: lm.x, y: lm.y });
+      this.addExplore(EXPLORE.place);
+    }
+    if (lm.taken || lm.def.id === 'galleon') return;
+    if (!lm.revealed) {
+      if (lm.def.id === 'lantern-grove') {
+        // Light three of the ring's pods and the grove gives up its seed.
+        const lit = this.pods.filter((pd) => pd.grove && pd.regrow > 0 && Math.hypot(pd.x - lm.x, pd.y - lm.y) < 400).length;
+        if (lit >= 3) this.reveal(lm);
+      } else if (lm.def.id === 'drowned-gate') {
+        // Swim between the columns and the glyphs wake.
+        if (Math.abs(p.x - lm.x) < 110 && p.y < lm.y + 20 && p.y > lm.y - 270) this.reveal(lm);
+      }
+      return;
+    }
+    const reach = lm.def.id === 'crystal-heart' ? 92 + p.r + 10 : p.r + 18;
+    if (Math.abs(lm.tx - p.x) < reach + 4 && Math.abs(lm.ty - p.y) < reach + 4 && Math.hypot(lm.tx - p.x, lm.ty - p.y) < reach) this.takeTreasure(lm);
+  }
+
+  private reveal(lm: Landmark): void {
+    lm.revealed = true;
+    lm.wakeT = 0;
+    this.events.push({ type: 'reveal', id: lm.def.treasure, x: lm.tx, y: lm.ty });
+  }
+
+  private takeTreasure(lm: Landmark): void {
+    lm.taken = true;
+    const def = TREASURES_BY_ID[lm.def.treasure];
+    if (!this.run.treasures.includes(def.id)) this.run.treasures.push(def.id);
+    this.run.score += def.score;
+    this.events.push({ type: 'treasure', id: def.id, x: lm.tx, y: lm.ty });
+    this.addExplore(EXPLORE.treasure);
+  }
+
+  /**
+   * Now and then the ocean does something remarkable: a bloom lights the water for a while,
+   * or a great school streams past. They come rarely, so each one is a moment.
+   */
+  private updateEncounter(dt: number): void {
+    const p = this.player;
+    const e = this.encounter;
+    if (e) {
+      e.t += dt;
+      if (e.kind === 'bloom' && Math.hypot(e.x - p.x, e.y - p.y) < 900) p.glowT = Math.max(p.glowT, 2.2);
+      if (e.t >= e.dur) this.encounter = null;
+      return;
+    }
+    if (this.demo || !p.alive) return;
+    this.encounterTimer -= dt;
+    if (this.encounterTimer > 0) return;
+    this.encounterTimer = 55 + this.rand() * 45;
+    if (this.rand() > 0.6) return;
+    const zone = zoneAt(p.y).id;
+    const options: EncounterId[] = [];
+    if (zone !== 'shallows') options.push('bloom');
+    if (zone === 'shallows' || zone === 'gardens' || zone === 'twilight') options.push('migration');
+    if (!options.length) return;
+    this.startEncounter(options[Math.floor(this.rand() * options.length)]);
+  }
+
+  /** Begins an encounter around the jelly (also used by tests and the debug handle). */
+  startEncounter(kind: EncounterId): void {
+    const p = this.player;
+    if (kind === 'bloom') {
+      this.encounter = { kind, x: p.x, y: p.y + 120, t: 0, dur: 26 };
+    } else if (kind === 'migration') {
+      this.encounter = { kind, x: p.x, y: p.y, t: 0, dur: 18 };
+      this.spawnMigration();
+    } else return;
+    this.noteEncounter(kind);
+  }
+
+  private noteEncounter(kind: EncounterId): void {
+    if (this.run.encounters.includes(kind)) return;
+    this.run.encounters.push(kind);
+    this.events.push({ type: 'encounter', kind });
+    this.addExplore(EXPLORE.encounter);
+  }
+
+  /** A great school enters from one side and streams across the jelly's path. */
+  private spawnMigration(): void {
+    const p = this.player;
+    const zone = zoneAt(p.y).id;
+    const def = SPECIES.find((s) => s.id === (zone === 'twilight' ? 'lantern-fry' : 'ribbon-minnow'));
+    if (!def) return;
+    const dir = p.x < this.width / 2 ? 1 : -1;
+    const x0 = clamp(p.x - dir * (this.viewHW + 160), 90, this.width - 90);
+    const y0 = p.y + (this.rand() - 0.5) * 120;
+    const n = 34;
+    let leader: Creature | null = null;
+    for (let i = 0; i < n; i++) {
+      const c = this.spawn(def, x0 - dir * this.rand() * 160, y0 + (this.rand() - 0.5) * 160);
+      if (!leader) {
+        leader = c;
+        c.travel = dir > 0 ? 0 : Math.PI;
+        c.travelT = 16;
+        c.heading = c.travel;
+      } else {
+        c.leader = leader;
+        c.homeX = -20 - this.rand() * 170;
+        c.homeY = (this.rand() - 0.5) * 170;
+        c.heading = leader.heading;
+      }
+    }
+  }
+
+  /**
+   * The lash: the player taps a creature, pearl or glow pod and the nearest free arm strikes at
+   * it from much further than a casual snag. `slop` is how far from the tap still counts.
+   */
+  lash(x: number, y: number, slop: number): 'hit' | 'far' | 'none' {
+    const p = this.player;
+    if (!p.alive || this.lashCd > 0) return 'none';
+    const R = this.playerReach();
+    const range = this.tentacleReach() * LASH.reach + R;
+    let best: Creature | Pearl | Pod | null = null;
+    let bd = Infinity;
+    for (const c of this.creatures) {
+      if (c.held || !this.huntable(c)) continue;
+      const d = Math.hypot(c.x - x, c.y - y) - c.r;
+      if (d < slop && d < bd) {
+        bd = d;
+        best = c;
+      }
+    }
+    for (const pr of this.pearls) {
+      if (pr.taken || pr.held) continue;
+      const d = Math.hypot(pr.x - x, pr.y - y) - 6;
+      if (d < slop && d < bd) {
+        bd = d;
+        best = pr;
+      }
+    }
+    for (const pod of this.pods) {
+      if (pod.regrow > 0) continue;
+      const d = Math.hypot(pod.x - x, pod.y - y) - pod.r;
+      if (d < slop && d < bd) {
+        bd = d;
+        best = pod;
+      }
+    }
+    if (!best) return 'none';
+    const tr = 'r' in best && 'def' in best ? best.r : 0;
+    if (Math.hypot(best.x - p.x, best.y - p.y) - tr * 0.5 > range || (p.stats.coralReach <= 0 && this.blocked(p.x, p.y, best.x, best.y))) {
+      this.events.push({ type: 'lash', x: best.x, y: best.y, hit: false });
+      return 'far';
+    }
+    // The nearest arm that isn't holding something takes the strike.
+    const root = this.tmp;
+    let arm: Tentacle | null = null;
+    let ad = Infinity;
+    for (const t of this.tentacles) {
+      if (t.sweep || t.phase === 'grab' || t.phase === 'pull' || t.phase === 'eat') continue;
+      this.tentacleRoot(t, R, root);
+      const d = Math.hypot(best.x - root.x, best.y - root.y);
+      if (d < ad) {
+        ad = d;
+        arm = t;
+      }
+    }
+    if (!arm) return 'none';
+    if (arm.target || arm.item) this.letGo(arm, false);
+    if ('def' in best) {
+      for (const t of this.tentacles) if (t.target === best) this.letGo(t, false);
+      best.claimed = true;
+      arm.target = best;
+      arm.item = null;
+    } else {
+      for (const t of this.tentacles) if (t.item === best) this.letGo(t, false);
+      arm.target = null;
+      arm.item = best;
+    }
+    arm.phase = 'reach';
+    arm.t = 0;
+    arm.lash = true;
+    arm.range = range;
+    this.lashCd = LASH.cooldown;
+    this.run.lashes += 1;
+    this.events.push({ type: 'lash', x: best.x, y: best.y, hit: true });
+    return 'hit';
+  }
+
+  private collectPearl(pr: Pearl): void {
+    pr.taken = true;
+    this.run.pearls += 1;
+    const value = pearlScore(zoneAt(pr.y).id);
+    this.run.score += value;
+    // A pearl keeps a running chain alive.
+    if (this.combo > 0) this.comboT = this.comboWindow();
+    this.events.push({ type: 'pearl', x: pr.x, y: pr.y, value });
+  }
+
   // ---------------------------------------------------------------- discovery
 
   private markSeen(def: SpeciesDef): void {
@@ -1766,6 +2456,7 @@ export class World {
     if (def.role !== 'player') {
       this.run.score += 25;
       this.events.push({ type: 'discover', def });
+      this.addExplore(EXPLORE.discovery);
     }
   }
 
@@ -1782,12 +2473,18 @@ export class World {
       // Something this vast only shows itself to a light strong enough to take it in.
       // A dimmer jelly drifting past its rim lights just glimpses it.
       const d = Math.hypot(c.x - p.x, c.y - p.y);
-      if (p.stats.lightRadius >= reveal && d - c.r * 0.6 < p.stats.lightRadius) this.markSeen(c.def);
+      const light = this.lightRadius();
+      if (light >= reveal && d - c.r * 0.6 < light) this.markSeen(c.def);
       else if (d - c.r < vis + 120 && !this.run.glimpsed.includes(c.def.id)) {
         this.run.glimpsed.push(c.def.id);
         this.events.push({ type: 'glimpse', def: c.def });
       }
     }
+  }
+
+  /** Every species seen this dive. */
+  seenIds(): string[] {
+    return [...this.seen];
   }
 
   hasSeen(id: string): boolean {
@@ -1864,8 +2561,10 @@ export class World {
     const weights: number[] = [];
     // The title scene is magnified, so it keeps to small, unobtrusive prey.
     const pool = SPECIES.filter((s) => s.role === role && s.weight > 0 && s.zones.includes(zoneId) && (!this.demo || s.radius <= 9));
+    const bloom = this.encounter?.kind === 'bloom';
     for (const s of pool) {
       let w = s.weight;
+      if (bloom && role === 'prey' && s.glows) w *= 3;
       // Power-up fish keep turning up whatever your size.
       if (role === 'prey' && !s.power) {
         const rel = s.radius / p.r;
@@ -1950,6 +2649,8 @@ export class World {
       slip: 0,
       consume: 0,
       spooked: 0,
+      travel: 0,
+      travelT: 0,
     };
     if (def.behavior === 'chain') {
       c.chain = [];
@@ -1990,6 +2691,7 @@ export class World {
       if (this.rand() >= Math.min(0.95, def.rare!.chance * p.stats.rareChance)) continue;
       if (this.spawnRare(def)) {
         this.events.push({ type: 'rare', def });
+        if (def.id === 'lantern-whale') this.noteEncounter('whale');
         return;
       }
     }
@@ -2024,6 +2726,16 @@ export class World {
       const spot = this.coralSpot(def.radius, this.viewRadius * 0.55, this.viewRadius + 380, true);
       if (!spot) return false;
       this.spawn(def, spot.x, spot.y);
+      return true;
+    }
+    if (def.behavior === 'glide' && def.radius > 100) {
+      // Something vast crosses the jelly's path from one side to the other, close enough to feel its size.
+      const side = this.rand() < 0.5 ? -1 : 1;
+      const x = clamp(p.x + side * (this.viewRadius + def.radius * 1.6), -200, this.width + 200);
+      const y = p.y + (this.rand() - 0.3) * 260;
+      const c = this.spawn(def, x, y);
+      c.offX = side > 0 ? Math.PI : 0;
+      c.heading = c.offX;
       return true;
     }
     if (def.behavior === 'loom') {

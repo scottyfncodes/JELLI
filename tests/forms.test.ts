@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { World, type Creature } from '../src/sim/world';
+import { World, type Creature, EXPLORE } from '../src/sim/world';
 import { SPECIES, SPECIES_BY_ID } from '../src/content/species';
 import { BASE_STATS, computeStats, dietPath, emptyDiet, emptyTiers } from '../src/content/evolutions';
 import { FORMS, FORM_BY_SOURCE, FORM_ORDER } from '../src/content/forms';
@@ -47,7 +47,8 @@ describe('diet steers evolution', () => {
     const w = makeWorld();
     const p = w.player;
     w.creatures.length = 0;
-    p.food = EVOLUTION_FOOD[0] - 1;
+    // Meeting the puffer for the first time is itself worth a little instinct.
+    p.food = EVOLUTION_FOOD[0] - 1 - EXPLORE.discovery;
     p.r = 30;
     feed(w, w.spawn(SPECIES_BY_ID['puffer-pebble'], p.x + 2, p.y));
     expect(p.tiers).toEqual({ glow: 0, surge: 0, sting: 1 });
@@ -153,6 +154,8 @@ describe('the Phantom', () => {
     p.y = 12400;
     p.invuln = 99;
     w.creatures.length = 0;
+    // No borrowed light from a glow pod in these tests.
+    w.pods.length = 0;
     const ph = w.spawn(SPECIES_BY_ID.phantom, p.x + 200, p.y + 150);
     return { w, ph };
   }

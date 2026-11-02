@@ -6,7 +6,11 @@ import { BASE_RADIUS, maturity } from '../content/progression';
 import { TAU, angleLerp, clamp, damp, hexToRgb, lerp, rgba } from '../core/math';
 import { bellSize, drawCreatureShape, drawJelly, jellyStyleForSpecies, lookFor, marginalLength, marginalTentacles, type JellyBody, type JellyStyle } from './creatures';
 import { drawGlow } from './sprites';
+import { Backdrop, coralPiece } from './backdrop';
+import { css, mixRGB, paletteAt, waterColor, type Palette } from './biomeArt';
 import { drawChest, drawShip } from './wreck';
+import { drawBloom, drawLandmark, drawPlumeShimmer, drawPod, drawShelter, drawTreasure, drawVent } from './places';
+import { TREASURES_BY_ID } from '../content/landmarks';
 import { Particles } from './particles';
 import { POWERS, TITAN_SCALE } from '../content/powerups';
 
@@ -26,27 +30,31 @@ const TRAIL_LINKS = 12;
 const HUD_TOP = 120;
 /** Height of one tile of the far parallax layer, in parallax units. */
 const FAR_TILE = 2400;
-
-/** Water color by depth: blue shallows, teal gardens, deep blue drop, sea-green ruins, black abyss, red dream. */
-const WATER_STOPS: [number, string][] = [
-  [0, '#2b6eaa'],
-  [1800, '#1b5a86'],
-  [2800, '#0f4a5c'],
-  [4400, '#10345a'],
-  [6000, '#0e2556'],
-  [7400, '#0b1a40'],
-  [8800, '#082430'],
-  [10800, '#061422'],
-  [12600, '#04081c'],
-  [14600, '#12051c'],
-  [16500, '#2c0a26'],
-  [22000, '#34081c'],
-];
+/** The darkness is drawn at this fraction of screen resolution: soft edges, cheap fill. */
+const DARK_RES = 0.25;
 
 /** The tint of the dark itself, which turns red in the Hadal Dream. */
 function darkColor(y: number): string {
   const k = clamp((y - 14000) / 2500, 0, 1);
   return `${Math.round(lerp(2, 30, k))},${Math.round(lerp(4, 4, k))},${Math.round(lerp(18, 22, k))}`;
+}
+
+let HOLE: HTMLCanvasElement | null = null;
+/** A soft white disc for cutting light out of the darkness mask. */
+function holeSprite(): HTMLCanvasElement {
+  if (HOLE) return HOLE;
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d')!;
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.35, 'rgba(255,255,255,0.9)');
+  grad.addColorStop(0.7, 'rgba(255,255,255,0.4)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  HOLE = c;
+  return c;
 }
 
 /** How a reef cluster is built in each biome: living reef, glowing reef, carved ruin, basalt or crystal. */
@@ -57,40 +65,30 @@ const BIOME_ROCK: Partial<Record<ZoneId, { kind: CoralKind; base: string; lump: 
   hadal: { kind: 'crystal', base: '#3a0e3c', lump: '#8a2a6e', polyp: '#ff6fae', glow: 0.9 },
 };
 
-function waterAt(y: number): [number, number, number] {
-  for (let i = 1; i < WATER_STOPS.length; i++) {
-    if (y <= WATER_STOPS[i][0]) {
-      const [y0, c0] = WATER_STOPS[i - 1];
-      const [y1, c1] = WATER_STOPS[i];
-      const t = clamp((y - y0) / (y1 - y0), 0, 1);
-      const a = hexToRgb(c0);
-      const b = hexToRgb(c1);
-      return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
-    }
-  }
-  return hexToRgb(WATER_STOPS[WATER_STOPS.length - 1][1]);
-}
-
-function rgbStr(c: [number, number, number], a = 1): string {
-  return `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
-}
-
 function hash(n: number): number {
   const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
   return x - Math.floor(x);
 }
 
-const CORAL_PALETTES: [string, string, string][] = [
-  ['#4b2f7c', '#7a52b8', '#ff9fd8'],
-  ['#17606c', '#2a9696', '#7ff0ff'],
-  ['#6a2a52', '#b04f7b', '#ffd27a'],
-];
+/** Living reef by biome: [base, lump, polyp]. Warm coral in the sun; glowing reef below it; violet lichen in the twilight. */
+const CORAL_PALETTES: Partial<Record<ZoneId, [string, string, string][]>> = {
+  shallows: [
+    ['#7a3f55', '#d0766a', '#ffc46b'],
+    ['#4f3a78', '#9a68b0', '#ff9fd8'],
+    ['#6e4a30', '#c98a52', '#ffe2a3'],
+    ['#2a6670', '#4fa8a0', '#a8fff0'],
+  ],
+  gardens: [
+    ['#1d3f86', '#3a72b8', '#7dffb9'],
+    ['#33287c', '#6a52b8', '#ff7fd0'],
+    ['#174a70', '#2f8fa8', '#ffd27a'],
+  ],
+  twilight: [
+    ['#1c2058', '#33388a', '#a99aff'],
+    ['#161a4c', '#2a3a7a', '#7fe3ff'],
+  ],
+};
 
-function mix(a: string, b: string, t: number): string {
-  const x = hexToRgb(a);
-  const y = hexToRgb(b);
-  return `#${[0, 1, 2].map((i) => Math.round(lerp(x[i], y[i], t)).toString(16).padStart(2, '0')).join('')}`;
-}
 
 interface CoralLook {
   kind: CoralKind;
@@ -115,14 +113,6 @@ interface BgShape {
   r: number[];
   ox: number[];
   oy: number[];
-}
-
-interface Kelp {
-  x: number;
-  y: number;
-  h: number;
-  w: number;
-  ph: number;
 }
 
 interface Snow {
@@ -151,10 +141,16 @@ export class Renderer {
   shake = 0;
   playerStyle: JellyStyle;
 
+  readonly backdrop = new Backdrop();
+  /** This frame's blended biome palette. */
+  private pal: Palette = paletteAt(0);
+  private darkCanvas: HTMLCanvasElement;
+  private darkCtx: CanvasRenderingContext2D;
+  /** Brief lights from bursts, catches and glowing things, cut out of the dark. */
+  private flashes: { x: number; y: number; r: number; life: number; max: number }[] = [];
   private coralLooks = new WeakMap<CoralCluster, CoralLook>();
   private streaks = new WeakMap<Current, Streak[]>();
   private far: BgShape[] = [];
-  private kelp: Kelp[] = [];
   private snow: Snow[] = [];
   private vignette: CanvasGradient | null = null;
   private lastHeading = 0;
@@ -167,6 +163,8 @@ export class Renderer {
     if (!ctx) throw new Error('Canvas 2D is not supported');
     this.ctx = ctx;
     this.playerStyle = style;
+    this.darkCanvas = document.createElement('canvas');
+    this.darkCtx = this.darkCanvas.getContext('2d')!;
     const shapes = (n: number, spanX: number, spanY: number, minR: number, maxR: number) => {
       const out: BgShape[] = [];
       for (let i = 0; i < n; i++) {
@@ -183,10 +181,7 @@ export class Renderer {
     };
     // Parallax layers only need to span the world scaled by their scroll factor.
     // Parallax layers tile vertically, so the endless shaft never runs out of background.
-    this.far = shapes(70, WORLD.width * 0.35 + 1400, FAR_TILE, 60, 150);
-    for (let i = 0; i < 110; i++) {
-      this.kelp.push({ x: Math.random() * (WORLD.width * 0.6 + 1200) - 600, y: Math.random() * (1800 * 0.6 + 900) - 200, h: 180 + Math.random() * 320, w: 5 + Math.random() * 6, ph: Math.random() * TAU });
-    }
+    this.far = shapes(28, WORLD.width * 0.35 + 1400, FAR_TILE, 60, 150);
     for (let i = 0; i < 110; i++) {
       this.snow.push({ u: Math.random(), v: Math.random(), f: 0.25 + Math.random() * 0.9, s: 0.6 + Math.random() * 1.6 });
     }
@@ -202,6 +197,15 @@ export class Renderer {
     g.addColorStop(0, 'rgba(2,4,20,0)');
     g.addColorStop(1, 'rgba(2,4,20,0.55)');
     this.vignette = g;
+    this.backdrop.resize(this.w, this.h);
+    this.darkCanvas.width = Math.max(1, Math.ceil(this.w * DARK_RES));
+    this.darkCanvas.height = Math.max(1, Math.ceil(this.h * DARK_RES));
+  }
+
+  /** A short-lived light cut into the darkness at a world point. */
+  addFlash(x: number, y: number, r: number, life = 0.5): void {
+    if (this.flashes.length > 24) this.flashes.shift();
+    this.flashes.push({ x, y, r, life, max: life });
   }
 
   /** World units visible across the screen's short side; grows with the jelly. */
@@ -267,23 +271,35 @@ export class Renderer {
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
 
-    this.drawWater(world);
-    this.drawRays();
+    this.pal = paletteAt(this.camY);
+    this.backdrop.warm();
+    const bt = this.reducedMotion ? this.time * 0.3 : this.time;
+    this.drawWater();
+    const ck = this.pal.caustics * clamp(1 - this.camY / 2600, 0, 1);
+    this.backdrop.drawBack(ctx, this.pal, this.camX, this.camY, this.zoom, bt, 0.1 * ck, this.sx(0) * 0.6, this.sy(0) * 0.6);
+    this.backdrop.drawRays(ctx, this.pal, this.camX, this.camY, this.zoom, bt);
     this.drawFar();
+    this.drawHaze();
     this.drawSnow(0.5);
-    this.drawKelp();
+    this.backdrop.drawMid(ctx, this.pal, this.camX, this.camY, this.zoom, bt);
     this.drawCurrents(world, dt);
+    this.drawFeatures(world, false);
     this.drawCorals(world);
     this.drawRecord();
     this.drawWreck(world);
+    this.drawPods(world);
     this.drawPearls(world);
     this.drawCreatures(world);
     this.drawPlayer(world, dt);
+    this.drawFeatures(world, true);
     this.particles.update(dt);
     this.particles.draw(ctx, this.camX, this.camY, this.zoom, w, h);
-    this.drawDarkness(world);
+    this.drawDarkness(world, dt);
+    this.backdrop.drawSceneryLights(ctx, darknessAt(this.camY));
     this.drawLights(world);
+    this.drawEncounter(world);
     this.drawSnow(1.1);
+    this.backdrop.drawFore(ctx, this.pal, this.camX, this.camY, this.zoom, bt);
     if (this.vignette) {
       ctx.fillStyle = this.vignette;
       ctx.fillRect(0, 0, w, h);
@@ -292,52 +308,60 @@ export class Renderer {
     if (joystick?.active) this.drawJoystick(joystick);
   }
 
-  private drawWater(world: World): void {
+  private drawWater(): void {
     const ctx = this.ctx;
     const top = this.camY - this.h / 2 / this.zoom;
     const bottom = this.camY + this.h / 2 / this.zoom;
     const g = ctx.createLinearGradient(0, 0, 0, this.h);
-    g.addColorStop(0, rgbStr(waterAt(top)));
-    g.addColorStop(1, rgbStr(waterAt(bottom)));
+    g.addColorStop(0, css(waterColor(top)));
+    g.addColorStop(0.5, css(waterColor((top + bottom) / 2)));
+    g.addColorStop(1, css(waterColor(bottom)));
     ctx.fillStyle = g;
     ctx.fillRect(-20, -20, this.w + 40, this.h + 40);
-    if (top < 0) {
-      // Surface shimmer above the shallows.
-      const sy = this.sy(0);
-      const sg = ctx.createLinearGradient(0, sy - 80, 0, sy + 30);
-      sg.addColorStop(0, 'rgba(160,230,255,0.35)');
-      sg.addColorStop(1, 'rgba(160,230,255,0)');
-      ctx.fillStyle = sg;
-      ctx.fillRect(0, 0, this.w, Math.max(0, sy + 30));
-    }
-    void world;
+    if (top < 60) this.drawSurface();
   }
 
-  private drawRays(): void {
-    const k = clamp(1 - this.camY / 2600, 0, 1);
-    if (k <= 0) return;
+  /**
+   * The underside of the surface: a bright, rippling ceiling of light with the sky beyond,
+   * the first thing a hatchling sees.
+   */
+  private drawSurface(): void {
     const ctx = this.ctx;
-    const { w, h } = this;
-    const g = ctx.createLinearGradient(0, 0, 0, h);
-    g.addColorStop(0, `rgba(170,230,255,${0.12 * k})`);
-    g.addColorStop(1, 'rgba(170,230,255,0)');
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.fillStyle = g;
+    const sy = this.sy(0);
+    if (sy < -40) return;
     const t = this.reducedMotion ? 0 : this.time;
-    for (let i = 0; i < 5; i++) {
-      const base = ((i + 0.5) / 5) * w + Math.sin(t * 0.15 + i * 2) * w * 0.06 - this.camX * this.zoom * 0.05;
-      const x = ((base % (w + 200)) + w + 200) % (w + 200) - 100;
-      const tw = 30 + hash(i) * 60;
-      const skew = w * 0.18;
-      ctx.beginPath();
-      ctx.moveTo(x - tw, -10);
-      ctx.lineTo(x + tw, -10);
-      ctx.lineTo(x + tw * 2.6 + skew, h);
-      ctx.lineTo(x - tw * 0.6 + skew, h);
-      ctx.closePath();
-      ctx.fill();
+    const sky = ctx.createLinearGradient(0, sy - 160, 0, sy);
+    sky.addColorStop(0, 'rgba(214,250,255,1)');
+    sky.addColorStop(1, 'rgba(150,232,240,1)');
+    ctx.fillStyle = sky;
+    ctx.beginPath();
+    ctx.moveTo(-10, -10);
+    ctx.lineTo(this.w + 10, -10);
+    const step = 12;
+    for (let x = this.w + 10; x >= -10; x -= step) {
+      const wx = this.camX + (x - this.w / 2) / this.zoom;
+      const y = sy + (Math.sin(wx * 0.045 + t * 1.6) * 3 + Math.sin(wx * 0.11 - t * 2.3) * 1.6) * this.zoom;
+      ctx.lineTo(x, y);
     }
-    ctx.globalCompositeOperation = 'source-over';
+    ctx.closePath();
+    ctx.fill();
+    // A glowing band just under the surface where the light pours in.
+    const band = ctx.createLinearGradient(0, sy, 0, sy + 140 * this.zoom);
+    band.addColorStop(0, 'rgba(230,255,250,0.55)');
+    band.addColorStop(1, 'rgba(230,255,250,0)');
+    ctx.fillStyle = band;
+    ctx.fillRect(0, sy, this.w, 140 * this.zoom);
+  }
+
+  /** The murk below: water thickens toward the bottom of the view, so down always reads as deeper. */
+  private drawHaze(): void {
+    const ctx = this.ctx;
+    const g = ctx.createLinearGradient(0, this.h * 0.35, 0, this.h);
+    const deep = mixRGB(this.pal.water, [0, 0, 8], 0.45);
+    g.addColorStop(0, css(deep, 0));
+    g.addColorStop(1, css(deep, 0.42));
+    ctx.fillStyle = g;
+    ctx.fillRect(0, this.h * 0.35, this.w, this.h * 0.65);
   }
 
   /**
@@ -359,7 +383,7 @@ export class Renderer {
       const x = (s.x - this.camX * f) * z + this.w / 2;
       const py = (((s.y - this.camY * f) % FAR_TILE) + FAR_TILE) % FAR_TILE;
       const y = (py - FAR_TILE / 2) * z + this.h / 2;
-      const rr = s.r[0] * z * 2.4;
+      const rr = s.r[0] * z * 1.7;
       if (x < -rr || x > this.w + rr || y < -rr || y > this.h + rr) continue;
       drawGlow(ctx, color, x, y, rr, alpha);
     }
@@ -425,36 +449,6 @@ export class Renderer {
     ctx.restore();
   }
 
-  /** Swaying kelp silhouettes in a mid parallax layer, fading out with depth. */
-  private drawKelp(): void {
-    const k = clamp(1 - (this.camY - 1400) / 1400, 0, 1);
-    if (k <= 0) return;
-    const ctx = this.ctx;
-    const f = 0.6;
-    const z = this.zoom * 0.8;
-    const t = this.reducedMotion ? 0 : this.time;
-    ctx.fillStyle = `rgba(6,26,52,${0.4 * k})`;
-    for (const kp of this.kelp) {
-      const bx = (kp.x - this.camX * f) * z + this.w / 2;
-      const by = (kp.y - this.camY * f) * z + this.h / 2;
-      const hh = kp.h * z;
-      if (bx < -120 || bx > this.w + 120 || by < -20 || by - hh > this.h + 20) continue;
-      const segs = 6;
-      ctx.beginPath();
-      for (let i = 0; i <= segs; i++) {
-        const q = i / segs;
-        const x = bx + Math.sin(t * 0.7 + kp.ph + q * 2.2) * 26 * z * q - kp.w * z * (1 - q * 0.85);
-        ctx[i === 0 ? 'moveTo' : 'lineTo'](x, by - hh * q);
-      }
-      for (let i = segs; i >= 0; i--) {
-        const q = i / segs;
-        const x = bx + Math.sin(t * 0.7 + kp.ph + q * 2.2) * 26 * z * q + kp.w * z * (1 - q * 0.85);
-        ctx.lineTo(x, by - hh * q);
-      }
-      ctx.fill();
-    }
-  }
-
   private drawSnow(layer: number): void {
     const ctx = this.ctx;
     const W = this.w + 40;
@@ -463,7 +457,7 @@ export class Renderer {
     // In the Hadal Dream the snow falls upward.
     const hadal = this.camY > 14600;
     const fall = hadal ? -6 : 6;
-    ctx.fillStyle = hadal ? (layer > 1 ? 'rgba(255,170,210,0.4)' : 'rgba(255,150,200,0.25)') : layer > 1 ? 'rgba(220,240,255,0.35)' : 'rgba(200,230,255,0.22)';
+    ctx.fillStyle = css(this.pal.snow, layer > 1 ? 0.36 : 0.22);
     for (let i = layer > 1 ? 0 : 1; i < this.snow.length; i += 2) {
       const s = this.snow[i];
       const f = s.f * layer;
@@ -515,17 +509,15 @@ export class Renderer {
   private coralLook(cl: CoralCluster): CoralLook {
     let look = this.coralLooks.get(cl);
     if (!look) {
-      const pal = CORAL_PALETTES[Math.floor(cl.hue * CORAL_PALETTES.length) % CORAL_PALETTES.length];
+      const set = CORAL_PALETTES[cl.zone] ?? CORAL_PALETTES.twilight!;
+      const pal = set[Math.floor(cl.hue * set.length) % set.length];
       const rock = BIOME_ROCK[cl.zone];
-      const depth = clamp(((cl.minY + cl.maxY) / 2) / 7400, 0, 1);
-      const gardens = cl.zone === 'gardens';
       look = {
         kind: rock?.kind ?? 'reef',
-        base: rock?.base ?? mix(pal[0], '#0a0d2c', 0.25 + depth * 0.55),
-        lump: rock?.lump ?? mix(pal[1], '#121845', 0.15 + depth * 0.55),
-        // The Glow Gardens' reef shines green and gold.
-        polyp: rock?.polyp ?? (gardens ? (cl.hue < 0.5 ? '#7dffb9' : '#ffd27a') : depth > 0.6 ? '#7ff0ff' : pal[2]),
-        glow: rock?.glow ?? (gardens ? 1 : 0.6),
+        base: rock?.base ?? pal[0],
+        lump: rock?.lump ?? pal[1],
+        polyp: rock?.polyp ?? pal[2],
+        glow: rock?.glow ?? (cl.zone === 'gardens' ? 1 : cl.zone === 'shallows' ? 0.35 : 0.6),
         exposed: cl.circles.map((c) => !cl.circles.some((o) => o !== c && Math.hypot(c.x - o.x, c.y - c.r * 0.8 - o.y) < o.r * 0.95)),
       };
       this.coralLooks.set(cl, look);
@@ -567,7 +559,7 @@ export class Renderer {
       const g = ctx.createLinearGradient(0, top, 0, bottom);
       g.addColorStop(0, look.lump);
       g.addColorStop(0.45, look.base);
-      g.addColorStop(1, '#060a24');
+      g.addColorStop(1, css(mixRGB(hexToRgb(look.base), [4, 8, 30], 0.65)));
       ctx.fillStyle = g;
       ctx.beginPath();
       for (const c of cl.circles) {
@@ -577,6 +569,35 @@ export class Renderer {
         ctx.arc(x, y, c.r * z, 0, TAU);
       }
       ctx.fill();
+      // Sunlight ripples across the reef in shallow water.
+      const sun = this.pal.caustics * clamp(1 - cl.minY / 2600, 0, 1);
+      if (sun > 0.03) {
+        ctx.save();
+        ctx.clip();
+        this.backdrop.drawCaustics(ctx, this.sx(cl.minX), top, (cl.maxX - cl.minX) * z, bottom - top, this.sx(0), this.sy(0), 1.6 * z, 0.55 * sun, t, false);
+        ctx.restore();
+      }
+      // Living coral crowns the exposed tops of the reef.
+      if (look.kind === 'reef' && (cl.zone === 'shallows' || cl.zone === 'gardens')) {
+        cl.circles.forEach((c, i) => {
+          if (!look.exposed[i] || c.r < 26) return;
+          const n = c.r > 70 ? 2 : 1;
+          for (let k = 0; k < n; k++) {
+            const a = -Math.PI / 2 + (hash(cl.seed + i * 5 + k) - 0.5) * 1.1;
+            const px = this.sx(c.x + Math.cos(a) * c.r * 0.86);
+            const py = this.sy(c.y + Math.sin(a) * c.r * 0.86);
+            const pal = CORAL_PALETTES[cl.zone]!;
+            const col = hexToRgb(pal[Math.floor(hash(cl.seed + i + k * 3) * pal.length)][2]);
+            const body = mixRGB(hexToRgb(look.lump), col, cl.zone === 'shallows' ? 0.55 : 0.3);
+            ctx.save();
+            ctx.translate(px, py);
+            ctx.scale(z, z);
+            ctx.rotate(a + Math.PI / 2);
+            coralPiece(ctx, Math.floor(hash(cl.seed + i * 9 + k) * 4), 0, 0, c.r * (0.32 + hash(cl.seed + i + k) * 0.2), body, mixRGB(body, [255, 255, 255], 0.4), cl.seed + i, t, cl.zone === 'gardens' ? look.polyp : null);
+            ctx.restore();
+          }
+        });
+      }
       // Small knobbly bumps along exposed crowns.
       ctx.fillStyle = rgba(look.lump, 0.55);
       ctx.beginPath();
@@ -696,6 +717,64 @@ export class Renderer {
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
     ctx.fillText(`YOUR RECORD · ${Math.round(depthMeters(y0)).toLocaleString('en-US')} M`, this.w - 16, y - 6);
+  }
+
+  /** Runs `fn` with the context in world units around (x, y), if that spot is near the view. */
+  private atWorld(x: number, y: number, pad: number, fn: () => void): void {
+    const sx = this.sx(x);
+    const sy = this.sy(y);
+    if (!this.onScreen(sx, sy, pad * this.zoom)) return;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.scale(this.zoom, this.zoom);
+    fn();
+    ctx.restore();
+  }
+
+  /**
+   * Shelters, vents and landmarks. The back pass draws them behind the creatures; the front
+   * pass draws the fronds that wave in front of a jelly hiding among them.
+   */
+  private drawFeatures(world: World, front: boolean): void {
+    const ctx = this.ctx;
+    const t = this.reducedMotion ? this.time * 0.3 : this.time;
+    const lit = this.pal.sunK;
+    for (const sh of world.shelters) this.atWorld(sh.x, sh.y, sh.r * 2.6, () => drawShelter(ctx, sh, t, front, lit));
+    if (front) return;
+    for (const lm of world.landmarks) {
+      if (lm.def.id === 'galleon' || lm.def.id === 'kelp-cathedral') continue;
+      this.atWorld(lm.x, lm.y, 700, () => drawLandmark(ctx, lm, t));
+    }
+    for (const v of world.vents) {
+      this.atWorld(v.x, v.y, v.h + 700, () => drawVent(ctx, v, t));
+      const sx = this.sx(v.x);
+      const sy = this.sy(v.y - v.h);
+      if (this.onScreen(sx, sy, 600 * this.zoom)) drawPlumeShimmer(ctx, sx, sy, 560, t, this.zoom);
+    }
+    for (const lm of world.landmarks) {
+      if (!lm.revealed || lm.taken || lm.def.id === 'galleon') continue;
+      const def = TREASURES_BY_ID[lm.def.treasure];
+      this.atWorld(lm.tx, lm.ty - (lm.def.id === 'crystal-heart' ? 120 : 0), 80, () => drawTreasure(ctx, def.id, def.color, t, lm.wakeT));
+    }
+  }
+
+  private drawPods(world: World): void {
+    const ctx = this.ctx;
+    const t = this.reducedMotion ? this.time * 0.3 : this.time;
+    const color = this.pal.accents[0];
+    for (const pod of world.pods) this.atWorld(pod.x, pod.y, 60, () => drawPod(ctx, pod, t, pod.grove ? '#7dffb9' : color));
+  }
+
+  /** A bloom in progress, laid over the darkness so it lights the whole view. */
+  private drawEncounter(world: World): void {
+    const e = world.encounter;
+    if (!e || e.kind !== 'bloom') return;
+    const k = Math.min(1, e.t / 3, (e.dur - e.t) / 4);
+    const ctx = this.ctx;
+    ctx.globalCompositeOperation = 'lighter';
+    drawBloom(ctx, e.x, e.y, this.zoom, this.reducedMotion ? this.time * 0.3 : this.time, k, this.w, this.h, this.camX, this.camY);
+    ctx.globalCompositeOperation = 'source-over';
   }
 
   private drawWreck(world: World): void {
@@ -910,6 +989,12 @@ export class Renderer {
 
     this.body.maturity = maturity(p.food);
     this.body.gulp = damp(this.body.gulp, 0, 2.2, dt);
+    // Inner light rises with the dark; a fright flushes the bell; a catch in hand brightens it.
+    this.body.lum = clamp(darknessAt(p.y) * 1.1, 0, 1);
+    const locked = p.alive && world.creatures.some((c) => (c.state === 'notice' || c.state === 'orbit') && isThreat(world.playerReach(), c.r, c.def) && Math.hypot(c.x - p.x, c.y - p.y) < 600);
+    this.body.startle = damp(this.body.startle ?? 0, locked ? 0.8 : 0, locked ? 10 : 2.5, dt);
+    const holding = world.tentacles.some((tt) => tt.phase === 'grab' || tt.phase === 'pull' || tt.phase === 'eat');
+    this.body.hunt = damp(this.body.hunt ?? 0, holding ? 1 : 0, holding ? 12 : 3, dt);
     if (world.sweepT > 0 && p.alive) this.drawSweep(world);
     this.drawTrails(world, tr * scale, alpha, dt);
     this.drawTentacles(world, tr * scale, alpha);
@@ -1195,21 +1280,79 @@ export class Renderer {
     }
   }
 
-  private drawDarkness(world: World): void {
+  /**
+   * The dark, drawn as a soft low-resolution mask with light cut out of it: the jelly's own glow,
+   * every bioluminescent creature, glowing scenery and brief flashes from bursts and catches.
+   * In the deep, anything that shines lights up its surroundings, and you can see by it.
+   */
+  private drawDarkness(world: World, dt: number): void {
+    for (let i = this.flashes.length - 1; i >= 0; i--) {
+      this.flashes[i].life -= dt;
+      if (this.flashes[i].life <= 0) this.flashes.splice(i, 1);
+    }
     const p = world.player;
     const dark = darknessAt(this.camY);
     if (dark <= 0.01) return;
-    const ctx = this.ctx;
-    const x = this.sx(p.x);
-    const y = this.sy(p.y);
-    const light = p.stats.lightRadius * this.zoom * (1 + 0.03 * Math.sin(this.time * 2));
-    const g = ctx.createRadialGradient(x, y, light * 0.15, x, y, light);
-    const dc = darkColor(this.camY);
-    g.addColorStop(0, `rgba(${dc},0)`);
-    g.addColorStop(0.5, `rgba(${dc},${dark * 0.25})`);
-    g.addColorStop(1, `rgba(${dc},${dark})`);
-    ctx.fillStyle = g;
-    ctx.fillRect(-20, -20, this.w + 40, this.h + 40);
+    const dc = this.darkCtx;
+    const R = DARK_RES;
+    const z = this.zoom;
+    dc.setTransform(1, 0, 0, 1, 0, 0);
+    dc.globalCompositeOperation = 'source-over';
+    dc.globalAlpha = 1;
+    dc.clearRect(0, 0, this.darkCanvas.width, this.darkCanvas.height);
+    dc.fillStyle = `rgba(${darkColor(this.camY)},${dark})`;
+    dc.fillRect(0, 0, this.darkCanvas.width, this.darkCanvas.height);
+    dc.setTransform(R, 0, 0, R, 0, 0);
+    dc.globalCompositeOperation = 'destination-out';
+    const hole = holeSprite();
+    const cut = (x: number, y: number, r: number, a: number) => {
+      if (a <= 0.01 || r < 2 || x < -r || y < -r || x > this.w + r || y > this.h + r) return;
+      dc.globalAlpha = Math.min(1, a);
+      dc.drawImage(hole, x - r, y - r, r * 2, r * 2);
+    };
+    if (p.alive || p.deathT < 1) {
+      const light = world.lightRadius() * z * (1 + 0.03 * Math.sin(this.time * 2));
+      cut(this.sx(p.x), this.sy(p.y), light, p.alive ? 1 : 1 - p.deathT);
+    }
+    for (const c of world.creatures) {
+      if (c.dead || !c.def.glows || c.def.revealLight) continue;
+      const tw = 0.75 + 0.25 * Math.sin(c.phase * 3);
+      cut(this.sx(c.x), this.sy(c.y), Math.max(40, c.r * z * 5), 0.55 * tw);
+    }
+    for (const f of this.flashes) cut(this.sx(f.x), this.sy(f.y), f.r * z, (f.life / f.max) * 0.9);
+    this.cutSceneLights(world, cut);
+    dc.globalAlpha = 1;
+    dc.globalCompositeOperation = 'source-over';
+    this.ctx.drawImage(this.darkCanvas, 0, 0, this.w, this.h);
+  }
+
+  /** Glowing scenery that lights its own surroundings. Filled in by the world's features. */
+  private cutSceneLights(world: World, cut: (x: number, y: number, r: number, a: number) => void): void {
+    const z = this.zoom;
+    const L = (x: number, y: number, r: number, a: number) => cut(this.sx(x), this.sy(y), r * z, a);
+    for (const pod of world.pods) if (pod.regrow <= 0) L(pod.x, pod.y, 90, 0.5);
+    for (const v of world.vents) L(v.x, v.y - v.h, 170, 0.6);
+    for (const lm of world.landmarks) {
+      switch (lm.def.id) {
+        case 'lantern-grove':
+          L(lm.x, lm.y, 420, 0.45);
+          break;
+        case 'whale-fall':
+          L(lm.x, lm.y, 380, 0.3);
+          break;
+        case 'drowned-gate':
+          L(lm.x, lm.y - 160, 420, 0.15 + (lm.revealed ? 0.4 : 0));
+          break;
+        case 'crystal-heart':
+          L(lm.x, lm.y, 620, 0.7);
+          break;
+        default:
+          break;
+      }
+      if (lm.revealed && !lm.taken && lm.def.id !== 'galleon') L(lm.tx, lm.ty, 120, 0.7);
+    }
+    const e = world.encounter;
+    if (e && e.kind === 'bloom') L(e.x, e.y, 1100, 0.55 * Math.min(1, e.t / 3, (e.dur - e.t) / 4));
   }
 
   /** Bioluminescence and hunters' eyes shine through the darkness. */
@@ -1331,22 +1474,26 @@ export class Renderer {
       }
     }
 
-    // The unopened pirate chest glints at the screen edge when it is somewhere nearby.
-    const wr = world.wreck;
-    if (!wr.chestOpen) {
-      const cx = this.sx(wr.chestX);
-      const cy = this.sy(wr.chestY);
-      const d = Math.hypot(wr.chestX - p.x, wr.chestY - p.y);
-      if (d < 1600 && !this.onScreen(cx, cy, -20)) {
-        const a = Math.atan2(cy - py, cx - px);
-        const ex = clamp(px + Math.cos(a) * 2000, 30, this.w - 30);
-        const ey = clamp(py + Math.sin(a) * 2000, HUD_TOP, this.h - 30);
-        const pulse = 0.55 + 0.45 * Math.sin(this.time * 3);
-        ctx.globalCompositeOperation = 'lighter';
-        drawGlow(ctx, '#ffd27a', ex, ey, 18, pulse * 0.8);
-        ctx.globalCompositeOperation = 'source-over';
-        this.drawChevron(ex, ey, a, '#ffe2a3');
-      }
+    // Places glint at the screen edge when they are somewhere near: faintly before they are found,
+    // brightly once their treasure is showing and still to be taken.
+    for (const lm of world.landmarks) {
+      if (lm.taken) continue;
+      const tx = lm.found && lm.revealed ? lm.tx : lm.x;
+      const ty = lm.found && lm.revealed ? lm.ty : lm.y;
+      const cx = this.sx(tx);
+      const cy = this.sy(ty);
+      const d = Math.hypot(tx - p.x, ty - p.y);
+      const want = lm.found && lm.revealed;
+      if (d > (want ? 1600 : 1300) || this.onScreen(cx, cy, -20)) continue;
+      const color = want ? TREASURES_BY_ID[lm.def.treasure].color : lm.def.color;
+      const a = Math.atan2(cy - py, cx - px);
+      const ex = clamp(px + Math.cos(a) * 2000, 30, this.w - 30);
+      const ey = clamp(py + Math.sin(a) * 2000, HUD_TOP, this.h - 30);
+      const pulse = 0.55 + 0.45 * Math.sin(this.time * 3);
+      ctx.globalCompositeOperation = 'lighter';
+      drawGlow(ctx, color, ex, ey, want ? 18 : 13, (want ? 0.8 : 0.4) * pulse);
+      ctx.globalCompositeOperation = 'source-over';
+      this.drawChevron(ex, ey, a, want ? '#ffe2a3' : rgba(color, 0.55));
     }
 
     if (p.stats.rareCompass > 0) {

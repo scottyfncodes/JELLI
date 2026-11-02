@@ -1,16 +1,27 @@
 # Jelli
 
-**How deep can you go?** A luminous, mobile-first underwater descent game for the HaveAnApp portfolio.
+**How deep can you go?** A mobile-first underwater exploration and survival game for the HaveAnApp portfolio.
 
-You're a thimble-sized moon jelly at the top of an ocean with no floor. Sink through six biomes, each stranger than the last: eat, dodge and grow enough to survive the next one. Depth in meters is your score, your record is drawn across the water, and the next biome below is always a dark band on your depth strip until some Jelli reaches it.
+You're a thimble-sized moon jelly at the top of an ocean with no floor. Hunt with your tentacles, hide from what hunts you, and sink through six biomes, each stranger than the last, finding the places, treasures and creatures hidden in the dark. Depth in meters is your score, your record is drawn across the water, and the next biome below is always a dark band on your depth strip until some Jelli reaches it.
 
 ## Play
 
-- **Touch:** drag anywhere to steer (floating thumb-stick). Tap ⚡ (or tap with a second finger) to burst.
-- **Keyboard:** WASD / arrows to swim, Space to burst, Esc / P to pause, Enter to start.
+- **Touch:** drag anywhere to steer (floating thumb-stick). Tap a creature, pearl or glow pod to lash an arm at it. Tap Burst (or tap with a second finger) to burst.
+- **Keyboard and mouse:** WASD / arrows to swim, click to lash, Space to burst, Esc / P to pause, Enter to start.
 - Your tentacles do the hunting: swim past anything wearing a cyan ring and a trailing arm snags it and reels it in. Every meal makes the arms a little longer. Heavy prey can wriggle free, and arms can't reach through coral.
 - **Sweep:** every burst flings all your arms out as a net. Everything edible in the fan ahead of you for that instant is snagged at once and reeled in together, and the score climbs with the square of the haul. Aim the burst through a school before it scatters. The catch: the burst you sweep with is the burst you'd escape with.
 - Red eyes, a `!` and a dashed lunge line warn of a hunter about to strike.
+
+## The ocean
+
+- **Art direction:** every biome has its own color language and its own geology, drawn in layers: distant formations (softened like a camera's depth of field), midground structures, the reef you swim through, and near silhouettes that frame the view. Sunlit turquoise shallows with coral heads, kelp, light shafts and caustics rippling over the reef; cobalt glow gardens of tube-coral towers and anemones; indigo twilight of basalt pillars and drifting giants; jade-lit ruins with colonnades and a stone face; the Abyss's trench walls, black smokers and tube worms; and the crystal spires of the Hadal Dream. The darkness is a light mask: the jelly's glow, every bioluminescent creature, glow pods, vents and brief flashes all light their surroundings.
+- **The jelly:** a translucent, layered bell with a fresnel rim, a subumbrella that squeezes a beat after the crown, and an inner light that pulses with each contraction and brightens in dark water. It flushes when a hunter locks on and glows while an arm holds a catch.
+- **Tentacles:** arms snag nearby prey on their own, pluck pearls within reach, and lash out when you tap something: an aimed strike from nearly twice as far, twice as fast, for fast prey, pearls in the reef and glow pods. Out of reach shows where the arm stopped.
+- **Living creatures:** schools scatter, shrimp dart behind coral where arms can't reach, krill, comb jellies and mirror squid are drawn to your light in the dark while glass squid flee it, and needlefins and lanternsharks patrol their own patch of water. The Lantern Whale, a gentle giant, sometimes crosses the upper ocean.
+- **Exploration:** glow pods lend their light (enough to reveal the Phantom), kelp thickets and anemone beds hide you from hunters, hydrothermal vents throw you upward, and seven landmarks each guard a treasure: the Sunken Galleon, the Kelp Cathedral, the Lantern Grove (light three of its pods), the Whale Fall (slip inside the ribs), the Drowned Gate (swim through it), the Vent Field (reach the roots of the tallest smoker) and the Crystal Heart. Landmarks move between dives; chevrons at the screen edge glint when one is near.
+- **Rare encounters:** a bioluminescent bloom that lights the water, a great migrating school, and the Lantern Whale.
+- **Instincts:** the Glow, Surge and Sting paths are awakened by eating and by exploring (new depth, discoveries, places, treasures and encounters all count). What you ate decides which path.
+- **Field Guide:** species with depth ranges, habitat, behavior notes and first-seen dates, plus a Places tab with every landmark, its treasure and the rare encounters you have witnessed.
 
 ## Features
 
@@ -48,9 +59,9 @@ You're a thimble-sized moon jelly at the top of an ocean with no floor. Sink thr
   - **Shell Shield** (Golden Nautilus): blocks one bite.
   - **Prism Frenzy** (Prism Seahorse): double points and food drifts to you.
   - **Aurora Veil** (Aurora Jelly): hunters can't see you.
-- **Field Guide:** 25 species across four rarity tiers, each showing which path it feeds and, once worn, the form it gives. Rare encounters depend on conditions: coral in the shallows, the time of night, Glow tier 2, riding a current through the ruins, and diving deep into the Abyss.
-- **Challenges:** 19 challenges that unlock 10 bell colors and 3 starting traits, including chains, pearls, the pirate's gold, forms and the Phantom.
-- **Audio:** synthesized WebAudio ambience and effects, with no audio files. Volume, mute and reduced-motion settings are included.
+- **Field Guide:** 27 species across four rarity tiers, each showing which path it feeds and, once worn, the form it gives. Rare encounters depend on conditions: coral in the shallows, the time of night, Glow tier 2, riding a current through the ruins, and diving deep into the Abyss.
+- **Challenges:** 22 challenges that unlock 10 bell colors and 3 starting traits, including chains, pearls, the pirate's gold, forms and the Phantom.
+- **Audio:** synthesized WebAudio ambience and effects, with no audio files: bubbles in the shallows, distant calls in the deep, and their own sounds for the lash, glow pods, places, treasures, blooms and the whale. Volume, mute and reduced-motion settings are included.
 
 ## Development
 
@@ -69,9 +80,9 @@ Add `?debug` to the URL to expose `window.jelli` for automated playtesting.
 
 | Area | Path | Notes |
 | --- | --- | --- |
-| Content (data only) | `src/content/` | Species (with diet paths), evolution paths, forms, stages, zones, challenges and unlocks. Balancing lives here. |
+| Content (data only) | `src/content/` | Species (with diet paths and behaviors), instinct paths, forms, stages, zones, landmarks, treasures, encounters, challenges and unlocks. Balancing lives here. |
 | Simulation | `src/sim/` | `world.ts` (entities, AI, tentacle hunting, spawning, contacts) and `rules.ts` (pure feeding and threat rules). No DOM. |
-| Rendering | `src/render/` | Canvas 2D renderer, procedural creature art, pooled particles, and glow sprites (no `shadowBlur`). |
+| Rendering | `src/render/` | Canvas 2D renderer, biome palettes (`biomeArt.ts`), layered parallax scenery and caustics (`backdrop.ts`), features and landmarks (`places.ts`), procedural creature art, pooled particles, and glow sprites (no `shadowBlur`). |
 | Progression | `src/core/progress.ts` | Run stats, discoveries, forms, glimpses, challenges, unlocks and the end-of-run mystery. |
 | Persistence | `src/persistence/save.ts` | Versioned localStorage save with full sanitizing, plus an in-memory fallback. |
 | UI | `src/ui/` | DOM screens over the canvas: title, HUD, pause, results, Field Guide, Lineage. |

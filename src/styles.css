@@ -1788,3 +1788,127 @@ input[type='range']::-moz-range-thumb {
 .below h3 {
   color: var(--c);
 }
+
+/* ------------------------------------------------------------------ field guide: tabs, notes, places */
+
+.tabs {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto 16px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(10, 20, 58, 0.6);
+  box-shadow: 0 0 0 1px var(--line) inset;
+}
+
+.tab {
+  flex: 1;
+  min-height: 40px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-dim);
+  font: 600 15px var(--font-ui);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+
+.tab.on {
+  background: var(--surface-2);
+  color: var(--ink);
+  box-shadow: 0 0 0 1px var(--line-strong) inset;
+}
+
+.guide-grid[hidden],
+.places[hidden] {
+  display: none;
+}
+
+.places {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
+  padding-bottom: calc(var(--sab) + 24px);
+}
+
+.place {
+  padding: 16px 16px 14px;
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line) inset;
+  border-left: 3px solid var(--c);
+}
+
+.place-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.place-head .dot {
+  width: 12px;
+  height: 12px;
+  box-shadow: 0 0 12px var(--c);
+}
+
+.place h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 600;
+}
+
+.place small {
+  color: var(--ink-faint);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.place p {
+  margin: 10px 0 0;
+  color: var(--ink-dim);
+  font-size: 14.5px;
+  line-height: 1.5;
+}
+
+.place.locked h3 {
+  color: var(--ink-faint);
+}
+
+.place .facts {
+  margin-top: 10px;
+}
+
+.chip.muted {
+  color: var(--ink-faint);
+}
+
+.notes {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.notes li {
+  position: relative;
+  padding-left: 16px;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.notes li::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 0.55em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--c, var(--cyan));
+}

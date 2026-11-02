@@ -62,7 +62,7 @@ describe('pearls', () => {
     const p = w.player;
     feedOne(w);
     w.comboT = 0.5;
-    const pearl = w.pearls[20];
+    const pearl = w.pearls.find((pr) => pr.y > 900)!;
     p.x = pearl.x;
     p.y = pearl.y;
     const score = w.run.score;
@@ -151,10 +151,11 @@ describe('sunken pirate ship', () => {
     expect(w.run.score - score).toBeGreaterThanOrEqual(CHEST_SCORE);
     expect(w.pearls.length).toBeGreaterThan(pearls);
     expect(w.events.filter((e) => e.type === 'chest')).toHaveLength(1);
-    expect(w.events.filter((e) => e.type === 'wreck')).toHaveLength(1);
+    expect(w.events.filter((e) => e.type === 'place' && e.id === 'galleon')).toHaveLength(1);
+    expect(w.events.filter((e) => e.type === 'treasure' && e.id === 'captains-compass')).toHaveLength(1);
     w.events.length = 0;
     for (let i = 0; i < 10; i++) w.update(1 / 60, idle);
-    expect(w.events.some((e) => e.type === 'chest' || e.type === 'wreck')).toBe(false);
+    expect(w.events.some((e) => e.type === 'chest' || e.type === 'place' || e.type === 'treasure')).toBe(false);
   });
 });
 

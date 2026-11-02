@@ -23,7 +23,9 @@ export type Shape =
   | 'ray'
   | 'moray'
   | 'razorfin'
-  | 'shark';
+  | 'shark'
+  | 'comb'
+  | 'whale';
 
 export type Behavior =
   | 'drift'
@@ -98,6 +100,12 @@ export interface SpeciesDef {
   spawnNearCoral?: boolean;
   /** The evolution path eating this creature pushes Jelli toward. Plain plankton has none. */
   diet?: PathId;
+  /** In dark water it is drawn toward the jelly's light, or flees it. */
+  light?: 'drawn' | 'shy';
+  /** When threatened it darts behind the nearest coral, where arms can't reach. */
+  shelters?: boolean;
+  /** A hunter that patrols around where it was first seen, and gives up a chase beyond this. */
+  territory?: number;
   /**
    * Too vast to take in at a glance: the jelly only glimpses it until its light
    * reaches at least this far, and only then does it count as discovered.
