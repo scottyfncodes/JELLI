@@ -357,7 +357,7 @@ export const WRECK_HULL: [number, number, number][] = [
   [235, 112, 52],
   [320, 104, 46],
 ];
-/** Swimming down is this much quicker, swimming up this much slower; idle jellies sink this hard. */
+/** Swimming down is this much quicker, swimming up this much slower; an idle octopus sinks this hard. */
 const SINK_BOOST = 0.3;
 const RISE_DRAG = 0.25;
 const IDLE_SINK = 40;

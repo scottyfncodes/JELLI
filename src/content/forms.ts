@@ -1,9 +1,9 @@
 import type { PlayerStats } from './types';
 
 /**
- * Forms: what Jelli takes from remarkable meals. Swallow a hunter or a rare creature
+ * Forms: what the octopus takes from remarkable meals. Swallow a hunter or a rare creature
  * and part of it grows onto your bell for the rest of the run, the way a sea slug keeps
- * the stinging cells of what it eats. One form can pass on to the next Jelli.
+ * the stinging cells of what it eats. One form can pass on to the next octopus.
  */
 export type FormId = 'razor' | 'needle' | 'moray' | 'lantern' | 'lure' | 'maw' | 'prism' | 'gilded' | 'aurora';
 

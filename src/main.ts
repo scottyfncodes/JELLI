@@ -1,4 +1,4 @@
-import '@fontsource-variable/fraunces';
+import '@fontsource-variable/fraunces/soft.css';
 import '@fontsource-variable/outfit';
 import './styles.css';
 
@@ -12,6 +12,7 @@ import { applyRun, recordDiscoveries, recordForm, recordGlimpse, recordPlace, re
 import { ENCOUNTERS, LANDMARKS_BY_ID, RELIC_SLOTS, TREASURES_BY_ID, isTreasureId } from './content/landmarks';
 import { CATEGORY, MUTATIONS_BY_ID, isMutationId, type MutationId } from './content/mutations';
 import { PERSONALITIES } from './content/personality';
+import { nextOctopus, variantFor } from './content/octopus';
 import { FORMS, isFormId } from './content/forms';
 import { STAGES, evolutionProgress, maturity } from './content/progression';
 import { depthMeters, zoneIndex } from './content/world';
@@ -80,6 +81,7 @@ class Game {
     this.ui = collectBinds(this.uiRoot);
     const skin = SKINS_BY_ID[this.save.selected.skin] ?? SKINS_BY_ID.moon;
     this.renderer = new Renderer(this.canvas, skin);
+    this.renderer.playerVariant = variantFor(this.save.octopus.seed);
     this.world = new World({ demo: true });
     this.applySettings();
     this.bind();
@@ -228,6 +230,7 @@ class Game {
     this.renderer.snapCamera(this.world);
     this.syncView();
     this.world.populate();
+    this.renderer.playerVariant = variantFor(this.save.octopus.seed);
     renderTitle(this.ui, this.save);
     for (const s of ['hud', 'pause', 'results', 'evolve']) this.show(s, false);
     this.show('title', true);
@@ -348,7 +351,7 @@ class Game {
         this.showTitle();
         break;
       case 'heir': {
-        // Choose which of this Jelli's forms the next one hatches with.
+        // Choose which of this octopus's forms the next one hatches with.
         const id = el.dataset.id;
         if (!isFormId(id) || !this.world.player.forms.includes(id)) return;
         this.audio.click();
@@ -382,12 +385,12 @@ class Game {
     return trait ? [trait.mutation] : [];
   }
 
-  /** The form this Jelli inherits from the last one. */
+  /** The form this octopus inherits from the last one. */
   private startForms() {
     return this.save.heirloom ? [this.save.heirloom] : [];
   }
 
-  /** Relics this Jelli carries. */
+  /** Relics this octopus carries. */
   private startRelics() {
     return this.save.relics.filter((id) => this.save.treasures[id]);
   }
@@ -400,6 +403,7 @@ class Game {
     this.renderer.focusOffsetX = 0;
     this.renderer.zoomBoost = 1;
     this.renderer.playerStyle = SKINS_BY_ID[this.save.selected.skin] ?? SKINS_BY_ID.moon;
+    this.renderer.playerVariant = variantFor(this.save.octopus.seed);
     this.syncView();
     this.renderer.snapCamera(this.world);
     this.syncView();
@@ -477,11 +481,22 @@ class Game {
     // Discoveries were recorded the moment they happened; only eaten counts remain.
     const outcome = applyRun(this.save, { ...run, seen: [] });
     outcome.newDiscoveries = this.runNew;
+    // This octopus's dive is over; the next generation is waiting to hatch.
+    const who = this.save.octopus;
+    this.save.octopus = nextOctopus(who);
     this.persist();
     this.show('hud', false);
     this.show('evolve', false);
     const p = this.world.player;
-    renderResults(this.ui, run, outcome, this.save, { style: this.renderer.playerStyle, mutations: p.mutations, personality: outcome.personality, forms: p.forms, maturity: maturity(p.food) });
+    renderResults(this.ui, run, outcome, this.save, {
+      style: this.renderer.playerStyle,
+      mutations: p.mutations,
+      personality: outcome.personality,
+      forms: p.forms,
+      maturity: maturity(p.food),
+      who,
+      variant: variantFor(who.seed),
+    });
     this.show('results', true);
     this.ui.results.parentElement!.scrollTop = 0;
   }
@@ -555,7 +570,7 @@ class Game {
     this.input.enabled = false;
     this.input.reset();
     const p = w.player;
-    renderEvolve(this.ui, offers, { style: this.renderer.playerStyle, mutations: p.mutations, forms: p.forms, maturity: maturity(p.food), personality: p.personality }, w.pendingEvolutions);
+    renderEvolve(this.ui, offers, { style: this.renderer.playerStyle, mutations: p.mutations, forms: p.forms, maturity: maturity(p.food), personality: p.personality, variant: this.renderer.playerVariant }, w.pendingEvolutions);
     this.show('evolve', true);
   }
 
@@ -693,6 +708,7 @@ class Game {
         this.audio.caught();
         break;
       case 'discover': {
+        this.renderer.wonder();
         const fresh = recordDiscoveries(this.save, [e.def.id], {});
         if (fresh.length) {
           this.runNew.push(e.def.id);
@@ -716,7 +732,7 @@ class Game {
         ps.burst(p.x, p.y, 30, 200, 5, this.renderer.playerStyle.glow, 1);
         break;
       case 'zone': {
-        // Arriving somewhere new. The first time any Jelli gets here, it's an event.
+        // Arriving somewhere new. The first time any octopus gets here, it's an event.
         const z = e.zone;
         const first = !this.save.biomes.includes(z.id) && !this.world.demo;
         this.zoneToast(z.name, `${first ? 'New biome · ' : ''}${fmt(depthMeters(z.top))} m · ${z.sub}`);
@@ -751,6 +767,7 @@ class Game {
         break;
       }
       case 'personality': {
+        this.renderer.wonder();
         const d = PERSONALITIES[e.id];
         this.audio.discover(false);
         this.zoneToast(`Your octopus seems ${d.name.toLowerCase()}`, d.line);
@@ -859,6 +876,7 @@ class Game {
         }
         break;
       case 'place': {
+        this.renderer.wonder();
         const def = LANDMARKS_BY_ID[e.id];
         const first = recordPlace(this.save, e.id);
         this.persist();
@@ -869,6 +887,7 @@ class Game {
         break;
       }
       case 'reveal': {
+        this.renderer.wonder();
         const def = TREASURES_BY_ID[e.id];
         this.audio.discover(true);
         this.renderer.addFlash(e.x, e.y, 300, 1.2);
@@ -877,6 +896,7 @@ class Game {
         break;
       }
       case 'treasure': {
+        this.renderer.wonder();
         const def = TREASURES_BY_ID[e.id];
         const first = recordTreasure(this.save, e.id);
         this.persist();
@@ -891,6 +911,7 @@ class Game {
         break;
       }
       case 'encounter': {
+        this.renderer.wonder();
         const enc = ENCOUNTERS[e.kind];
         if (e.kind === 'whale') this.audio.whale();
         else if (e.kind === 'bloom') this.audio.bloom();
@@ -1137,12 +1158,21 @@ class Game {
 function boot(): void {
   try {
     const game = new Game();
+    // The game is drawing: let the splash fade once the display type is ready (or after a moment).
+    const splash = document.getElementById('splash');
+    if (splash) {
+      const hide = () => {
+        splash.classList.add('gone');
+        setTimeout(() => splash.remove(), 600);
+      };
+      Promise.race([document.fonts?.ready ?? Promise.resolve(), new Promise((r) => setTimeout(r, 1200))]).then(hide, hide);
+    }
     // Opt-in handle for automated playtesting: ?debug
-    if (new URLSearchParams(location.search).has('debug')) Object.assign(window, { jelli: game, jelliSpecies: SPECIES_BY_ID });
+    if (new URLSearchParams(location.search).has('debug')) Object.assign(window, { squido: game, jelli: game, jelliSpecies: SPECIES_BY_ID });
   } catch (err) {
     console.error(err);
     const ui = document.getElementById('ui');
-    if (ui) ui.innerHTML = '<div class="fatal">Jelli couldn’t start on this browser. Try the latest Safari, Chrome or Firefox.</div>';
+    if (ui) ui.innerHTML = '<div class="fatal">SQUIDO couldn’t start on this browser. Try the latest Safari, Chrome or Firefox.</div>';
   }
 }
 

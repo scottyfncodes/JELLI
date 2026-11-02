@@ -41,7 +41,7 @@ export function tentacleCount(stage: number): number {
   return Math.min(5, 3 + Math.floor(Math.max(1, stage) / 2));
 }
 
-/** Tip speed while reaching: an unhurried flick. Big jellies have bigger, faster arms. */
+/** Tip speed while reaching: an unhurried flick. Big octopuses have bigger, faster arms. */
 export function tentacleReachSpeed(playerR: number): number {
   return 260 * Math.pow(playerR / 10, 0.35);
 }

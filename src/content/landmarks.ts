@@ -33,11 +33,11 @@ export interface TreasureDef {
   blurb: string;
   /** How it is won, for the Field Guide before it has been. */
   hint: string;
-  /** Carried as a relic, what it lends every Jelli after. */
+  /** Carried as a relic, what it lends every octopus after. */
   relic: { desc: string; add?: Partial<PlayerStats>; mul?: Partial<PlayerStats> };
 }
 
-/** How many relics a Jelli can carry into a dive. */
+/** How many relics an octopus can carry into a dive. */
 export const RELIC_SLOTS = 2;
 
 export const LANDMARKS: LandmarkDef[] = [

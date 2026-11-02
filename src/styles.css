@@ -1,5 +1,9 @@
 :root {
-  --abyss: #060a24;
+  --abyss: #070f2e;
+  /* SQUIDO: coral for the octopus and everything you press, turquoise for life and light. */
+  --coral: #ff8f6b;
+  --coral-deep: #e0506a;
+  --turq: #2fe0d0;
   --deep: #0b1640;
   --ink: #eaf6ff;
   --ink-dim: rgba(234, 246, 255, 0.66);
@@ -159,9 +163,9 @@ h2 {
   min-height: 60px;
   padding: 0 44px;
   font-size: 20px;
-  color: #04122b;
-  background: linear-gradient(180deg, #b9f3ff, #7fe3ff 60%, #5ccfee);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.4) inset, 0 10px 40px rgba(127, 227, 255, 0.35);
+  color: #2a0c1c;
+  background: linear-gradient(180deg, #ffd2b4 0%, #ff9a72 55%, #f2706a 100%);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.45) inset, 0 -3px 0 rgba(160, 40, 70, 0.35) inset, 0 10px 36px rgba(255, 120, 100, 0.35);
 }
 
 .btn-ghost {
@@ -1450,7 +1454,7 @@ input[type='range']::-moz-range-thumb {
   color: var(--ink-faint);
 }
 
-.jelli-card {
+.octo-card {
   display: flex;
   align-items: center;
   gap: 14px;
@@ -1460,14 +1464,14 @@ input[type='range']::-moz-range-thumb {
   box-shadow: 0 0 0 1px var(--line) inset;
 }
 
-.jelli-card canvas {
+.octo-card canvas {
   flex: none;
   width: 132px;
   height: 132px;
   border-radius: 18px;
 }
 
-.jelli-info {
+.octo-info {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -1475,28 +1479,28 @@ input[type='range']::-moz-range-thumb {
   min-width: 0;
 }
 
-.jelli-info .eyebrow {
+.octo-info .eyebrow {
   margin: 0;
 }
 
-.jelli-info strong {
+.octo-info strong {
   font-family: var(--font-display);
   font-size: 24px;
   font-weight: 600;
   line-height: 1.1;
 }
 
-.jelli-info .loadout {
+.octo-info .loadout {
   justify-content: flex-start;
   gap: 6px;
   font-size: 12px;
 }
 
-.jelli-info .chip {
+.octo-info .chip {
   padding: 4px 10px;
 }
 
-.jelli-info small {
+.octo-info small {
   color: var(--ink-faint);
   font-size: 13px;
 }
@@ -2077,6 +2081,159 @@ input[type='range']::-moz-range-thumb {
   font-size: 12px;
 }
 
-.tagline br + * {
-  display: block;
+
+/* ------------------------------------------------------------------ SQUIDO wordmark */
+
+.logo {
+  font-size: clamp(60px, 18.5vw, 118px);
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.015em;
+  font-variation-settings: 'SOFT' 100;
+  background: none;
+  color: inherit;
+  filter: none;
+}
+
+.wm {
+  display: inline-flex;
+  align-items: baseline;
+  padding: 0 0.12em 0.2em 0;
+  /* A chunky sticker edge in deep violet, then a soft shadow into the water. */
+  filter: drop-shadow(0 0.05em 0 #3b1660) drop-shadow(0 0.12em 0.18em rgba(2, 4, 20, 0.45));
+}
+
+.wm .l {
+  --r: 0deg;
+  --y: 0em;
+  position: relative;
+  display: inline-block;
+  background: linear-gradient(180deg, #ffe0c4 0%, #ff9c70 46%, #ee5a74 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  transform: translateY(var(--y)) rotate(var(--r));
+  animation: wm-bob 3.8s ease-in-out infinite;
+}
+
+/* Letters sit a little out of line, like they were set by something with eight arms. */
+.wm .l0 { --r: -8deg; --y: 0.03em; animation-delay: 0s; }
+.wm .l1 { --r: 5deg; --y: -0.02em; animation-delay: -0.6s; margin-right: 0.06em; }
+.wm .l2 { --r: -3deg; --y: 0.04em; animation-delay: -1.2s; }
+.wm .l3 { --r: 6deg; --y: -0.05em; animation-delay: -1.8s; }
+.wm .l4 { --r: -5deg; --y: 0.02em; animation-delay: -2.4s; }
+.wm .l5 { --r: 4deg; --y: -0.01em; animation-delay: -3s; }
+
+@keyframes wm-bob {
+  50% {
+    transform: translateY(calc(var(--y) - 0.035em)) rotate(calc(var(--r) * 1.35));
+  }
+}
+
+/* A tentacle curling off the Q's tail. */
+.q-tail {
+  position: absolute;
+  right: -0.2em;
+  bottom: -0.24em;
+  width: 0.42em;
+  height: 0.45em;
+  overflow: visible;
+  transform-origin: 6% 6%;
+  animation: wm-curl 3.2s ease-in-out infinite;
+}
+
+@keyframes wm-curl {
+  50% {
+    transform: rotate(14deg) scale(1.04);
+  }
+}
+
+/* The O is an eye: it blinks, and its horizontal pupil glances about. */
+.wm-eye {
+  position: absolute;
+  left: 50%;
+  top: 57%;
+  width: 0.3em;
+  height: 0.3em;
+  border-radius: 50%;
+  background: #fffaf0;
+  transform: translate(-50%, -50%);
+  overflow: hidden;
+  box-shadow: inset 0 -0.025em 0 rgba(90, 30, 40, 0.25);
+}
+
+.wm-eye i {
+  position: absolute;
+  left: 50%;
+  top: 52%;
+  width: 0.19em;
+  height: 0.19em;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 38%, #ffd27a, #b8661f);
+  transform: translate(-50%, -50%);
+  animation: wm-look 7s ease-in-out infinite;
+}
+
+.wm-eye i::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0.13em;
+  height: 0.055em;
+  border-radius: 999px;
+  background: #120a10;
+  transform: translate(-50%, -50%);
+  box-shadow: -0.035em -0.04em 0 -0.012em #ffffff;
+}
+
+.wm-eye::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: #f07a62;
+  transform: scaleY(0);
+  transform-origin: top;
+  animation: wm-blink 5.5s ease-in-out infinite;
+}
+
+@keyframes wm-look {
+  0%, 18% { transform: translate(-50%, -50%); }
+  26%, 46% { transform: translate(-22%, -54%); }
+  54%, 74% { transform: translate(-78%, -46%); }
+  82%, 100% { transform: translate(-50%, -50%); }
+}
+
+@keyframes wm-blink {
+  0%, 92%, 100% { transform: scaleY(0); }
+  95% { transform: scaleY(1); }
+}
+
+body.reduced-motion .wm .l,
+body.reduced-motion .q-tail,
+body.reduced-motion .wm-eye i {
+  animation: none;
+}
+
+.tagline {
+  max-width: 21em;
+  margin: 10px auto 0;
+  font-size: 15px;
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  text-wrap: balance;
+  color: var(--ink-dim);
+}
+
+.meet {
+  margin: 10px 0 0;
+  font-size: 14px;
+  color: var(--ink-faint);
+}
+
+.meet b {
+  color: var(--coral);
+  font-weight: 700;
 }
