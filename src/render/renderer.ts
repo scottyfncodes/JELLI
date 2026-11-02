@@ -29,6 +29,8 @@ export interface JoystickView {
 const HUD_TOP = 120;
 /** Height of one tile of the far parallax layer, in parallax units. */
 const FAR_TILE = 2400;
+/** World units across the short side of the screen for a hatchling. */
+export const VIEW_SPAN = 135;
 /** The darkness is drawn at this fraction of screen resolution: soft edges, cheap fill. */
 const DARK_RES = 0.25;
 
@@ -228,9 +230,12 @@ export class Renderer {
     this.flashes.push({ x, y, r, life, max: life });
   }
 
-  /** World units visible across the screen's short side; grows with the jelly. */
+  /**
+   * World units visible across the screen's short side; grows with the octopus. Tight enough
+   * that the octopus is the star of the screen, its face and arms easy to read on a phone.
+   */
   targetZoom(r: number): number {
-    const visible = 215 * Math.pow(r / BASE_RADIUS, 0.66);
+    const visible = VIEW_SPAN * Math.pow(r / BASE_RADIUS, 0.66);
     return (Math.min(this.w, this.h) / visible) * this.zoomBoost;
   }
 
