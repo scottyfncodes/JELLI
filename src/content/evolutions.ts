@@ -1,5 +1,7 @@
 import type { PathDef, PathId, PlayerStats } from './types';
 import { FORMS, type FormId } from './forms';
+import { MUTATIONS_BY_ID, type MutationId } from './mutations';
+import { PERSONALITIES, type PersonalityId } from './personality';
 import { TREASURES_BY_ID, type TreasureId } from './landmarks';
 
 export const BASE_STATS: PlayerStats = {
@@ -26,103 +28,45 @@ export const BASE_STATS: PlayerStats = {
   lashReach: 1,
   lashSpeed: 1,
   placeSense: 1,
+  armReach: 1,
+  grip: 1,
+  ink: 0,
+  warning: 0,
+  preyWary: 1,
+  camo: 0,
+  regrow: 0,
+  depthTolerance: 2,
+  sizeMult: 1,
+  crack: 0,
 };
 
-export const MAX_TIER = 3;
-
+/**
+ * Diet paths: what kind of food the octopus has been eating. They no longer grow tiers of their
+ * own; they lean which mutations are offered (you are what you eat), and their colors split the
+ * growth meter.
+ */
 export const PATHS: Record<PathId, PathDef> = {
-  glow: {
-    id: 'glow',
-    name: 'Glow',
-    tagline: 'See further. Find the rare.',
-    color: '#ffd27a',
-    tiers: [
-      {
-        title: 'Lumen Bloom',
-        short: 'Prey drift to your light.',
-        desc: 'Small prey drift toward your glow instead of fleeing. Your light reaches further in the dark, and rare species appear more often.',
-        add: { lightRadius: 120, magnet: 70 },
-        mul: { rareChance: 1.7 },
-      },
-      {
-        title: 'Beacon Heart',
-        short: 'A compass finds the rare.',
-        desc: 'A compass points toward nearby rare species. Even wider light and pull.',
-        add: { lightRadius: 90, magnet: 40, rareCompass: 1 },
-        mul: { rareChance: 1.4 },
-      },
-      {
-        title: 'Starlight Veil',
-        short: 'Hunters notice you later.',
-        desc: 'Dazzle hunters so they notice you later. Discoveries are worth double.',
-        add: { lightRadius: 90 },
-        mul: { detectMult: 0.72, discoveryBonus: 2 },
-      },
-    ],
-  },
-  surge: {
-    id: 'surge',
-    name: 'Surge',
-    tagline: 'Faster, stronger bursts.',
-    color: '#5ee0d0',
-    tiers: [
-      {
-        title: 'Jet Bell',
-        short: 'Quicker, harder bursts.',
-        desc: 'Bursts recharge faster and push harder.',
-        mul: { burstCooldown: 0.72, burstPower: 1.25 },
-      },
-      {
-        title: 'Riptide',
-        short: 'Ride the currents.',
-        desc: 'Swim faster and ride currents instead of fighting them.',
-        add: { currentControl: 1 },
-        mul: { speed: 1.12, burstCooldown: 0.85 },
-      },
-      {
-        title: 'Comet',
-        short: 'Two bursts, longer reach.',
-        desc: 'Store two bursts. Bursting flings your tentacles further.',
-        add: { burstCharges: 1, burstMaw: 0.35 },
-        mul: { burstPower: 1.15 },
-      },
-    ],
-  },
-  sting: {
-    id: 'sting',
-    name: 'Sting',
-    tagline: 'Make hunters regret it.',
-    color: '#c59bff',
-    tiers: [
-      {
-        title: 'Nettle Fringe',
-        short: 'Stun the first hunter that bites.',
-        desc: 'Stinging tentacles stun the first hunter that bites you. Recharges over time.',
-        add: { stingCooldown: 14, stingStun: 1.8 },
-      },
-      {
-        title: 'Barbed Crown',
-        short: 'Stings recharge faster.',
-        desc: 'Stings recharge much faster and stun for longer.',
-        add: { stingStun: 0.9 },
-        mul: { stingCooldown: 0.62 },
-      },
-      {
-        title: 'Thunder Nettle',
-        short: 'Every burst stings.',
-        desc: 'Every burst releases a stinging nova that stuns nearby hunters.',
-        add: { stingNova: 180, stingStun: 0.5 },
-      },
-    ],
-  },
+  glow: { id: 'glow', name: 'Glow', tagline: 'Glowing food: senses and light.', color: '#ffd27a' },
+  surge: { id: 'surge', name: 'Swift', tagline: 'Quick food: movement.', color: '#5ee0d0' },
+  sting: { id: 'sting', name: 'Spiny', tagline: 'Spiny food and hunters: defense.', color: '#c59bff' },
 };
 
 export const PATH_ORDER: PathId[] = ['glow', 'surge', 'sting'];
 
+/** How many mutations of each diet affinity the octopus carries (rare spawns and visuals read this). */
 export type Tiers = Record<PathId, number>;
 
 export function emptyTiers(): Tiers {
   return { glow: 0, surge: 0, sting: 0 };
+}
+
+export function tiersFor(mutations: readonly MutationId[]): Tiers {
+  const t = emptyTiers();
+  for (const id of mutations) {
+    const a = MUTATIONS_BY_ID[id]?.affinity;
+    if (a) t[a] += 1;
+  }
+  return t;
 }
 
 type StatMod = { add?: Partial<PlayerStats>; mul?: Partial<PlayerStats> };
@@ -137,14 +81,18 @@ function applyMod(stats: PlayerStats, mod: StatMod): void {
 }
 
 /** Folds the evolution tiers over the base stats, path by path, tier by tier, then any forms worn. */
-export function computeStats(tiers: Tiers, base: PlayerStats = BASE_STATS, forms: readonly FormId[] = [], relics: readonly TreasureId[] = []): PlayerStats {
+export function computeStats(
+  mutations: readonly MutationId[] = [],
+  base: PlayerStats = BASE_STATS,
+  forms: readonly FormId[] = [],
+  relics: readonly TreasureId[] = [],
+  personality: PersonalityId | null = null,
+): PlayerStats {
   const stats: PlayerStats = { ...base };
-  for (const id of PATH_ORDER) {
-    const level = Math.min(MAX_TIER, Math.max(0, tiers[id] | 0));
-    for (let i = 0; i < level; i++) applyMod(stats, PATHS[id].tiers[i]);
-  }
+  for (const id of new Set(mutations)) if (MUTATIONS_BY_ID[id]) applyMod(stats, MUTATIONS_BY_ID[id]);
   for (const id of new Set(forms)) if (FORMS[id]) applyMod(stats, FORMS[id]);
   for (const id of new Set(relics)) if (TREASURES_BY_ID[id]) applyMod(stats, TREASURES_BY_ID[id].relic);
+  if (personality) applyMod(stats, PERSONALITIES[personality]);
   return stats;
 }
 
@@ -154,21 +102,9 @@ export function emptyDiet(): Diet {
   return { glow: 0, surge: 0, sting: 0 };
 }
 
-/**
- * The path the next evolution takes: whatever the jelly has eaten most of since the last one.
- * A diet of plain plankton (or of maxed paths) rounds out the least-grown path instead.
- * Returns null once every path is maxed.
- */
-export function dietPath(diet: Diet, tiers: Tiers): PathId | null {
-  const open = availablePaths(tiers);
-  if (!open.length) return null;
+/** The kind of food eaten most since the last mutation, or null if it was all plain. */
+export function dietPath(diet: Diet): PathId | null {
   let best: PathId | null = null;
-  for (const id of open) if (diet[id] > 0 && (!best || diet[id] > diet[best])) best = id;
-  if (best) return best;
-  return open.reduce((a, b) => (tiers[b] < tiers[a] ? b : a));
-}
-
-/** Paths that can still take another tier. */
-export function availablePaths(tiers: Tiers): PathId[] {
-  return PATH_ORDER.filter((p) => tiers[p] < MAX_TIER);
+  for (const id of PATH_ORDER) if (diet[id] > 0 && (!best || diet[id] > diet[best])) best = id;
+  return best;
 }

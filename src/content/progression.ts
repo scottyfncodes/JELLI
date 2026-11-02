@@ -11,10 +11,10 @@ export interface StageDef {
 
 /** Size stages: names for how big the jelly has grown. */
 export const STAGES: StageDef[] = [
-  { mass: 0, name: 'Ephyra' },
-  { mass: 34, name: 'Drifter' },
-  { mass: 78, name: 'Bloom' },
-  { mass: 165, name: 'Apex' },
+  { mass: 0, name: 'Hatchling' },
+  { mass: 34, name: 'Juvenile' },
+  { mass: 78, name: 'Adult' },
+  { mass: 165, name: 'Giant' },
 ];
 
 /** Runs have no clock; after a grace period hunters slowly grow in size and number wherever you are. */

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { MUTATIONS_BY_ID } from '../src/content/mutations';
 import { World, type Creature } from '../src/sim/world';
 import { SPECIES_BY_ID } from '../src/content/species';
 import { EVOLUTION_FOOD, MAX_MASS, hunterScale, radiusForMass } from '../src/content/progression';
@@ -33,43 +34,56 @@ describe('world simulation', () => {
     expect(w.hasSeen('glimmer-krill')).toBe(true);
   });
 
-  it('feeding past a milestone evolves the jelly at once, along the path its diet favored', () => {
+  it('feeding past a milestone offers a mutation, led by what the diet favored', () => {
     const w = makeWorld();
     const p = w.player;
     p.food = EVOLUTION_FOOD[0] - 0.1;
     p.diet.surge = 6;
     w.creatures.length = 0;
     feed(w, w.spawn(SPECIES_BY_ID['glimmer-krill'], p.x + 2, p.y));
-    expect(p.tiers.surge).toBe(1);
-    expect(p.stats.burstCooldown).toBeLessThan(3);
+    expect(w.pendingEvolutions).toBe(1);
+    const offers = w.offerMutations();
+    expect(MUTATIONS_BY_ID[offers[0]].affinity).toBe('surge');
+    expect(w.chooseMutation(offers[0])).toBe(true);
+    expect(p.mutations).toEqual([offers[0]]);
+    expect(w.pendingEvolutions).toBe(0);
     expect(w.run.evolutions).toBe(1);
-    expect(w.events.some((e) => e.type === 'evolve' && e.path === 'surge' && e.tier === 1)).toBe(true);
-    // The scales reset for the next evolution.
+    expect(w.events.some((e) => e.type === 'mutate' && e.id === offers[0])).toBe(true);
+    // The scales reset for the next change.
     expect(p.diet).toEqual({ glow: 0, surge: 0, sting: 0 });
   });
 
-  it('allows nine evolutions in total, then stops', () => {
+  it('a chosen mutation really changes the octopus, and cannot be taken twice', () => {
+    const w = makeWorld();
+    const p = w.player;
+    const before = p.stats.burstCooldown;
+    expect(w.chooseMutation('jet-siphon')).toBe(true);
+    expect(p.stats.burstCooldown).toBeLessThan(before);
+    expect(w.chooseMutation('jet-siphon')).toBe(false);
+    expect(w.chooseMutation('twin-jet')).toBe(true);
+    expect(p.stats.burstCharges).toBe(2);
+    const r = p.r;
+    w.chooseMutation('gigantism');
+    expect(p.r).toBeGreaterThan(r * 1.2);
+  });
+
+  it('allows nine changes in a dive, each offered once the meter fills', () => {
     const w = makeWorld();
     const p = w.player;
     w.creatures.length = 0;
     p.food = EVOLUTION_FOOD[EVOLUTION_FOOD.length - 1] + 500;
     feed(w, w.spawn(SPECIES_BY_ID['glimmer-krill'], p.x + 2, p.y));
-    expect(p.tiers).toEqual({ glow: 3, surge: 3, sting: 3 });
-    expect(w.tiersLeft()).toBe(0);
+    expect(w.pendingEvolutions).toBe(9);
+    for (let i = 0; i < 9; i++) expect(w.chooseMutation(w.offerMutations()[0])).toBe(true);
     expect(w.run.evolutions).toBe(9);
-    // Evolving past the cap changes nothing.
-    expect(w.evolve('glow')).toBe(false);
-    expect(p.tiers.glow).toBe(3);
+    expect(new Set(p.mutations).size).toBe(9);
   });
 
-  it('a starting trait leaves eight evolutions to earn', () => {
-    const w = makeWorld({ tiers: { sting: 1 } });
-    const p = w.player;
-    w.creatures.length = 0;
-    p.food = 5000;
-    feed(w, w.spawn(SPECIES_BY_ID['glimmer-krill'], p.x + 2, p.y));
-    expect(w.run.evolutions).toBe(8);
-    expect(w.tiersLeft()).toBe(0);
+  it('a starting trait hatches the octopus already changed', () => {
+    const w = makeWorld({ mutations: ['venom'] });
+    expect(w.player.mutations).toEqual(['venom']);
+    expect(w.stingReady()).toBe(true);
+    expect(w.offerMutations()).not.toContain('venom');
   });
 
   it('a hunter catches an unprotected jelly', () => {
@@ -85,8 +99,8 @@ describe('world simulation', () => {
     expect(w.ended).toBe('caught');
   });
 
-  it('Sting stuns the hunter instead, then needs to recharge', () => {
-    const w = makeWorld({ tiers: { sting: 1 } });
+  it('Venom stuns the hunter instead, then needs to recharge', () => {
+    const w = makeWorld({ mutations: ['venom'] });
     const p = w.player;
     p.invuln = 0;
     w.creatures.length = 0;
@@ -281,7 +295,7 @@ describe('world simulation', () => {
 
   it('Glow lures small prey toward the jelly instead of scaring it off', () => {
     const run = (tiers: { glow?: number }) => {
-      const w = makeWorld({ tiers });
+      const w = makeWorld({ mutations: tiers.glow ? ['bioluminescence'] : [] });
       w.creatures.length = 0;
       const p = w.player;
       // Just outside tentacle reach, ahead of the bell.

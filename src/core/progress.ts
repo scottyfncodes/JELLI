@@ -6,6 +6,8 @@ import type { UnlockId } from '../content/unlocks';
 import type { SaveData } from '../persistence/save';
 import type { ZoneId } from '../content/types';
 import type { EncounterId, LandmarkId, TreasureId } from '../content/landmarks';
+import type { MutationId } from '../content/mutations';
+import { carryPersonality, dominant, emptyPersonality, type Personality, type PersonalityId } from '../content/personality';
 
 /** Everything the end-of-run summary and challenges need to know about a run. */
 export interface RunStats {
@@ -47,6 +49,10 @@ export interface RunStats {
   pods: number;
   /** Aimed tentacle strikes this run. */
   lashes: number;
+  /** Mutations grown this run, in order (hatched-with ones first). */
+  mutations: MutationId[];
+  /** How this dive was played, as personality scores. */
+  personality: Personality;
 }
 
 export interface DeathInfo {
@@ -94,6 +100,8 @@ export function emptyRunStats(): RunStats {
     encounters: [],
     pods: 0,
     lashes: 0,
+    mutations: [],
+    personality: emptyPersonality(),
   };
 }
 
@@ -115,6 +123,10 @@ export function metricValue(metric: ChallengeMetric, run: RunStats | null, save:
       return save.forms.length;
     case 'life.phantom':
       return save.discovered.phantom ? 1 : 0;
+    case 'life.mutations':
+      return save.mutations.length;
+    case 'life.personality':
+      return dominant(save.personality) ? 1 : 0;
     case 'life.places':
       return Object.keys(save.places).length;
     case 'life.treasures':
@@ -197,6 +209,11 @@ export interface RunOutcome {
   /** Places found and treasures taken for the first time ever this run. */
   newPlaces: LandmarkId[];
   newTreasures: TreasureId[];
+  /** Mutations grown for the first time by any octopus. */
+  newMutations: MutationId[];
+  /** The octopus's character after this dive, and whether it just emerged or changed. */
+  personality: PersonalityId | null;
+  personalityNew: boolean;
 }
 
 /** Records a landmark in the save. Returns true the first time any Jelli finds it. */
@@ -223,6 +240,11 @@ export function applyRun(save: SaveData, run: RunStats, now = Date.now()): RunOu
   const newPlaces = (run.places ?? []).filter((id) => recordPlace(save, id, now));
   const newTreasures = (run.treasures ?? []).filter((id) => recordTreasure(save, id, now));
   for (const id of run.encounters ?? []) save.encounters[id] = (save.encounters[id] ?? 0) + 1;
+  const newMutations = (run.mutations ?? []).filter((id) => !save.mutations.includes(id));
+  save.mutations.push(...newMutations);
+  const personalityBefore = dominant(save.personality);
+  save.personality = carryPersonality(save.personality, run.personality ?? emptyPersonality());
+  const personality = dominant(save.personality);
   if (newBest) save.best.score = run.score;
   save.best.mass = Math.max(save.best.mass, run.mass);
   save.stats.runs += 1;
@@ -252,7 +274,7 @@ export function applyRun(save: SaveData, run: RunStats, now = Date.now()): RunOu
       }
     }
   }
-  return { newDiscoveries, completed, unlocked, newBest, prevBestSweep, prevBestDepth, newBiomes, newPlaces, newTreasures };
+  return { newDiscoveries, completed, unlocked, newBest, prevBestSweep, prevBestDepth, newBiomes, newPlaces, newTreasures, newMutations, personality, personalityNew: !!personality && personality !== personalityBefore };
 }
 
 /** The next unfinished challenge, for nudging the player toward another run. */
@@ -296,13 +318,13 @@ export function deathLesson(run: RunStats): string | null {
   if (!d) return null;
   const chaser = d.behavior === 'stalk' || d.behavior === 'pack';
   // The deep asks for a different Jelli: light to see by, and size to not be a snack.
-  if ((d.dark ?? 0) > 0.6 && (d.light ?? 999) < 400) return 'In the dark you saw it too late. Glowing prey grow your light.';
-  if ((d.size ?? 0) > 2.2) return 'It was more than twice your size. Feed up before diving this deep, or dive past it faster.';
-  if (d.burstReady) return chaser ? 'You had a burst ready. Burst away before it closes in.' : 'You had a burst ready. When the red line appears, burst across it.';
+  if ((d.dark ?? 0) > 0.6 && (d.light ?? 999) < 400) return 'In the dark you saw it too late. Keen Eyes or Bioluminescence would light the way.';
+  if ((d.size ?? 0) > 2.2) return 'It was more than twice your size. Grow before diving this deep, or jet past it faster.';
+  if (d.burstReady) return chaser ? 'You had a jet ready. Jet away before it closes in.' : 'You had a jet ready. When the red line appears, jet across it.';
   if (d.lastSweep > 0 && d.sinceBurst < 3) {
-    return `You spent your burst sweeping up ${d.lastSweep} just before it struck. Worth it?`;
+    return `You spent your jet sweeping up ${d.lastSweep} just before it struck. Worth it?`;
   }
-  return 'Your burst was still recharging. Keep one ready when red eyes are near.';
+  return 'Your jet was still recharging. Keep one ready when red eyes are near.';
 }
 
 /** The next biome below the deepest one this player has ever reached, if any is left unseen. */

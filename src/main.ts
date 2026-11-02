@@ -10,7 +10,8 @@ import { AudioEngine } from './audio/audio';
 import { SaveStore, type SaveData } from './persistence/save';
 import { applyRun, recordDiscoveries, recordForm, recordGlimpse, recordPlace, recordTreasure } from './core/progress';
 import { ENCOUNTERS, LANDMARKS_BY_ID, RELIC_SLOTS, TREASURES_BY_ID, isTreasureId } from './content/landmarks';
-import { PATHS, type Tiers } from './content/evolutions';
+import { CATEGORY, MUTATIONS_BY_ID, isMutationId, type MutationId } from './content/mutations';
+import { PERSONALITIES } from './content/personality';
 import { FORMS, isFormId } from './content/forms';
 import { STAGES, evolutionProgress, maturity } from './content/progression';
 import { depthMeters, zoneIndex } from './content/world';
@@ -25,7 +26,6 @@ import {
   buildUI,
   collectBinds,
   fmt,
-  markDietLead,
   meters,
   moveBiomeStrip,
   renderBiomeStrip,
@@ -34,14 +34,15 @@ import {
   renderGuide,
   renderHeirs,
   renderLineage,
-  renderPathPips,
+  renderMutationPips,
+  renderEvolve,
   renderPowers,
   renderResults,
   renderTitle,
   type Binds,
 } from './ui/screens';
 
-type State = 'title' | 'play' | 'paused' | 'results';
+type State = 'title' | 'play' | 'paused' | 'results' | 'evolve';
 type Overlay = 'guide' | 'lineage' | 'settings' | null;
 
 const TOUCH = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
@@ -135,6 +136,11 @@ class Game {
     this.canvas.addEventListener('pointerdown', () => this.audio.unlock());
     window.addEventListener('keydown', (e) => {
       this.audio.unlock();
+      if (this.state === 'evolve' && /^[1-3]$/.test(e.key)) {
+        const card = this.ui.evolveCards.children[Number(e.key) - 1] as HTMLElement | undefined;
+        if (card?.dataset.id) this.chooseMutation(card.dataset.id);
+        return;
+      }
       if (e.key === 'Enter' && (this.state === 'title' || this.state === 'results') && !this.overlay) this.startRun();
     });
 
@@ -215,7 +221,7 @@ class Game {
     this.state = 'title';
     this.input.enabled = false;
     this.input.reset();
-    this.world = new World({ demo: true, tiers: this.startTiers(), forms: this.startForms() });
+    this.world = new World({ demo: true, mutations: this.startMutations(), forms: this.startForms(), personality: this.save.personality });
     this.renderer.recordY = 0;
     this.frameTitle();
     this.syncView();
@@ -223,7 +229,7 @@ class Game {
     this.syncView();
     this.world.populate();
     renderTitle(this.ui, this.save);
-    for (const s of ['hud', 'pause', 'results']) this.show(s, false);
+    for (const s of ['hud', 'pause', 'results', 'evolve']) this.show(s, false);
     this.show('title', true);
   }
 
@@ -267,7 +273,7 @@ class Game {
         break;
       case 'guideTab':
         this.audio.click();
-        renderGuide(this.ui, this.save, el.dataset.tab === 'places' ? 'places' : 'life');
+        renderGuide(this.ui, this.save, (['life', 'mutations', 'places', 'record'] as const).find((t) => t === el.dataset.tab) ?? 'life');
         break;
       case 'lineage':
         this.audio.click();
@@ -320,6 +326,10 @@ class Game {
         renderLineage(this.ui, this.save);
         break;
       }
+      case 'mutate':
+        this.audio.click();
+        this.chooseMutation(el.dataset.id ?? '');
+        break;
       case 'pause':
         this.pause();
         break;
@@ -366,9 +376,10 @@ class Game {
 
   // ------------------------------------------------------------ run lifecycle
 
-  private startTiers(): Partial<Tiers> {
+  /** A starting trait hatches the octopus with one mutation already grown. */
+  private startMutations(): MutationId[] {
     const trait = this.save.selected.trait ? TRAITS_BY_ID[this.save.selected.trait] : null;
-    return trait ? { [trait.path]: 1 } : {};
+    return trait ? [trait.mutation] : [];
   }
 
   /** The form this Jelli inherits from the last one. */
@@ -383,7 +394,7 @@ class Game {
 
   private startRun(): void {
     this.audio.unlock();
-    this.world = new World({ tiers: this.startTiers(), forms: this.startForms(), relics: this.startRelics() });
+    this.world = new World({ mutations: this.startMutations(), forms: this.startForms(), relics: this.startRelics(), personality: this.save.personality });
     this.runNew = [];
     this.renderer.focusOffset = 0;
     this.renderer.focusOffsetX = 0;
@@ -401,7 +412,7 @@ class Game {
     track('game_start');
     this.input.reset();
     this.input.enabled = true;
-    for (const s of ['title', 'pause', 'results']) this.show(s, false);
+    for (const s of ['title', 'pause', 'results', 'evolve']) this.show(s, false);
     this.show('hud', true);
     this.ui.toasts.innerHTML = '';
     this.said.clear();
@@ -468,8 +479,9 @@ class Game {
     outcome.newDiscoveries = this.runNew;
     this.persist();
     this.show('hud', false);
+    this.show('evolve', false);
     const p = this.world.player;
-    renderResults(this.ui, run, outcome, this.save, { style: this.renderer.playerStyle, tiers: p.tiers, forms: p.forms, maturity: maturity(p.food) });
+    renderResults(this.ui, run, outcome, this.save, { style: this.renderer.playerStyle, mutations: p.mutations, personality: outcome.personality, forms: p.forms, maturity: maturity(p.food) });
     this.show('results', true);
     this.ui.results.parentElement!.scrollTop = 0;
   }
@@ -497,6 +509,7 @@ class Game {
       }
       this.handleEvents(dt);
       this.updateHUD();
+      if (this.world.pendingEvolutions > 0 && this.world.player.alive && !this.world.ended) this.openEvolve();
       this.updateTutorial(dt);
       this.emitTrail();
       if (this.world.ended) {
@@ -512,6 +525,9 @@ class Game {
       this.demoStep(dt);
       r.updateCamera(this.world, dt);
       r.render(this.world, dt, null);
+    } else if (this.state === 'evolve') {
+      // The world holds still while the body changes, but the octopus keeps breathing and blinking.
+      r.render(this.world, dt, null);
     } else {
       // Paused: hold the frame still but keep it rendered.
       r.render(this.world, 0, null);
@@ -525,6 +541,34 @@ class Game {
     const wy = (sy - r.h / 2) / r.zoom + r.camY;
     // Fingers are big: anything within about 40 screen pixels of the tap counts.
     this.world.lash(wx, wy, 40 / r.zoom);
+  }
+
+  /** The growth meter filled: stop the world and offer three mutations. */
+  private openEvolve(): void {
+    const w = this.world;
+    const offers = w.offerMutations();
+    if (!offers.length) {
+      w.pendingEvolutions = 0;
+      return;
+    }
+    this.state = 'evolve';
+    this.input.enabled = false;
+    this.input.reset();
+    const p = w.player;
+    renderEvolve(this.ui, offers, { style: this.renderer.playerStyle, mutations: p.mutations, forms: p.forms, maturity: maturity(p.food), personality: p.personality }, w.pendingEvolutions);
+    this.show('evolve', true);
+  }
+
+  private chooseMutation(id: string): void {
+    if (this.state !== 'evolve' || !isMutationId(id)) return;
+    if (!this.world.chooseMutation(id)) return;
+    this.handleEvents(0);
+    this.show('evolve', false);
+    this.state = 'play';
+    this.input.enabled = true;
+    this.last = performance.now();
+    this.updateHUD();
+    // Another change may be waiting; it opens on the next frame.
   }
 
   private demoStep(dt: number): void {
@@ -557,7 +601,7 @@ class Game {
     if (!p.alive) return;
     const ps = this.renderer.particles;
     if (p.burstT > 0 && Math.random() < 0.8) {
-      const color = p.tiers.surge > 0 ? '#5ee0d0' : '#bfe9ff';
+      const color = p.mutations.includes('jet-siphon') ? '#5ee0d0' : '#bfe9ff';
       ps.emit(PKind.Spark, p.x - Math.cos(p.heading) * p.r, p.y - Math.sin(p.heading) * p.r, (Math.random() - 0.5) * 30, (Math.random() - 0.5) * 30, 0.5, p.r * 0.25, color);
     }
     if (Math.random() < 0.04 + p.thrust * 0.04) {
@@ -574,8 +618,8 @@ class Game {
     if (pw.titan > 0 && Math.random() < 0.35) {
       ps.emit(PKind.Spark, p.x + (Math.random() - 0.5) * p.r * 2.5, p.y + (Math.random() - 0.5) * p.r * 2.5, 0, -15, 0.6, p.r * 0.2, POWERS.titan.color);
     }
-    if (p.tiers.glow >= 3 && Math.random() < 0.25) {
-      ps.emit(PKind.Spark, p.x + (Math.random() - 0.5) * p.r * 3, p.y + (Math.random() - 0.5) * p.r * 3, 0, -8, 1, p.r * 0.12, '#ffd27a');
+    if (p.mutations.includes('bioluminescence') && Math.random() < 0.2) {
+      ps.emit(PKind.Spark, p.x + (Math.random() - 0.5) * p.r * 3, p.y + (Math.random() - 0.5) * p.r * 3, 0, -8, 1, p.r * 0.12, this.renderer.playerStyle.glow);
     }
   }
 
@@ -623,7 +667,7 @@ class Game {
       }
       case 'burst':
         this.renderer.addFlash(e.x, e.y, 240, 0.6);
-        ps.emit(PKind.Ring, e.x, e.y, 0, 0, 0.5, p.r * 0.9, p.tiers.surge ? '#5ee0d0' : '#bfe9ff', 160, 0);
+        ps.emit(PKind.Ring, e.x, e.y, 0, 0, 0.5, p.r * 0.9, p.mutations.includes('jet-siphon') ? '#5ee0d0' : '#bfe9ff', 160, 0);
         for (let i = 0; i < 6; i++) ps.emit(PKind.Bubble, e.x, e.y, (Math.random() - 0.5) * 80, (Math.random() - 0.5) * 80, 1.2, 1.5 + Math.random() * 3, '#fff', 0.5, 2);
         this.audio.burst();
         break;
@@ -637,7 +681,7 @@ class Game {
         ps.emit(PKind.Ring, e.x, e.y, 0, 0, 0.5, p.r, '#e3ccff', 200, 0);
         this.renderer.addShake(0.4);
         this.audio.sting();
-        this.toast('<b>Stung!</b>', '#c59bff', `${e.def.name} stunned`);
+        this.toast('<b>Venom!</b>', '#c59bff', `${e.def.name} stunned`);
         break;
       case 'caught':
         for (let i = 0; i < 26; i++) {
@@ -686,17 +730,58 @@ class Game {
         }
         break;
       }
-      case 'evolve': {
-        // The diet decided: an in-world transformation, no menu, no pause.
-        const path = PATHS[e.path];
+      case 'evolveReady':
+        // The meter is full: the evolution choice opens once this frame's events are done.
+        this.audio.ready();
+        break;
+      case 'mutate': {
+        const m = MUTATIONS_BY_ID[e.id];
+        const color = CATEGORY[m.category].color;
         this.audio.evolve();
-        ps.burst(p.x, p.y, 40, 260, 6, path.color, 1.1);
-        ps.emit(PKind.Ring, p.x, p.y, 0, 0, 0.9, p.r, path.color, 260, 0);
+        ps.burst(p.x, p.y, 44, 280, 6, color, 1.2);
+        ps.emit(PKind.Ring, p.x, p.y, 0, 0, 1, p.r, color, 300, 0);
+        ps.emit(PKind.Ring, p.x, p.y, 0, 0, 0.7, p.r * 0.5, '#ffffff', 200, 0);
+        this.renderer.addFlash(p.x, p.y, 320, 1);
         this.flash();
-        const tier = path.tiers[e.tier - 1];
-        this.toast(`<b>${tier.title}</b> ${tier.short}`, path.color, `${path.name} instinct ${e.tier}`);
+        if (!this.save.mutations.includes(e.id)) {
+          this.save.mutations.push(e.id);
+          this.persist();
+        }
+        this.toast(`<b>${m.name}</b> ${m.desc}`, color, CATEGORY[m.category].name, true);
         break;
       }
+      case 'personality': {
+        const d = PERSONALITIES[e.id];
+        this.audio.discover(false);
+        this.zoneToast(`Your octopus seems ${d.name.toLowerCase()}`, d.line);
+        break;
+      }
+      case 'ink':
+        this.audio.ink();
+        break;
+      case 'autotomy':
+        this.audio.sting();
+        this.renderer.addShake(0.45);
+        ps.burst(e.x, e.y, 20, 180, 4, this.renderer.playerStyle.tentacle, 0.8);
+        this.toast('<b>Lost an arm</b> It will grow back', '#c59bff', e.def.name);
+        break;
+      case 'pressure':
+        this.audio.notice();
+        this.renderer.addShake(0.2);
+        this.toast('<b>The water presses back</b> Your body can’t go deeper yet', '#9fb4ff', 'Too deep');
+        break;
+      case 'nettle':
+        this.audio.sting();
+        this.renderer.addShake(0.35);
+        ps.burst(e.x, e.y, 18, 160, 3, '#ffb36b', 0.6);
+        if (!this.said.has('nettle')) {
+          this.said.add('nettle');
+          this.toast('<b>Stung!</b> Your arms go numb. Keep clear of nettles', '#ffb36b', e.def.name);
+        }
+        break;
+      case 'crack':
+        this.audio.crack();
+        break;
       case 'form': {
         const f = FORMS[e.id];
         const first = recordForm(this.save, e.id);
@@ -780,7 +865,7 @@ class Game {
         this.audio.place();
         this.flash();
         ps.emit(PKind.Ring, p.x, p.y, 0, 0, 1.4, p.r, def.color, 520, 0);
-        this.zoneToast(def.name, first ? 'New place · Logged in the Field Guide' : 'You have been here before');
+        this.zoneToast(def.name, first ? 'New place · Logged in your Journal' : 'You have been here before');
         break;
       }
       case 'reveal': {
@@ -934,7 +1019,7 @@ class Game {
       ui.comboBar.style.transform = `scaleX(${cb})`;
     }
     // The bar fills toward the next evolution; it turns gold once every path is maxed.
-    const maxed = w.tiersLeft() === 0;
+    const maxed = w.mutationsLeft() === 0;
     const g = maxed ? 1 : Math.round(evolutionProgress(w.instinctPoints()) * 200) / 200;
     if (g !== c.growth) {
       c.growth = g;
@@ -951,22 +1036,16 @@ class Game {
       const parts = maxed ? [0, 0, 0, 1] : [d.glow, d.surge, d.sting, plain];
       [ui.dietGlow, ui.dietSurge, ui.dietSting, ui.dietPlain].forEach((el, i) => (el.style.flexGrow = String(parts[i])));
     }
-    const lead = maxed ? null : w.dietLead();
-    if ((lead ?? '') !== c.lead) {
-      c.lead = lead ?? '';
-      markDietLead(ui.paths, lead);
-    }
     if (p.stage !== c.stage) {
       c.stage = p.stage;
       ui.stage.textContent = STAGES[p.stage - 1].name;
 
     }
-    const tiersKey = `${p.tiers.glow}${p.tiers.surge}${p.tiers.sting}`;
+    const tiersKey = p.mutations.join(',');
     if (tiersKey !== c.tiers) {
       c.tiers = tiersKey;
       ui.growthBar.classList.toggle('apex', maxed);
-      renderPathPips(ui.paths, p.tiers);
-      c.lead = '';
+      renderMutationPips(ui.paths, p.mutations);
       c.diet = '';
     }
     const max = p.stats.burstCharges;
@@ -996,7 +1075,7 @@ class Game {
       c.sting = sting;
       ui.sting.classList.toggle('show', sting !== '');
       ui.sting.classList.toggle('charging', sting !== 'ready');
-      ui.stingText.textContent = sting === 'ready' ? 'Sting ready' : `Sting ${sting}s`;
+      ui.stingText.textContent = sting === 'ready' ? 'Venom ready' : `Venom ${sting}s`;
     }
   }
 
@@ -1044,10 +1123,10 @@ class Game {
   private updateHint(): void {
     const steps = [
       TOUCH ? 'Drag anywhere to swim' : 'Swim with <kbd>WASD</kbd> or <kbd>Arrows</kbd>',
-      'Swim near a <b style="color:#8cfaff">glowing ring</b> and your tentacles reel it in',
+      'Swim near anything with a <b style="color:#8cfaff">glowing ring</b>: your arms grab it',
       TOUCH ? '<b>Tap</b> prey a little further off: an arm lashes out for it' : '<b>Click</b> prey a little further off: an arm lashes out for it',
-      TOUCH ? 'Tap <b>Burst</b> into a group of prey: your arms sweep up everything ahead' : 'Press <kbd>Space</kbd> to burst into a group of prey and sweep it up',
-      'Dive as deep as you dare · Something new waits in every biome',
+      TOUCH ? 'Tap <b>Jet</b> into a group of prey: every arm sweeps up what is ahead' : 'Press <kbd>Space</kbd> to jet into a group of prey and sweep it up',
+      'Eat and explore to fill the growth meter, then choose how you change',
     ];
     const text = this.tutorial.step === 50 ? (TOUCH ? '<b>New:</b> tap prey or pearls further off and an arm lashes out for them' : '<b>New:</b> click prey or pearls further off and an arm lashes out for them') : steps[this.tutorial.step];
     this.ui.hint.classList.toggle('show', !!text);

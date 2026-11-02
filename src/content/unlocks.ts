@@ -1,4 +1,5 @@
 import type { PathId } from './types';
+import type { MutationId } from './mutations';
 
 export interface SkinDef {
   id: string;
@@ -11,7 +12,7 @@ export interface SkinDef {
 }
 
 export const SKINS: SkinDef[] = [
-  { id: 'moon', name: 'Moonlight', bell: '#bfe9ff', rim: '#e8f8ff', organ: '#e9b8ff', tentacle: '#a8dcff', glow: '#7fe3ff' },
+  { id: 'moon', name: 'Reef Coral', bell: '#ff8f6b', rim: '#ffe2d2', organ: '#c8503f', tentacle: '#ff9f7c', glow: '#ffc49a' },
   { id: 'coral', name: 'Coral Bloom', bell: '#ffc2c7', rim: '#fff0f1', organ: '#ff8fa3', tentacle: '#ffb0b8', glow: '#ff9fb0' },
   { id: 'aurora', name: 'Aurora', bell: '#a6ffd6', rim: '#efffff', organ: '#c59bff', tentacle: '#8ff0d4', glow: '#7dffb9' },
   { id: 'nettle', name: 'Nettle', bell: '#d5c2ff', rim: '#f6f0ff', organ: '#ff8fe0', tentacle: '#b89cff', glow: '#b48bff' },
@@ -29,14 +30,16 @@ export interface TraitDef {
   id: string;
   name: string;
   path: PathId;
+  /** The mutation an octopus hatches with when this trait is chosen. */
+  mutation: MutationId;
   desc: string;
 }
 
-/** Starting traits begin a run with tier 1 of a path already grown. */
+/** Starting traits: hatch every dive with one mutation already grown. */
 export const TRAITS: TraitDef[] = [
-  { id: 'seed-glow', name: 'Glow Seed', path: 'glow', desc: 'Start every run with Lumen Bloom.' },
-  { id: 'seed-surge', name: 'Surge Seed', path: 'surge', desc: 'Start every run with Jet Bell.' },
-  { id: 'seed-sting', name: 'Sting Seed', path: 'sting', desc: 'Start every run with Nettle Fringe.' },
+  { id: 'seed-glow', name: 'Glowing Egg', path: 'glow', mutation: 'bioluminescence', desc: 'Hatch with Bioluminescence.' },
+  { id: 'seed-surge', name: 'Jet Hatchling', path: 'surge', mutation: 'jet-siphon', desc: 'Hatch with a Jet Siphon.' },
+  { id: 'seed-sting', name: 'Venom Hatchling', path: 'sting', mutation: 'venom', desc: 'Hatch with Venom.' },
 ];
 
 export const TRAITS_BY_ID: Record<string, TraitDef> = Object.fromEntries(TRAITS.map((t) => [t.id, t]));

@@ -4,6 +4,8 @@ import { CHALLENGES } from '../content/challenges';
 import { isFormId, type FormId } from '../content/forms';
 import { ZONES_BY_ID } from '../content/world';
 import type { ZoneId } from '../content/types';
+import { isMutationId, type MutationId } from '../content/mutations';
+import { PERSONALITY_ORDER, emptyPersonality, type Personality } from '../content/personality';
 import { RELIC_SLOTS, isEncounterId, isLandmarkId, isTreasureId, type EncounterId, type LandmarkId, type TreasureId } from '../content/landmarks';
 
 export const SAVE_KEY = 'jelli.save.v1';
@@ -48,6 +50,10 @@ export interface SaveData {
   encounters: Partial<Record<EncounterId, number>>;
   /** Relics carried into each dive: recovered treasures, up to RELIC_SLOTS. */
   relics: TreasureId[];
+  /** Every mutation any octopus has grown. */
+  mutations: MutationId[];
+  /** The personality built up across dives (fades a little each dive). */
+  personality: Personality;
   /** One-time tips already shown (for players who finished the tutorial before a feature existed). */
   tips: string[];
 }
@@ -71,6 +77,8 @@ export function defaultSave(): SaveData {
     treasures: {},
     encounters: {},
     relics: [],
+    mutations: [],
+    personality: emptyPersonality(),
     tips: [],
   };
 }
@@ -167,6 +175,10 @@ export function sanitizeSave(raw: unknown): SaveData {
   }
   if (Array.isArray(raw.relics)) {
     save.relics = [...new Set(raw.relics.filter((id): id is TreasureId => isTreasureId(id) && !!save.treasures[id]))].slice(0, RELIC_SLOTS);
+  }
+  if (Array.isArray(raw.mutations)) save.mutations = [...new Set(raw.mutations.filter(isMutationId))];
+  if (isObj(raw.personality)) {
+    for (const id of PERSONALITY_ORDER) save.personality[id] = num(raw.personality[id], 0, 0, 1e6);
   }
   if (Array.isArray(raw.tips)) save.tips = [...new Set(raw.tips.filter((t): t is string => typeof t === 'string' && t.length < 40))].slice(0, 32);
   if (isObj(raw.glimpses)) {

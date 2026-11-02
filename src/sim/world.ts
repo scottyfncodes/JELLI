@@ -2,7 +2,9 @@ import { SPECIES, PLAYER_SPECIES } from '../content/species';
 import type { PathId, PlayerStats, SpeciesDef, ZoneId } from '../content/types';
 import { WORLD, ZONES, darknessAt, depthMeters, zoneAt, zoneIndex, type ZoneDef } from '../content/world';
 import { LANDMARKS, LANDMARKS_BY_ID, TREASURES_BY_ID, type EncounterId, type LandmarkDef, type LandmarkId, type TreasureId } from '../content/landmarks';
-import { BASE_STATS, MAX_TIER, computeStats, dietPath, emptyDiet, emptyTiers, type Diet, type Tiers } from '../content/evolutions';
+import { BASE_STATS, computeStats, dietPath, emptyDiet, tiersFor, type Diet, type Tiers } from '../content/evolutions';
+import { MUTATIONS, MUTATIONS_BY_ID, canTake, type MutationId } from '../content/mutations';
+import { PERSONALITIES, carryPersonality, dominant, emptyPersonality, type Personality, type PersonalityId } from '../content/personality';
 import { FORM_BY_SOURCE, type FormId } from '../content/forms';
 import {
   MAX_MASS,
@@ -190,6 +192,8 @@ export interface Creature {
   /** A migrating school leader's heading, and how long it keeps to it. */
   travel: number;
   travelT: number;
+  /** Seconds left shut in its shell (crabs and clams). */
+  shell: number;
 }
 
 /**
@@ -239,8 +243,13 @@ export interface Player {
   alive: boolean;
   deathT: number;
   inCurrent: boolean;
+  /** Mutations grown this dive (and hatched with), in the order they grew. */
+  mutations: MutationId[];
+  /** Mutations per diet affinity, derived from `mutations`. */
   tiers: Tiers;
   stats: PlayerStats;
+  /** The character that has emerged from how it plays, if one has. */
+  personality: PersonalityId | null;
   /** Seconds remaining on each power-up. */
   powers: PowerTimers;
   /** Total food eaten this run (untapered, uncapped); drives evolutions. */
@@ -255,6 +264,28 @@ export interface Player {
   explore: number;
   /** Tucked inside a shelter, out of hunters' sight. */
   hidden: boolean;
+  /** Seconds spent nearly still, and whether that has turned its skin to camouflage. */
+  stillT: number;
+  camo: boolean;
+  /** Arms given up to a bite and still regrowing, and seconds until the next can be given. */
+  armsLost: number;
+  regrowT: number;
+  regrowCd: number;
+  /** 0..1 how hard the water presses back below the depth the body can stand. */
+  pressure: number;
+  /** Seconds left of a nettle's sting (slowed). */
+  stungT: number;
+}
+
+/** A cloud of ink: hunters lose sight of anything inside it. */
+export interface InkCloud {
+  x: number;
+  y: number;
+  r: number;
+  t: number;
+  max: number;
+  /** Ink squirted by a rival octopus rather than the player. */
+  rival: boolean;
 }
 
 export interface SimInput {
@@ -281,7 +312,14 @@ export type SimEvent =
   | { type: 'pearl'; x: number; y: number; value: number }
   | { type: 'chest'; x: number; y: number }
   | { type: 'wreck' }
-  | { type: 'evolve'; path: PathId; tier: number }
+  | { type: 'evolveReady' }
+  | { type: 'mutate'; id: MutationId }
+  | { type: 'personality'; id: PersonalityId }
+  | { type: 'ink'; x: number; y: number }
+  | { type: 'autotomy'; x: number; y: number; def: SpeciesDef }
+  | { type: 'pressure' }
+  | { type: 'nettle'; x: number; y: number; def: SpeciesDef }
+  | { type: 'crack'; x: number; y: number }
   | { type: 'form'; id: FormId; x: number; y: number }
   | { type: 'glimpse'; def: SpeciesDef }
   | { type: 'sweep'; n: number; bonus: number; x: number; y: number }
@@ -340,6 +378,12 @@ const REACH_TIME = 1.2;
 const GRAB_TIME = 0.12;
 /** How long swallowing takes at the bell. */
 export const EAT_TIME = 0.22;
+/** The water presses back over this far past the depth the body can stand. */
+const PRESSURE_BAND = 260;
+/** Seconds an ink cloud lingers, and seconds a lost arm takes to regrow (and between losses). */
+const INK_TIME = 3.2;
+const ARM_REGROW = 25;
+const AUTOTOMY_COOLDOWN = 40;
 /** Extra light a glow pod or a bloom lends the jelly while it lasts. */
 export const BORROWED_LIGHT = 200;
 /** Seconds of light a glow pod lends, and how long it takes to regrow. */
@@ -375,7 +419,10 @@ const RARE_DEFS = SPECIES.filter((s) => s.rare);
 
 export interface WorldOptions {
   seed?: number;
-  tiers?: Partial<Tiers>;
+  /** Mutations it hatches with (a starting trait). */
+  mutations?: MutationId[];
+  /** Personality carried from earlier dives. */
+  personality?: Personality;
   /** Forms the jelly hatches with (its inheritance). */
   forms?: FormId[];
   /** Relics it carries: treasures recovered on earlier dives. */
@@ -405,6 +452,14 @@ export class World {
   encounter: Encounter | null = null;
   /** Relics carried this dive. */
   relics: TreasureId[] = [];
+  readonly inks: InkCloud[] = [];
+  /** Mutation choices waiting to be made (the meter has filled this many times unanswered). */
+  pendingEvolutions = 0;
+  /** Personality carried in from earlier dives. */
+  private lifetime: Personality = emptyPersonality();
+  /** Seconds spent pressed against the depth limit, so a body built for depth gets offered. */
+  private pressureT = 0;
+  private pressureSaid = -99;
   readonly player: Player;
   readonly run: RunStats = emptyRunStats();
   readonly demo: boolean;
@@ -448,8 +503,11 @@ export class World {
     const seed = opts.seed ?? Math.floor(Math.random() * 1e9);
     this.rand = opts.rng ?? Math.random;
     this.demo = opts.demo ?? false;
-    const tiers = { ...emptyTiers(), ...opts.tiers };
+    const mutations = [...new Set(opts.mutations ?? [])].filter((id) => MUTATIONS_BY_ID[id]);
+    const tiers = tiersFor(mutations);
     const forms = [...new Set(opts.forms ?? [])];
+    this.lifetime = opts.personality ?? emptyPersonality();
+    const character = dominant(this.lifetime);
     this.player = {
       x: START_X,
       y: START_Y,
@@ -469,8 +527,10 @@ export class World {
       alive: true,
       deathT: 0,
       inCurrent: false,
+      mutations,
       tiers,
-      stats: computeStats(tiers, BASE_STATS, forms, opts.relics ?? []),
+      stats: computeStats(mutations, BASE_STATS, forms, opts.relics ?? [], character),
+      personality: character,
       powers: emptyPowers(),
       food: 0,
       diet: emptyDiet(),
@@ -478,7 +538,16 @@ export class World {
       glowT: 0,
       explore: 0,
       hidden: false,
+      stillT: 0,
+      camo: false,
+      armsLost: 0,
+      regrowT: 0,
+      regrowCd: 0,
+      pressure: 0,
+      stungT: 0,
     };
+    this.player.r = radiusForMass(START_MASS) * this.player.stats.sizeMult;
+    this.run.mutations = [...mutations];
     this.run.forms = [...forms];
     this.relics = [...(opts.relics ?? [])];
     this.lastPX = this.player.x;
@@ -840,16 +909,69 @@ export class World {
 
   // ---------------------------------------------------------------- run control
 
-  /** Grows one tier along a path. Returns false when the path is already maxed. */
-  evolve(path: PathId): boolean {
+  /**
+   * Three mutations to choose from. The first leans to what it has been eating, another to the
+   * personality it is growing into, and a body built for depth is always offered once the
+   * octopus has been pressing against the limit.
+   */
+  offerMutations(n = 3): MutationId[] {
     const p = this.player;
-    if (p.tiers[path] >= MAX_TIER) return false;
-    p.tiers[path] += 1;
+    const open = MUTATIONS.filter((m) => canTake(m.id, p.mutations));
+    const out: MutationId[] = [];
+    const take = (pool: typeof open) => {
+      const left = pool.filter((m) => !out.includes(m.id));
+      if (!left.length || out.length >= n) return;
+      out.push(left[Math.floor(this.rand() * left.length)].id);
+    };
+    const lead = dietPath(p.diet);
+    if (this.pressureT > 2.5) {
+      const deep = open.find((m) => m.id === 'deep-body' || m.id === 'abyssal-heart');
+      if (deep) out.push(deep.id);
+    }
+    take(open.filter((m) => m.affinity === lead));
+    const mood = this.personalityNow();
+    if (mood) take(open.filter((m) => m.category === PERSONALITIES[mood].leans));
+    while (out.length < n && out.length < open.length) take(open);
+    return out;
+  }
+
+  /** Grows a chosen mutation. Returns false if it can't be taken. */
+  chooseMutation(id: MutationId): boolean {
+    const p = this.player;
+    if (!MUTATIONS_BY_ID[id] || !canTake(id, p.mutations)) return false;
+    p.mutations.push(id);
+    this.run.mutations.push(id);
+    p.tiers = tiersFor(p.mutations);
+    this.pendingEvolutions = Math.max(0, this.pendingEvolutions - 1);
+    p.diet = emptyDiet();
     this.refreshStats();
-    if (path === 'sting') p.stingCd = 0;
+    if (MUTATIONS_BY_ID[id].add?.stingCooldown) p.stingCd = 0;
+    if (id === 'deep-body' || id === 'abyssal-heart') this.pressureT = 0;
     this.run.evolutions += 1;
-    this.events.push({ type: 'evolve', path, tier: p.tiers[path] });
+    this.events.push({ type: 'mutate', id });
     return true;
+  }
+
+  /** How many mutations are still possible, for the meter's "complete" state. */
+  mutationsLeft(): number {
+    return MUTATIONS.filter((m) => canTake(m.id, this.player.mutations)).length;
+  }
+
+  /** The personality it has right now, counting this dive so far. */
+  personalityNow(): PersonalityId | null {
+    return dominant(carryPersonality(this.lifetime, this.run.personality));
+  }
+
+  /** Behaviour leaves its mark: each kind of play nudges one personality trait. */
+  nudge(id: PersonalityId, amount: number): void {
+    if (this.demo) return;
+    this.run.personality[id] += amount;
+    const now = this.personalityNow();
+    if (now && now !== this.player.personality) {
+      this.player.personality = now;
+      this.refreshStats();
+      this.events.push({ type: 'personality', id: now });
+    }
   }
 
   /** Takes on the form of something remarkable it just ate. */
@@ -867,26 +989,19 @@ export class World {
   private refreshStats(): void {
     const p = this.player;
     const before = p.stats.burstCharges;
-    p.stats = computeStats(p.tiers, BASE_STATS, p.forms, this.relics);
+    p.stats = computeStats(p.mutations, BASE_STATS, p.forms, this.relics, p.personality);
     p.charges = Math.min(p.stats.burstCharges, p.charges + (p.stats.burstCharges - before));
+    p.r = radiusForMass(p.mass) * p.stats.sizeMult;
   }
 
   /** The path the jelly's recent diet is steering it toward, or null with nothing on the scales yet. */
   dietLead(): PathId | null {
-    const d = this.player.diet;
-    if (d.glow + d.surge + d.sting <= 0) return null;
-    return dietPath(d, this.player.tiers);
+    return dietPath(this.player.diet);
   }
 
   /** Seconds a catch chain survives between catches. */
   comboWindow(): number {
     return COMBO_WINDOW + this.player.stats.comboBonus;
-  }
-
-  /** Path tiers still available to evolve into. */
-  tiersLeft(): number {
-    const t = this.player.tiers;
-    return 3 * MAX_TIER - t.glow - t.surge - t.sting;
   }
 
   /** Visible radius around the player, shrinking from the full view to the light radius as water darkens. */
@@ -949,7 +1064,10 @@ export class World {
     const zone = zoneAt(p.y);
     if (zone !== this.zone) {
       this.zone = zone;
-      if (!this.run.biomes.includes(zone.id)) this.run.biomes.push(zone.id);
+      if (!this.run.biomes.includes(zone.id)) {
+        this.run.biomes.push(zone.id);
+        this.nudge('curious', 4);
+      }
       this.events.push({ type: 'zone', zone });
     }
     this.run.maxDepth = Math.max(this.run.maxDepth, p.y);
@@ -1011,6 +1129,11 @@ export class World {
       p.pulse = Math.floor(p.pulse) + 0.25;
       this.events.push({ type: 'burst', x: p.x, y: p.y });
       if (st.stingNova > 0) this.stingNova(st.stingNova);
+      // An Ink Sac leaves a cloud where the octopus just was.
+      if (st.ink > 0) {
+        this.squirtInk(p.x, p.y, 70 + p.r * 4, false);
+        this.nudge('cautious', 1.5);
+      }
       // Every burst casts the arms out as a net: whatever it sweeps through in the next moment is snagged.
       if (this.sweepT > 0) this.closeSweep();
       this.sweepT = SWEEP.time;
@@ -1048,6 +1171,21 @@ export class World {
     this.collideCoral(p, p.r);
     p.x = clamp(p.x, p.r, this.width - p.r);
     p.y = clamp(p.y, p.r + 30, this.height - p.r);
+    this.applyPressure(dt);
+    if (p.stungT > 0) {
+      // A nettle's sting: the arms go numb for a moment.
+      p.stungT = Math.max(0, p.stungT - dt);
+      p.vx *= Math.exp(-3 * dt);
+      p.vy *= Math.exp(-3 * dt);
+    }
+    p.regrowCd = Math.max(0, p.regrowCd - dt);
+    if (p.armsLost > 0) {
+      p.regrowT -= dt;
+      if (p.regrowT <= 0) {
+        p.armsLost -= 1;
+        p.regrowT = p.armsLost > 0 ? ARM_REGROW : 0;
+      }
+    }
 
     p.invuln = Math.max(0, p.invuln - dt);
     p.stingCd = Math.max(0, p.stingCd - dt);
@@ -1056,6 +1194,61 @@ export class World {
       const id = k as PowerId;
       p.powers[id] = Math.max(0, p.powers[id] - dt);
     }
+  }
+
+  /**
+   * The body has a depth it can stand. Past the bottom of that biome the water presses back,
+   * harder the further it is pushed, so the way down opens only as the body adapts.
+   */
+  depthLimit(): number {
+    const t = Math.round(this.player.stats.depthTolerance);
+    return t >= ZONES.length - 1 ? Number.POSITIVE_INFINITY : ZONES[Math.max(0, t)].bottom;
+  }
+
+  private applyPressure(dt: number): void {
+    const p = this.player;
+    const limit = this.depthLimit();
+    if (!Number.isFinite(limit) || this.demo) {
+      p.pressure = 0;
+      return;
+    }
+    const over = (p.y - (limit - PRESSURE_BAND)) / PRESSURE_BAND;
+    p.pressure = clamp(over, 0, 1);
+    if (over <= 0) {
+      this.pressureT = Math.max(0, this.pressureT - dt * 0.2);
+      return;
+    }
+    p.vy -= Math.min(3, over) * 700 * dt;
+    this.pressureT += dt;
+    if (over > 0.5 && this.time - this.pressureSaid > 12) {
+      this.pressureSaid = this.time;
+      this.events.push({ type: 'pressure' });
+    }
+  }
+
+  /** A cloud of ink: hunters inside or watching through it lose track. */
+  squirtInk(x: number, y: number, r: number, rival: boolean): void {
+    if (this.inks.length > 12) this.inks.shift();
+    this.inks.push({ x, y, r, t: INK_TIME, max: INK_TIME, rival });
+    this.events.push({ type: 'ink', x, y });
+    if (rival) return;
+    const p = this.player;
+    for (const c of this.creatures) {
+      if (c.def.hunter && (c.state === 'notice' || c.state === 'orbit' || c.state === 'chase') && Math.hypot(c.x - p.x, c.y - p.y) < r * 3) {
+        c.state = 'rest';
+        c.stateT = 1.4;
+      }
+    }
+  }
+
+  /** Whether a point is inside ink. */
+  inInk(x: number, y: number, rivalOnly = false): boolean {
+    for (const k of this.inks) {
+      if (rivalOnly && !k.rival) continue;
+      const rr = k.r * Math.min(1, k.t / 0.6 + 0.3);
+      if (Math.abs(k.x - x) < rr && Math.abs(k.y - y) < rr && Math.hypot(k.x - x, k.y - y) < rr) return true;
+    }
+    return false;
   }
 
   /** Size the jelly counts as for eating and threats (Titan makes it bigger). */
@@ -1116,6 +1309,7 @@ export class World {
       c.phase += dt;
       c.timer -= dt;
       c.slip = Math.max(0, c.slip - dt);
+      c.shell = Math.max(0, c.shell - dt);
       c.spooked = Math.max(0, c.spooked - dt);
       // A caught creature goes where the tentacle takes it, wriggling.
       if (c.held) {
@@ -1133,7 +1327,11 @@ export class World {
         this.think(c, dt, p);
       }
 
-      if (c.def.behavior !== 'glide') {
+      if (c.def.behavior === 'crawl' || c.def.behavior === 'clam') {
+        // Fixed to the reef surface: no currents, no coral pushback.
+        c.x += c.vx * dt;
+        c.y += c.vy * dt;
+      } else if (c.def.behavior !== 'glide') {
         const f = this.flow;
         this.flowAt(c.x, c.y, f);
         const k = c.def.role === 'predator' ? 0.4 : 0.85;
@@ -1204,10 +1402,14 @@ export class World {
     const ny = dy / dist;
     const reach = this.playerReach();
     const playerCanEat = p.alive && canEat(reach, c.r, def);
-    const threatened = playerCanEat && (dist < 110 + def.speed * 1.2 + reach * 2 || (c.spooked > 0 && dist < SPOOK_RADIUS + reach * 4));
+    const wary = p.stats.preyWary;
+    const threatened = playerCanEat && (dist < (110 + def.speed * 1.2 + reach * 2) * wary || (c.spooked > 0 && dist < SPOOK_RADIUS + reach * 4));
 
     if (def.hunter) {
-      if (playerCanEat || !isThreat(reach, c.r, def)) {
+      // Warning colors: a hunter not much bigger than the octopus wants nothing to do with it.
+      const warned = p.stats.warning > 0 && c.r < reach * 1.75;
+      if (playerCanEat || !isThreat(reach, c.r, def) || warned) {
+        if (warned && c.state !== 'wander') c.state = 'rest';
         // Outgrown hunters keep their distance.
         if (threatened) this.steer(c, -nx, -ny, def.speed * 2.2, 2.5, dt);
         else this.wander(c, dt, def.speed);
@@ -1241,6 +1443,49 @@ export class World {
     }
 
     switch (def.behavior) {
+      case 'crawl': {
+        // A crab walks round its coral; startled, it pulls into its shell and waits.
+        let a = c.offY;
+        if (threatened && c.shell <= 0 && c.timer <= 0) {
+          c.shell = 2.6;
+          c.timer = 4;
+        }
+        if (c.shell <= 0) a += (c.lockY * def.speed * dt) / (c.lockX + c.r);
+        c.offY = a;
+        const R = c.lockX + c.r * 0.85;
+        const tx = c.homeX + Math.cos(a) * R;
+        const ty = c.homeY + Math.sin(a) * R;
+        c.vx = (tx - c.x) * 10;
+        c.vy = (ty - c.y) * 10;
+        c.heading = a + (c.lockY * Math.PI) / 2;
+        break;
+      }
+      case 'clam': {
+        // Opens to feed, closes to rest, and snaps shut when something big comes close.
+        c.vx = 0;
+        c.vy = 0;
+        c.heading = c.offY;
+        if (threatened && c.shell <= 0.2 && dist < 120 + reach * 2) c.shell = 3;
+        if (c.timer <= 0) {
+          if (c.shell <= 0) c.shell = 2.5 + this.rand() * 1.5;
+          c.timer = c.shell + 3 + this.rand() * 2;
+        }
+        break;
+      }
+      case 'rival': {
+        // Another octopus: if you could eat it, it inks and jets away.
+        if (threatened && c.timer <= 0 && dist < 200 * wary) {
+          this.squirtInk(c.x, c.y, 50 + c.r * 3, true);
+          const a = Math.atan2(-ny, -nx) + (this.rand() - 0.5) * 0.6;
+          c.vx = Math.cos(a) * def.speed * 4;
+          c.vy = Math.sin(a) * def.speed * 4;
+          c.timer = 3.5;
+        } else if (c.timer > 2.5) {
+          c.vx *= Math.exp(-1.2 * dt);
+          c.vy *= Math.exp(-1.2 * dt);
+        } else this.wander(c, dt, def.speed * 0.6, 1.1);
+        break;
+      }
       case 'drift': {
         if (threatened && def.speed > 30) this.steer(c, -nx, -ny, def.speed * 1.3, 2, dt);
         else this.wander(c, dt, def.speed, 1);
@@ -1523,7 +1768,7 @@ export class World {
   tentacleReach(): number {
     const p = this.player;
     const maw = p.burstT > 0 ? p.stats.burstMaw : 1;
-    return tentacleReach(this.playerReach(), this.run.eaten) * maw;
+    return tentacleReach(this.playerReach(), this.run.eaten) * maw * p.stats.armReach;
   }
 
   /** Where a tentacle joins the bell rim, for a bell of radius r. */
@@ -1592,7 +1837,11 @@ export class World {
 
   /** Whether a creature is a valid, live tentacle target right now. */
   private huntable(c: Creature): boolean {
-    return !c.dead && c.def.role !== 'ambient' && canEat(this.playerReach(), c.r, c.def) && this.creatures.includes(c);
+    if (c.dead || c.def.role === 'ambient' || !canEat(this.playerReach(), c.r, c.def) || !this.creatures.includes(c)) return false;
+    // Shut in its shell (unless a crushing beak can crack it), or hidden in its own ink.
+    if (c.shell > 0 && !(c.def.behavior === 'clam' && this.player.stats.crack > 0)) return false;
+    if (c.def.behavior === 'rival' && this.inks.length && this.inInk(c.x, c.y, true)) return false;
+    return true;
   }
 
   /** Drops whatever the arm holds or reaches for and sends it home. */
@@ -1728,7 +1977,7 @@ export class World {
           } else {
             // Prey close to the jelly's size can wriggle free; anything it outgrew mid-catch slips out.
             // A sweep's net holds firm; a single arm's grip can be fought.
-            const fight = t.sweep ? 0 : escapeRate(R, c.r, c.def.role === 'predator');
+            const fight = t.sweep ? 0 : escapeRate(R, c.r, c.def.role === 'predator') * p.stats.grip;
             if (!canEat(R, c.r, c.def) || (fight > 0 && this.rand() < fight * dt)) {
               this.letGo(t, true);
               t.cooldown = 0.5;
@@ -1847,6 +2096,7 @@ export class World {
       if (left <= this.playerReach() * 0.4) {
         it.held = false;
         this.collectPearl(it);
+        this.nudge('resourceful', 0.6);
         t.item = null;
         t.lash = false;
         t.phase = 'idle';
@@ -1918,6 +2168,7 @@ export class World {
       if (!c.dead && !c.held && c.def.role === 'prey' && Math.hypot(c.x - p.x, c.y - p.y) < spook) c.spooked = SPOOK_TIME;
     }
     if (n < 1) return;
+    if (n >= 3) this.nudge('aggressive', 2);
     const bonus = sweepBonus(n);
     this.run.score += bonus;
     this.events.push({ type: 'sweep', n, bonus, x: this.player.x, y: this.player.y });
@@ -1939,7 +2190,7 @@ export class World {
       if (this.armBlocked(c)) continue;
       cands.push(c);
     }
-    let free = busyArms(p.stage) + p.stats.extraArms - this.tentacles.filter((t) => !t.sweep && t.phase !== 'idle' && t.phase !== 'retract').length;
+    let free = Math.max(1, busyArms(p.stage) + p.stats.extraArms - p.armsLost) - this.tentacles.filter((t) => !t.sweep && t.phase !== 'idle' && t.phase !== 'retract').length;
     if (!cands.length) {
       this.pickPearl(reach, free);
       return;
@@ -2007,6 +2258,21 @@ export class World {
       const dist = Math.hypot(dx, dy);
       if (dist > R + c.r + magnet + 40) continue;
 
+      // A nettle's threads sting whatever brushes them.
+      if (c.def.stings) {
+        const below = Math.hypot(c.x - p.x, c.y + c.r * 1.4 - p.y);
+        if ((dist < R + c.r * 0.9 || below < R + c.r * 0.8) && p.invuln <= 0 && p.stungT <= 0) {
+          p.stungT = 1.6;
+          p.charges = 0;
+          p.recharge = 0;
+          p.invuln = 0.8;
+          const d = dist || 1;
+          p.vx = (-dx / d) * 260;
+          p.vy = (-dy / d) * 260;
+          this.events.push({ type: 'nettle', x: p.x, y: p.y, def: c.def });
+        }
+        continue;
+      }
       // Food is never eaten by touch: the tentacles catch it (see updateTentacles).
       if (canEat(R, c.r, c.def)) {
         if (magnet > 0 && c.r < R * 0.55 && dist < magnet + R) {
@@ -2030,6 +2296,16 @@ export class World {
             p.invuln = 1.2;
             this.stun(c, st.stingStun);
             this.events.push({ type: 'sting', x: p.x, y: p.y, def: c.def });
+          } else if (st.regrow > 0 && p.regrowCd <= 0 && p.armsLost < 3) {
+            // Regrowth: the hunter gets an arm, not the octopus.
+            p.armsLost += 1;
+            p.regrowT = ARM_REGROW;
+            p.regrowCd = AUTOTOMY_COOLDOWN;
+            p.invuln = 1.5;
+            c.state = 'rest';
+            c.stateT = 3;
+            this.events.push({ type: 'autotomy', x: p.x, y: p.y, def: c.def });
+            this.nudge('cautious', 3);
           } else {
             this.catchPlayer(c);
             return;
@@ -2061,7 +2337,7 @@ export class World {
     p.food += fed;
     // You are what you eat: each meal tips the scales toward the path its creature belongs to.
     if (c.def.diet) p.diet[c.def.diet] += fed;
-    p.r = radiusForMass(p.mass);
+    p.r = radiusForMass(p.mass) * p.stats.sizeMult;
     // Catches in quick succession build a chain that multiplies their score.
     this.combo = this.comboT > 0 ? this.combo + 1 : 1;
     this.comboT = this.comboWindow();
@@ -2072,6 +2348,16 @@ export class World {
     if (c.def.role === 'predator') this.run.predatorsEaten += 1;
     this.markSeen(c.def);
     this.events.push({ type: 'eat', x: c.x, y: c.y, def: c.def, r: c.r });
+    this.nudge('aggressive', c.def.role === 'predator' ? 3 : 0.35);
+    if (c.def.behavior === 'clam') {
+      // There was a pearl inside.
+      if (c.shell > 0) this.events.push({ type: 'crack', x: c.x, y: c.y });
+      this.run.pearls += 1;
+      const value = pearlScore(zoneAt(c.y).id);
+      this.run.score += value;
+      this.events.push({ type: 'pearl', x: c.x, y: c.y, value });
+      this.nudge('resourceful', 2);
+    }
     if (c.def.power) this.grantPower(c.def.power);
     // Hunters and rare creatures leave part of themselves on the jelly that eats them.
     const form = FORM_BY_SOURCE[c.def.id];
@@ -2142,6 +2428,7 @@ export class World {
       if (pr.taken || pr.held || Math.abs(pr.x - p.x) > reach || Math.abs(pr.y - p.y) > reach) continue;
       if (Math.hypot(pr.x - p.x, pr.y - p.y) > reach) continue;
       this.collectPearl(pr);
+      this.nudge('playful', 0.4);
     }
     const wr = this.wreck;
     if (!wr.found && Math.hypot(wr.x - p.x, wr.y - p.y) < 520) {
@@ -2185,11 +2472,11 @@ export class World {
     const earned = this.demo ? 0 : evolutionsEarned(this.instinctPoints());
     while (this.evolutionsReached < earned) {
       this.evolutionsReached += 1;
-      const path = dietPath(p.diet, p.tiers);
-      if (!path) continue;
-      this.evolve(path);
-      p.diet = emptyDiet();
+      if (!this.mutationsLeft()) continue;
+      this.pendingEvolutions += 1;
+      this.events.push({ type: 'evolveReady' });
     }
+    void p;
   }
 
   /** Food and exploration since the last instinct, for the HUD's split meter. */
@@ -2200,9 +2487,18 @@ export class World {
   /** Shelter: inside a thicket, hunters can't see you. Runs before the hunters think. */
   private updateHidden(): void {
     const p = this.player;
+    for (let i = this.inks.length - 1; i >= 0; i--) {
+      this.inks[i].t -= this.lastDt || 1 / 60;
+      if (this.inks[i].t <= 0) this.inks.splice(i, 1);
+    }
+    // Chromatophores: hold nearly still and the skin matches the water around it.
+    const slow = Math.hypot(p.vx, p.vy) < 30 && p.burstT <= 0;
+    p.stillT = p.stats.camo > 0 && slow ? p.stillT + (this.lastDt || 1 / 60) : 0;
+    p.camo = p.stillT > 0.7;
     // Shelter: inside a thicket, hunters can't see you.
-    let hidden = false;
+    let hidden = p.camo || this.inInk(p.x, p.y);
     for (const sh of this.shelters) {
+      if (hidden) break;
       if (Math.abs(sh.x - p.x) > sh.r || Math.abs(sh.y - p.y) > sh.r) continue;
       if (Math.hypot(sh.x - p.x, sh.y - p.y) < sh.r - p.r * 0.5) {
         hidden = true;
@@ -2218,6 +2514,8 @@ export class World {
 
   private updateFeatures(dt: number): void {
     const p = this.player;
+    if (p.hidden) this.nudge('cautious', 0.25 * dt);
+    if (p.inCurrent) this.nudge('playful', 0.15 * dt);
     this.lashCd = Math.max(0, this.lashCd - dt);
     // New depth is worth something in itself.
     const mark = Math.floor(depthMeters(p.y) / 100);
@@ -2250,6 +2548,7 @@ export class World {
     p.glowT = Math.max(p.glowT, POD_LIGHT);
     this.run.pods += 1;
     this.events.push({ type: 'pod', x: pod.x, y: pod.y, grove: pod.grove });
+    this.nudge('playful', 2);
     this.addExplore(EXPLORE.pod);
   }
 
@@ -2262,6 +2561,7 @@ export class World {
       lm.found = true;
       if (!this.run.places.includes(lm.def.id)) this.run.places.push(lm.def.id);
       this.events.push({ type: 'place', id: lm.def.id, x: lm.x, y: lm.y });
+      this.nudge('curious', 4);
       this.addExplore(EXPLORE.place);
     }
     if (lm.taken || lm.def.id === 'galleon') return;
@@ -2292,6 +2592,7 @@ export class World {
     if (!this.run.treasures.includes(def.id)) this.run.treasures.push(def.id);
     this.run.score += def.score;
     this.events.push({ type: 'treasure', id: def.id, x: lm.tx, y: lm.ty });
+    this.nudge('resourceful', 6);
     this.addExplore(EXPLORE.treasure);
   }
 
@@ -2337,6 +2638,7 @@ export class World {
     if (this.run.encounters.includes(kind)) return;
     this.run.encounters.push(kind);
     this.events.push({ type: 'encounter', kind });
+    this.nudge('playful', 3);
     this.addExplore(EXPLORE.encounter);
   }
 
@@ -2439,6 +2741,7 @@ export class World {
     arm.range = range;
     this.lashCd = LASH.cooldown;
     this.run.lashes += 1;
+    this.nudge('aggressive', 0.8);
     this.events.push({ type: 'lash', x: best.x, y: best.y, hit: true });
     return 'hit';
   }
@@ -2462,6 +2765,7 @@ export class World {
       this.run.score += 25;
       this.events.push({ type: 'discover', def });
       this.addExplore(EXPLORE.discovery);
+      this.nudge('curious', 2);
     }
   }
 
@@ -2596,6 +2900,11 @@ export class World {
       const c = this.spawn(def, spot.x, spot.y);
       c.offY = spot.a;
       c.heading = spot.a;
+      // Crabs and clams live on the surface of their coral.
+      c.homeX = spot.coral.x;
+      c.homeY = spot.coral.y;
+      c.lockX = spot.coral.r;
+      c.lockY = this.rand() < 0.5 ? -1 : 1;
       return;
     }
     const [lo, hi] = def.group ?? [1, 1];
@@ -2656,6 +2965,7 @@ export class World {
       spooked: 0,
       travel: 0,
       travelT: 0,
+      shell: 0,
     };
     if (def.behavior === 'chain') {
       c.chain = [];
@@ -2703,7 +3013,7 @@ export class World {
   }
 
   /** A free spot on the open face of a coral circle, between minD and maxD from the jelly. */
-  private coralSpot(radius: number, minD: number, maxD: number, gap: boolean): { x: number; y: number; a: number } | null {
+  private coralSpot(radius: number, minD: number, maxD: number, gap: boolean): { x: number; y: number; a: number; coral: Coral } | null {
     const p = this.player;
     const options: Coral[] = [];
     for (const cl of this.corals) {
@@ -2719,7 +3029,7 @@ export class World {
       const x = coral.x + Math.cos(a) * off;
       const y = coral.y + Math.sin(a) * off;
       if (this.insideCoral(x, y, radius * 0.5)) continue;
-      return { x, y, a };
+      return { x, y, a, coral };
     }
     return null;
   }

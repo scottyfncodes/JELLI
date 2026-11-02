@@ -180,7 +180,7 @@ describe('landmarks', () => {
   });
 });
 
-describe('exploring awakens instincts', () => {
+describe('exploring fills the growth meter', () => {
   it('discoveries, places and new depth all count, alongside food', () => {
     const w = makeWorld();
     openWater(w);
@@ -202,7 +202,7 @@ describe('exploring awakens instincts', () => {
     const w = makeWorld();
     openWater(w);
     w.addExplore(40);
-    expect(w.run.evolutions).toBeGreaterThanOrEqual(1);
+    expect(w.pendingEvolutions).toBeGreaterThanOrEqual(1);
   });
 });
 

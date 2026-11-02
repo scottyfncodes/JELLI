@@ -130,7 +130,7 @@ describe('tentacle hunting', () => {
   });
 
   it("Comet's burst-flung reach still lands after the burst ends", () => {
-    const w = makeWorld({ tiers: { surge: 3 } });
+    const w = makeWorld({ forms: ['needle'] });
     const p = w.player;
     // A grown jelly: its arms have further to travel, so the burst can end mid-reach.
     p.mass = 165;

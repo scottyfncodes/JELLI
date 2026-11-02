@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { World, type Creature, EXPLORE } from '../src/sim/world';
 import { SPECIES, SPECIES_BY_ID } from '../src/content/species';
-import { BASE_STATS, computeStats, dietPath, emptyDiet, emptyTiers } from '../src/content/evolutions';
+import { BASE_STATS, computeStats, dietPath, emptyDiet } from '../src/content/evolutions';
+import { MUTATIONS_BY_ID, type MutationId } from '../src/content/mutations';
 import { FORMS, FORM_BY_SOURCE, FORM_ORDER } from '../src/content/forms';
 import { EVOLUTION_FOOD } from '../src/content/progression';
 import { applyRun, emptyRunStats, mystery } from '../src/core/progress';
@@ -33,25 +34,25 @@ function eatOne(w: World, id: string) {
 }
 
 describe('diet steers evolution', () => {
-  it('evolves along whichever path the jelly ate most of', () => {
-    expect(dietPath({ glow: 4, surge: 9, sting: 2 }, emptyTiers())).toBe('surge');
-    expect(dietPath({ glow: 4, surge: 9, sting: 2 }, { glow: 0, surge: 3, sting: 0 })).toBe('glow');
+  it('leans toward whichever kind of food the octopus ate most of', () => {
+    expect(dietPath({ glow: 4, surge: 9, sting: 2 })).toBe('surge');
+    expect(dietPath(emptyDiet())).toBeNull();
   });
 
-  it('plain plankton rounds out the least-grown path, and a maxed jelly has nowhere to go', () => {
-    expect(dietPath(emptyDiet(), { glow: 2, surge: 0, sting: 1 })).toBe('surge');
-    expect(dietPath(emptyDiet(), { glow: 3, surge: 3, sting: 3 })).toBeNull();
-  });
-
-  it('a meal of puffers turns into a Sting evolution', () => {
+  it('a meal of puffers fills the meter and leads the offer with a spiny mutation', () => {
     const w = makeWorld();
     const p = w.player;
     w.creatures.length = 0;
-    // Meeting the puffer for the first time is itself worth a little instinct.
+    // Meeting the puffer for the first time is itself worth a little growth.
     p.food = EVOLUTION_FOOD[0] - 1 - EXPLORE.discovery;
     p.r = 30;
     feed(w, w.spawn(SPECIES_BY_ID['puffer-pebble'], p.x + 2, p.y));
-    expect(p.tiers).toEqual({ glow: 0, surge: 0, sting: 1 });
+    expect(w.pendingEvolutions).toBe(1);
+    expect(w.events.some((e) => e.type === 'evolveReady')).toBe(true);
+    const offers = w.offerMutations();
+    expect(offers).toHaveLength(3);
+    expect(new Set(offers).size).toBe(3);
+    expect(MUTATIONS_BY_ID[offers[0]].affinity).toBe('sting');
   });
 
   it('plain krill fills the meter without tipping the scales', () => {
@@ -93,9 +94,9 @@ describe('forms', () => {
     expect(w.player.forms).toEqual(['lure']);
   });
 
-  it('forms stack on top of evolutions', () => {
-    const stats = computeStats({ glow: 1, surge: 0, sting: 0 }, BASE_STATS, ['lantern', 'razor']);
-    expect(stats.lightRadius).toBe(BASE_STATS.lightRadius + 120 + 110);
+  it('forms stack on top of mutations', () => {
+    const stats = computeStats(['keen-eyes'], BASE_STATS, ['lantern', 'razor']);
+    expect(stats.lightRadius).toBe(BASE_STATS.lightRadius + 110 + 110);
     expect(stats.extraArms).toBe(1);
   });
 
@@ -149,7 +150,9 @@ describe('forms', () => {
 
 describe('the Phantom', () => {
   function phantomWorld(glow: number) {
-    const w = makeWorld({ tiers: { glow } });
+    // A body that can stand the Abyss, with more or less light of its own.
+    const light: MutationId[] = glow >= 2 ? ['keen-eyes', 'bioluminescence'] : glow >= 1 ? ['keen-eyes'] : [];
+    const w = makeWorld({ mutations: [...light, 'deep-body'] });
     const p = w.player;
     p.y = 12400;
     p.invuln = 99;
