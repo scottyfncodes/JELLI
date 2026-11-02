@@ -26,24 +26,36 @@
   </defs>
   <rect width="512" height="512" fill="url(#sea)"/>
   <circle cx="256" cy="236" r="220" fill="url(#halo)"/>
-  <!-- Arms: curling outward from under the head, tips coiled. -->
+  <!-- Eight arms: four darker ones behind, four in front, every tip curling outward. -->
+  <g fill="none" stroke="#5a1a2c" stroke-width="32" stroke-linecap="round" opacity=".6">
+    <path d="M198 322 C150 342 108 350 84 330 C68 316 80 296 96 306"/>
+    <path d="M228 336 C214 384 188 422 160 438 C142 448 132 430 148 422"/>
+    <path d="M 314 322 C 362 342 404 350 428 330 C 444 316 432 296 416 306"/>
+    <path d="M 284 336 C 298 384 324 422 352 438 C 370 448 380 430 364 422"/>
+  </g>
+  <g fill="none" stroke="#c8503f" stroke-width="25" stroke-linecap="round">
+    <path d="M198 322 C150 342 108 350 84 330 C68 316 80 296 96 306"/>
+    <path d="M228 336 C214 384 188 422 160 438 C142 448 132 430 148 422"/>
+    <path d="M 314 322 C 362 342 404 350 428 330 C 444 316 432 296 416 306"/>
+    <path d="M 284 336 C 298 384 324 422 352 438 C 370 448 380 430 364 422"/>
+  </g>
   <g fill="none" stroke="#5a1a2c" stroke-width="40" stroke-linecap="round" opacity=".55">
-    <path d="M176 318 C132 352 104 392 116 432 C124 458 156 458 160 434"/>
-    <path d="M336 318 C380 352 408 392 396 432 C388 458 356 458 352 434"/>
-    <path d="M220 336 C210 370 210 394 202 410 C194 426 172 420 182 402"/>
-    <path d="M292 336 C302 370 302 394 310 410 C318 426 340 420 330 402"/>
+    <path d="M180 318 C134 352 112 396 124 430 C132 454 160 452 160 432"/>
+    <path d="M238 338 C234 388 228 428 212 454 C202 470 180 462 192 446"/>
+    <path d="M 332 318 C 378 352 400 396 388 430 C 380 454 352 452 352 432"/>
+    <path d="M 274 338 C 278 388 284 428 300 454 C 310 470 332 462 320 446"/>
   </g>
   <g fill="none" stroke="url(#arm)" stroke-width="32" stroke-linecap="round">
-    <path d="M176 318 C132 352 104 392 116 432 C124 458 156 458 160 434"/>
-    <path d="M336 318 C380 352 408 392 396 432 C388 458 356 458 352 434"/>
-    <path d="M220 336 C210 370 210 394 202 410 C194 426 172 420 182 402"/>
-    <path d="M292 336 C302 370 302 394 310 410 C318 426 340 420 330 402"/>
+    <path d="M180 318 C134 352 112 396 124 430 C132 454 160 452 160 432"/>
+    <path d="M238 338 C234 388 228 428 212 454 C202 470 180 462 192 446"/>
+    <path d="M 332 318 C 378 352 400 396 388 430 C 380 454 352 452 352 432"/>
+    <path d="M 274 338 C 278 388 284 428 300 454 C 310 470 332 462 320 446"/>
   </g>
   <g fill="#ffe2d2" opacity=".9">
-    <circle cx="134" cy="380" r="6"/><circle cx="122" cy="408" r="5"/><circle cx="128" cy="434" r="4"/>
-    <circle cx="378" cy="380" r="6"/><circle cx="390" cy="408" r="5"/><circle cx="384" cy="434" r="4"/>
-    <circle cx="216" cy="372" r="5"/>
-    <circle cx="296" cy="372" r="5"/>
+    <circle cx="136" cy="378" r="6"/><circle cx="122" cy="406" r="5"/><circle cx="128" cy="432" r="4"/>
+    <circle cx="376" cy="378" r="6"/><circle cx="390" cy="406" r="5"/><circle cx="384" cy="432" r="4"/>
+    <circle cx="230" cy="384" r="5"/><circle cx="224" cy="414" r="4"/><circle cx="214" cy="440" r="3.5"/>
+    <circle cx="282" cy="384" r="5"/><circle cx="288" cy="414" r="4"/><circle cx="298" cy="440" r="3.5"/>
   </g>
   <!-- Mantle. -->
   <path d="M150 316 C118 250 140 120 256 104 C372 120 394 250 362 316 C330 350 182 350 150 316 Z" fill="url(#skin)"/>
