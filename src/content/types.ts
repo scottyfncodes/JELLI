@@ -139,6 +139,11 @@ export interface PlayerStats {
   comboBonus: number;
   /** Radius within which pearls drift toward the jelly. */
   pearlMagnet: number;
+  /** Multiplies how far an aimed lash reaches, and how fast it strikes. */
+  lashReach: number;
+  lashSpeed: number;
+  /** Multiplies how far away a landmark's glint shows at the screen edge. */
+  placeSense: number;
 }
 
 export interface PathTier {

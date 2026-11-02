@@ -4,7 +4,7 @@ import { CHALLENGES } from '../content/challenges';
 import { isFormId, type FormId } from '../content/forms';
 import { ZONES_BY_ID } from '../content/world';
 import type { ZoneId } from '../content/types';
-import { isEncounterId, isLandmarkId, isTreasureId, type EncounterId, type LandmarkId, type TreasureId } from '../content/landmarks';
+import { RELIC_SLOTS, isEncounterId, isLandmarkId, isTreasureId, type EncounterId, type LandmarkId, type TreasureId } from '../content/landmarks';
 
 export const SAVE_KEY = 'jelli.save.v1';
 export const SAVE_VERSION = 1;
@@ -46,6 +46,8 @@ export interface SaveData {
   treasures: Partial<Record<TreasureId, number>>;
   /** How many dives have met each rare encounter. */
   encounters: Partial<Record<EncounterId, number>>;
+  /** Relics carried into each dive: recovered treasures, up to RELIC_SLOTS. */
+  relics: TreasureId[];
   /** One-time tips already shown (for players who finished the tutorial before a feature existed). */
   tips: string[];
 }
@@ -68,6 +70,7 @@ export function defaultSave(): SaveData {
     places: {},
     treasures: {},
     encounters: {},
+    relics: [],
     tips: [],
   };
 }
@@ -161,6 +164,9 @@ export function sanitizeSave(raw: unknown): SaveData {
   }
   if (isObj(raw.encounters)) {
     for (const [id, n] of Object.entries(raw.encounters)) if (isEncounterId(id)) save.encounters[id] = Math.floor(num(n, 0));
+  }
+  if (Array.isArray(raw.relics)) {
+    save.relics = [...new Set(raw.relics.filter((id): id is TreasureId => isTreasureId(id) && !!save.treasures[id]))].slice(0, RELIC_SLOTS);
   }
   if (Array.isArray(raw.tips)) save.tips = [...new Set(raw.tips.filter((t): t is string => typeof t === 'string' && t.length < 40))].slice(0, 32);
   if (isObj(raw.glimpses)) {

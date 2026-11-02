@@ -1,4 +1,4 @@
-import type { ZoneId } from './types';
+import type { PlayerStats, ZoneId } from './types';
 
 /**
  * Places worth finding: one landmark per biome, each set off the straight line down so it
@@ -33,7 +33,12 @@ export interface TreasureDef {
   blurb: string;
   /** How it is won, for the Field Guide before it has been. */
   hint: string;
+  /** Carried as a relic, what it lends every Jelli after. */
+  relic: { desc: string; add?: Partial<PlayerStats>; mul?: Partial<PlayerStats> };
 }
+
+/** How many relics a Jelli can carry into a dive. */
+export const RELIC_SLOTS = 2;
 
 export const LANDMARKS: LandmarkDef[] = [
   {
@@ -131,6 +136,7 @@ export const TREASURES: TreasureDef[] = [
     color: '#ffd27a',
     blurb: 'Brass gone green. It still points, but never north.',
     hint: 'Open the galleon’s chest.',
+    relic: { desc: 'Places glint at the screen edge from twice as far.', mul: { placeSense: 2 } },
   },
   {
     id: 'mother-pearl',
@@ -140,6 +146,7 @@ export const TREASURES: TreasureDef[] = [
     color: '#fff0fa',
     blurb: 'A pearl the size of a fist, grown slowly in the green dark at the heart of the kelp.',
     hint: 'Find the heart of the Kelp Cathedral.',
+    relic: { desc: 'Pearls drift to you from nearby.', add: { pearlMagnet: 90 } },
   },
   {
     id: 'lantern-seed',
@@ -149,6 +156,7 @@ export const TREASURES: TreasureDef[] = [
     color: '#7dffb9',
     blurb: 'A seed that glows on its own. Whatever grows from it will be bright.',
     hint: 'Light three of the Lantern Grove’s pods.',
+    relic: { desc: 'Your own light reaches further in the dark.', add: { lightRadius: 70 } },
   },
   {
     id: 'whalebone-flute',
@@ -158,6 +166,7 @@ export const TREASURES: TreasureDef[] = [
     color: '#e6ecff',
     blurb: 'A hollow bone that hums when water runs through it, in a note only whales would know.',
     hint: 'Slip inside the whale’s ribs.',
+    relic: { desc: 'Your lash reaches a fifth further.', mul: { lashReach: 1.2 } },
   },
   {
     id: 'glyph-tablet',
@@ -167,6 +176,7 @@ export const TREASURES: TreasureDef[] = [
     color: '#5ee0b0',
     blurb: 'Carved stone that lights up at a touch. The same glyphs are on the gate. Nobody can read them.',
     hint: 'Swim through the Drowned Gate.',
+    relic: { desc: 'Your lash strikes a third faster.', mul: { lashSpeed: 1.35 } },
   },
   {
     id: 'vent-opal',
@@ -176,6 +186,7 @@ export const TREASURES: TreasureDef[] = [
     color: '#ff9a5a',
     blurb: 'A stone that formed in water hot enough to glow. It is still warm.',
     hint: 'Reach the roots of the tallest smoker.',
+    relic: { desc: 'Ride currents faster, and fight them better.', add: { currentControl: 0.5 } },
   },
   {
     id: 'dream-shard',
@@ -185,6 +196,7 @@ export const TREASURES: TreasureDef[] = [
     color: '#ff6fae',
     blurb: 'A splinter of the Crystal Heart. It beats in time with yours.',
     hint: 'Touch the Crystal Heart.',
+    relic: { desc: 'Your burst recharges faster.', mul: { burstCooldown: 0.82 } },
   },
 ];
 
