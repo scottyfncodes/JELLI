@@ -138,6 +138,27 @@ export class Renderer {
   /** Extra magnification for the title showcase. */
   zoomBoost = 1;
   reducedMotion = false;
+  /** Smoothed frame time, for stepping effects down on a device that can't keep up. */
+  private frameAvg = 1 / 60;
+  private slowT = 0;
+
+  /**
+   * Adaptive quality: if frames run long for a few seconds, drop the most expensive effects one
+   * step at a time (foreground and caustics first, then the farthest layer). It never steps back
+   * up within a session, so the picture doesn't flicker between levels.
+   */
+  trackFrame(raw: number): void {
+    if (raw <= 0 || raw > 0.25) return;
+    this.frameAvg += (raw - this.frameAvg) * 0.05;
+    if (this.frameAvg > 1 / 42 && this.backdrop.quality > 0) {
+      this.slowT += raw;
+      if (this.slowT > 3) {
+        this.backdrop.quality -= 1;
+        this.slowT = 0;
+        this.frameAvg = 1 / 60;
+      }
+    } else this.slowT = 0;
+  }
   shake = 0;
   playerStyle: JellyStyle;
 
@@ -571,7 +592,7 @@ export class Renderer {
       ctx.fill();
       // Sunlight ripples across the reef in shallow water.
       const sun = this.pal.caustics * clamp(1 - cl.minY / 2600, 0, 1);
-      if (sun > 0.03) {
+      if (sun > 0.03 && this.backdrop.quality > 1) {
         ctx.save();
         ctx.clip();
         this.backdrop.drawCaustics(ctx, this.sx(cl.minX), top, (cl.maxX - cl.minX) * z, bottom - top, this.sx(0), this.sy(0), 1.6 * z, 0.55 * sun, t, false);
@@ -1484,7 +1505,7 @@ export class Renderer {
       const cy = this.sy(ty);
       const d = Math.hypot(tx - p.x, ty - p.y);
       const want = lm.found && lm.revealed;
-      if (d > (want ? 1600 : 1300) || this.onScreen(cx, cy, -20)) continue;
+      if (d > (want ? 1600 : 1300) * p.stats.placeSense || this.onScreen(cx, cy, -20)) continue;
       const color = want ? TREASURES_BY_ID[lm.def.treasure].color : lm.def.color;
       const a = Math.atan2(cy - py, cx - px);
       const ex = clamp(px + Math.cos(a) * 2000, 30, this.w - 30);

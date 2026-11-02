@@ -272,3 +272,35 @@ describe('saving places and treasures', () => {
     expect(old.tips).toEqual(['lash']);
   });
 });
+
+describe('relics', () => {
+  it('carried relics change the jelly: a whalebone flute lengthens the lash', () => {
+    const plain = new World({ seed: 7, rng: mulberry32(1) });
+    const flute = new World({ seed: 7, rng: mulberry32(1), relics: ['whalebone-flute', 'lantern-seed'] });
+    expect(flute.player.stats.lashReach).toBeCloseTo(plain.player.stats.lashReach * 1.2);
+    expect(flute.player.stats.lightRadius).toBeGreaterThan(plain.player.stats.lightRadius);
+    // A target just past the plain lash reaches the flute's.
+    for (const w of [plain, flute]) {
+      openWater(w);
+      w.player.invuln = 1e9;
+    }
+    const a = plain.spawn(SPECIES_BY_ID['glimmer-krill'], 0, 0);
+    const b = flute.spawn(SPECIES_BY_ID['glimmer-krill'], 0, 0);
+    b.r = a.r;
+    const d = plain.tentacleReach() * LASH.reach + plain.player.r + a.r * 0.5 + 3;
+    a.x = plain.player.x + d;
+    a.y = plain.player.y;
+    b.x = flute.player.x + d;
+    b.y = flute.player.y;
+    expect(plain.lash(a.x, a.y, 5)).toBe('far');
+    expect(flute.lash(b.x, b.y, 5)).toBe('hit');
+  });
+
+  it('only recovered treasures can be carried, two at most', () => {
+    const save = sanitizeSave({
+      treasures: { 'whalebone-flute': 1, 'vent-opal': 2, 'dream-shard': 3 },
+      relics: ['whalebone-flute', 'glyph-tablet', 'vent-opal', 'dream-shard'],
+    });
+    expect(save.relics).toEqual(['whalebone-flute', 'vent-opal']);
+  });
+});

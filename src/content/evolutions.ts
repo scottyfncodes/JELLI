@@ -1,5 +1,6 @@
 import type { PathDef, PathId, PlayerStats } from './types';
 import { FORMS, type FormId } from './forms';
+import { TREASURES_BY_ID, type TreasureId } from './landmarks';
 
 export const BASE_STATS: PlayerStats = {
   lightRadius: 250,
@@ -22,6 +23,9 @@ export const BASE_STATS: PlayerStats = {
   foodMult: 1,
   comboBonus: 0,
   pearlMagnet: 0,
+  lashReach: 1,
+  lashSpeed: 1,
+  placeSense: 1,
 };
 
 export const MAX_TIER = 3;
@@ -133,13 +137,14 @@ function applyMod(stats: PlayerStats, mod: StatMod): void {
 }
 
 /** Folds the evolution tiers over the base stats, path by path, tier by tier, then any forms worn. */
-export function computeStats(tiers: Tiers, base: PlayerStats = BASE_STATS, forms: readonly FormId[] = []): PlayerStats {
+export function computeStats(tiers: Tiers, base: PlayerStats = BASE_STATS, forms: readonly FormId[] = [], relics: readonly TreasureId[] = []): PlayerStats {
   const stats: PlayerStats = { ...base };
   for (const id of PATH_ORDER) {
     const level = Math.min(MAX_TIER, Math.max(0, tiers[id] | 0));
     for (let i = 0; i < level; i++) applyMod(stats, PATHS[id].tiers[i]);
   }
   for (const id of new Set(forms)) if (FORMS[id]) applyMod(stats, FORMS[id]);
+  for (const id of new Set(relics)) if (TREASURES_BY_ID[id]) applyMod(stats, TREASURES_BY_ID[id].relic);
   return stats;
 }
 

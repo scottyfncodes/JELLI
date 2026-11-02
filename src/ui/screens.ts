@@ -12,7 +12,7 @@ import { FORMS, FORM_BY_SOURCE, FORM_ORDER, type FormId } from '../content/forms
 import type { JellyStyle } from '../render/creatures';
 import { ICONS } from './icons';
 import { POWERS, POWER_ORDER, type PowerTimers } from '../content/powerups';
-import { ENCOUNTERS, LANDMARKS, TREASURES_BY_ID } from '../content/landmarks';
+import { ENCOUNTERS, LANDMARKS, RELIC_SLOTS, TREASURES, TREASURES_BY_ID } from '../content/landmarks';
 import { renderForm, renderJelli, renderPortrait, renderSkin } from './portrait';
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
@@ -156,6 +156,10 @@ export function renderTitle(ui: Binds, save: SaveData): void {
   if (save.selected.trait) {
     const tr = TRAITS_BY_ID[save.selected.trait];
     chips.push(`<span class="chip"><span class="dot" style="--c:${PATHS[tr.path].color}"></span>${esc(tr.name)}</span>`);
+  }
+  for (const id of save.relics) {
+    const tr = TREASURES_BY_ID[id];
+    chips.push(`<span class="chip"><span class="dot" style="--c:${tr.color}"></span>${esc(tr.name)}</span>`);
   }
   if (save.heirloom) {
     const f = FORMS[save.heirloom];
@@ -307,7 +311,8 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
   const fresh = outcome.newDiscoveries.filter((id) => id !== 'moon-jelli');
   const freshCount = fresh.length;
   const seenCount = Math.max(freshCount, run.seen.filter((id) => id !== 'moon-jelli').length);
-  const foundHtml = foundChips.length ? `<section class="section"><h3>Found on this dive</h3><div class="facts">${foundChips.join('')}</div></section>` : '';
+  const relicNote = outcome.newTreasures.length ? '<p class="section-note">New treasures become relics. Carry them into your next dive from Lineage.</p>' : '';
+  const foundHtml = foundChips.length ? `<section class="section"><h3>Found on this dive</h3>${relicNote}<div class="facts">${foundChips.join('')}</div></section>` : '';
   const disc = outcome.newDiscoveries.length
     ? `<section class="section"><h3>New in the Field Guide</h3><div class="discoveries">${outcome.newDiscoveries
         .map((id) => {
@@ -570,7 +575,16 @@ export function renderLineage(ui: Binds, save: SaveData): void {
     </div>`;
   }).join('');
 
+  const owned = TREASURES.filter((t) => save.treasures[t.id]).length;
+  const relics = TREASURES.map((t) => {
+    const have = !!save.treasures[t.id];
+    const on = save.relics.includes(t.id);
+    return `<button class="trait relic ${have ? '' : 'locked'} ${on ? 'selected' : ''}" style="--c:${t.color}" data-action="relic" data-id="${t.id}" ${have ? '' : 'disabled'} aria-pressed="${on}">
+      <span class="dot"></span><span>${have ? esc(t.name) : 'Unrecovered treasure'}<small>${have ? esc(t.relic.desc) : esc(t.hint)}</small></span></button>`;
+  }).join('');
+
   ui.lineage.innerHTML = `
+    <section class="section"><h3>Relics · carry ${RELIC_SLOTS}</h3><p class="section-note">${owned ? `Treasures you have recovered, ${owned} of ${TREASURES.length}. Each one you carry helps every dive.` : 'Recover a landmark’s treasure and it becomes a relic you can carry into every dive.'}</p>${relics}</section>
     <section class="section forms-section"><h3>Forms · ${worn} of ${FORM_ORDER.length}</h3><p class="section-note">Eat a hunter or a rare creature and part of it grows onto you for the rest of the dive.</p><div class="forms">${forms}</div></section>
     <section class="section"><h3>Challenges</h3><div class="row-list">${challenges}</div></section>
     <div>

@@ -406,6 +406,8 @@ function causticFrame(time: number): HTMLCanvasElement {
 // ---------------------------------------------------------------- the backdrop
 
 export class Backdrop {
+  /** 2 full, 1 drops the foreground and caustics, 0 also drops the farthest layer. */
+  quality = 2;
   private cache = new Map<number, El[]>();
   private farCanvas: HTMLCanvasElement;
   private farCtx: CanvasRenderingContext2D;
@@ -484,11 +486,11 @@ export class Backdrop {
     fc.setTransform(R, 0, 0, R, 0, 0);
     REC.list.length = 0;
     REC.on = true;
-    this.drawLayer(fc, LAYERS[0], pal, camX, camY, zoom, time);
+    if (this.quality > 0) this.drawLayer(fc, LAYERS[0], pal, camX, camY, zoom, time);
     this.drawLayer(fc, LAYERS[1], pal, camX, camY, zoom, time);
     REC.on = false;
     // A faint web of caustic light in the open water, drawn soft and cheap at the far layer's resolution.
-    if (caustic > 0.01) this.drawCaustics(fc, 0, 0, this.w, this.h, causticX, causticY, 2.6 * zoom, caustic, time, false);
+    if (caustic > 0.01 && this.quality > 1) this.drawCaustics(fc, 0, 0, this.w, this.h, causticX, causticY, 2.6 * zoom, caustic, time, false);
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(this.farCanvas, 0, 0, this.w, this.h);
   }
@@ -510,6 +512,7 @@ export class Backdrop {
 
   /** Near silhouettes passing in front of everything, softly out of focus. */
   drawFore(ctx: CanvasRenderingContext2D, pal: Palette, camX: number, camY: number, zoom: number, time: number): void {
+    if (this.quality < 2) return;
     const fc = this.foreCtx;
     const R = Backdrop.FORE_RES;
     fc.setTransform(1, 0, 0, 1, 0, 0);

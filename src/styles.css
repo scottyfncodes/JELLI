@@ -1912,3 +1912,15 @@ input[type='range']::-moz-range-thumb {
   border-radius: 50%;
   background: var(--c, var(--cyan));
 }
+
+.relic .dot {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin: 0 5px;
+  box-shadow: 0 0 10px var(--c);
+}
+
+.relic.selected {
+  box-shadow: 0 0 0 2px var(--c) inset, 0 0 24px rgba(255, 210, 122, 0.12);
+}

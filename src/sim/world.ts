@@ -378,6 +378,8 @@ export interface WorldOptions {
   tiers?: Partial<Tiers>;
   /** Forms the jelly hatches with (its inheritance). */
   forms?: FormId[];
+  /** Relics it carries: treasures recovered on earlier dives. */
+  relics?: TreasureId[];
   /** Attract mode on the title screen: no hunters, no clock. */
   demo?: boolean;
   rng?: () => number;
@@ -401,6 +403,8 @@ export class World {
   readonly landmarks: Landmark[] = [];
   /** A rare moment in progress, if any. */
   encounter: Encounter | null = null;
+  /** Relics carried this dive. */
+  relics: TreasureId[] = [];
   readonly player: Player;
   readonly run: RunStats = emptyRunStats();
   readonly demo: boolean;
@@ -466,7 +470,7 @@ export class World {
       deathT: 0,
       inCurrent: false,
       tiers,
-      stats: computeStats(tiers, BASE_STATS, forms),
+      stats: computeStats(tiers, BASE_STATS, forms, opts.relics ?? []),
       powers: emptyPowers(),
       food: 0,
       diet: emptyDiet(),
@@ -476,6 +480,7 @@ export class World {
       hidden: false,
     };
     this.run.forms = [...forms];
+    this.relics = [...(opts.relics ?? [])];
     this.lastPX = this.player.x;
     this.lastPY = this.player.y;
     this.player.charges = this.player.stats.burstCharges;
@@ -862,7 +867,7 @@ export class World {
   private refreshStats(): void {
     const p = this.player;
     const before = p.stats.burstCharges;
-    p.stats = computeStats(p.tiers, BASE_STATS, p.forms);
+    p.stats = computeStats(p.tiers, BASE_STATS, p.forms, this.relics);
     p.charges = Math.min(p.stats.burstCharges, p.charges + (p.stats.burstCharges - before));
   }
 
@@ -1698,7 +1703,7 @@ export class World {
           // The arm is part of a moving body: its tip travels with the bell, so a diving jelly can still strike.
           t.x += p.x - this.lastPX;
           t.y += p.y - this.lastPY;
-          const left = World.approach(t, c.x, c.y, speed * (t.lash ? LASH.speed : 1), dt);
+          const left = World.approach(t, c.x, c.y, speed * (t.lash ? LASH.speed * p.stats.lashSpeed : 1), dt);
           if (left <= c.r * 0.9 + 2) {
             t.phase = 'grab';
             t.t = 0;
@@ -1814,7 +1819,7 @@ export class World {
         t.cooldown = 0.5;
         return;
       }
-      const left = World.approach(t, it.x, it.y, speed * (t.lash ? LASH.speed : 1), dt);
+      const left = World.approach(t, it.x, it.y, speed * (t.lash ? LASH.speed * p.stats.lashSpeed : 1), dt);
       if (left <= 4) {
         if (isPearl) {
           it.held = true;
@@ -2370,7 +2375,7 @@ export class World {
     const p = this.player;
     if (!p.alive || this.lashCd > 0) return 'none';
     const R = this.playerReach();
-    const range = this.tentacleReach() * LASH.reach + R;
+    const range = this.tentacleReach() * LASH.reach * p.stats.lashReach + R;
     let best: Creature | Pearl | Pod | null = null;
     let bd = Infinity;
     for (const c of this.creatures) {

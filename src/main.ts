@@ -9,7 +9,7 @@ import { Input } from './core/input';
 import { AudioEngine } from './audio/audio';
 import { SaveStore, type SaveData } from './persistence/save';
 import { applyRun, recordDiscoveries, recordForm, recordGlimpse, recordPlace, recordTreasure } from './core/progress';
-import { ENCOUNTERS, LANDMARKS_BY_ID, TREASURES_BY_ID } from './content/landmarks';
+import { ENCOUNTERS, LANDMARKS_BY_ID, RELIC_SLOTS, TREASURES_BY_ID, isTreasureId } from './content/landmarks';
 import { PATHS, type Tiers } from './content/evolutions';
 import { FORMS, isFormId } from './content/forms';
 import { STAGES, evolutionProgress, maturity } from './content/progression';
@@ -297,6 +297,21 @@ class Game {
         renderLineage(this.ui, this.save);
         break;
       }
+      case 'relic': {
+        // Carry a recovered treasure into the next dive (two at most; picking a third swaps out the oldest).
+        const id = el.dataset.id;
+        if (!isTreasureId(id) || !this.save.treasures[id]) return;
+        this.audio.click();
+        const r = this.save.relics;
+        if (r.includes(id)) r.splice(r.indexOf(id), 1);
+        else {
+          r.push(id);
+          while (r.length > RELIC_SLOTS) r.shift();
+        }
+        this.persist();
+        renderLineage(this.ui, this.save);
+        break;
+      }
       case 'trait': {
         const id = el.dataset.id!;
         if (!this.save.unlocks.includes(`trait:${id}`)) return;
@@ -361,9 +376,14 @@ class Game {
     return this.save.heirloom ? [this.save.heirloom] : [];
   }
 
+  /** Relics this Jelli carries. */
+  private startRelics() {
+    return this.save.relics.filter((id) => this.save.treasures[id]);
+  }
+
   private startRun(): void {
     this.audio.unlock();
-    this.world = new World({ tiers: this.startTiers(), forms: this.startForms() });
+    this.world = new World({ tiers: this.startTiers(), forms: this.startForms(), relics: this.startRelics() });
     this.runNew = [];
     this.renderer.focusOffset = 0;
     this.renderer.focusOffsetX = 0;
@@ -462,6 +482,7 @@ class Game {
     this.last = now;
     const dt = clamp(raw, 0, 0.05);
     const r = this.renderer;
+    if (this.state === 'play') r.trackFrame(raw);
     this.syncView();
 
     if (this.state === 'play') {
