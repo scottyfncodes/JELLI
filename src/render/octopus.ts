@@ -63,16 +63,25 @@ export const ARM_POINTS = 11;
 
 /** Where arm i joins the body, in the body frame. Arms 0..7 run left to right under the head. */
 export function armRoot(i: number, r: number, out: { x: number; y: number }): { x: number; y: number } {
-  const k = i / (ARM_COUNT - 1);
-  out.x = (k - 0.5) * r * 1.05;
-  out.y = r * 0.42 + Math.sin(k * Math.PI) * r * 0.12;
+  // Roots sit round the underside of the head in a wide arc: outer arms high at the sides,
+  // middle arms tucked further back under the body, so no two roots crowd together.
+  const k = (i / (ARM_COUNT - 1)) * 2 - 1;
+  out.x = k * r * 0.62;
+  out.y = r * 0.3 + (1 - k * k) * r * 0.16;
   return out;
+}
+
+/** Which side an arm belongs to: -1 left, 1 right. */
+export function armSide(i: number): number {
+  return i < ARM_COUNT / 2 ? -1 : 1;
 }
 
 /** The resting direction of arm i in the body frame (radians, 0 = +x). Arms fan downward. */
 export function armRestAngle(i: number, spread: number): number {
-  const k = i / (ARM_COUNT - 1);
-  return Math.PI / 2 + (k - 0.5) * 2 * spread;
+  // Fan out from a gap in the middle: even the two centre arms angle away from each other,
+  // so they never hang together as one thick column under the face.
+  const k = (i / (ARM_COUNT - 1)) * 2 - 1;
+  return Math.PI / 2 + Math.sign(k) * (0.32 + Math.abs(k) * 0.95) * spread;
 }
 
 /** How long the arms are, in body radii. */
@@ -87,7 +96,7 @@ export function armLength(r: number, mutations: readonly MutationId[], maturity:
 export function proceduralArms(r: number, t: number, mutations: readonly MutationId[], maturity: number, personality: PersonalityId | null, trail = 0): Float32Array[] {
   const len = armLength(r, mutations, maturity) * (personality === 'cautious' ? 0.85 : 1);
   const curlAmp = personality === 'playful' ? 0.75 : 0.5;
-  const spread = personality === 'cautious' ? 0.55 : 0.85;
+  const spread = personality === 'cautious' ? 0.7 : 1.05;
   const out: Float32Array[] = [];
   const root = { x: 0, y: 0 };
   for (let i = 0; i < ARM_COUNT; i++) {
@@ -101,7 +110,8 @@ export function proceduralArms(r: number, t: number, mutations: readonly Mutatio
     pts[1] = y;
     for (let j = 1; j < ARM_POINTS; j++) {
       const f = j / (ARM_POINTS - 1);
-      a += (Math.sin(t * 1.4 + i * 1.3 - f * 3.2) * curlAmp * f + (i < 4 ? -1 : 1) * 0.06 * f) * 0.55;
+      // Each arm waves on its own, and its tip curls up and outward, the way octopus arms coil.
+      a += (Math.sin(t * 1.4 + i * 1.3 - f * 3.2) * curlAmp * f * 0.6 - armSide(i) * 0.42 * f * f) * 0.5;
       x += Math.cos(a) * seg;
       y += Math.sin(a) * seg;
       pts[j * 2] = x;
@@ -145,8 +155,27 @@ export function drawOctopus(ctx: CanvasRenderingContext2D, look: OctoLook, pose:
 
   if (has(pose, 'webbed-arms') && !flat) drawWebbing(ctx, arms, armColor, r);
   // Back arms first (outer pairs), front arms over them.
-  const order = [0, 7, 1, 6, 2, 5, 3, 4];
+  const order = [3, 4, 2, 5, 1, 6, 0, 7];
   for (const i of order) drawArm(ctx, arms[i], i, armColor, look, pose, armVisible(i));
+
+  // The arm crown: where the arms meet under the head, a soft skirt of skin, so they grow out of
+  // the body instead of hanging from it.
+  if (!flat) {
+    const cg = ctx.createLinearGradient(0, r * 0.2, 0, r * 0.75);
+    cg.addColorStop(0, armColor);
+    cg.addColorStop(1, mixHex(armColor, '#14081c', 0.25));
+    ctx.fillStyle = cg;
+  } else ctx.fillStyle = armColor;
+  ctx.beginPath();
+  ctx.moveTo(-r * 0.66, r * 0.26);
+  for (const i of [0, 1, 2, 3, 4, 5, 6, 7]) {
+    const a = arms[i];
+    ctx.lineTo(a[2], a[3]);
+  }
+  ctx.lineTo(r * 0.66, r * 0.26);
+  ctx.quadraticCurveTo(0, r * 0.12, -r * 0.66, r * 0.26);
+  ctx.closePath();
+  ctx.fill();
 
   // Mantle: a soft dome lit from above, squeezing on each jet.
   const sq = pose.squeeze;
@@ -299,7 +328,7 @@ function drawArm(ctx: CanvasRenderingContext2D, pts: Float32Array, index: number
   const N = Math.max(2, Math.round((ARM_POINTS - 1) * visible) + 1);
   const L: number[] = [];
   const R: number[] = [];
-  const base = r * 0.2 * (has(pose, 'deep-body') ? 1.12 : 1);
+  const base = r * 0.16 * (has(pose, 'deep-body') ? 1.12 : 1);
   for (let j = 0; j < N; j++) {
     const j0 = Math.max(0, j - 1) * 2;
     const j1 = Math.min(N - 1, j + 1) * 2;
