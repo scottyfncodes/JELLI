@@ -1,4 +1,4 @@
-import { ARM_COUNT, ARM_POINTS, armRestAngle, armRoot } from './octopus';
+import { ARM_COUNT, ARM_POINTS, armRestAngle, armRoot, armSide } from './octopus';
 
 /**
  * The octopus's arms in play: eight chains of points in world space. Each point keeps its
@@ -81,7 +81,8 @@ export class OctoRig {
           py += vy;
           // A relaxed, curling line: each arm waves on its own rhythm, most toward the tip.
           const wave = Math.sin(time * 1.5 + i * 1.3 - f * 3.4) * curl + Math.sin(time * 2.3 + i * 2.1 - f * 6) * curl * 0.25;
-          const a = base + wave * f * 1.2;
+          // Tips curl up and outward when relaxed; streaming fast, they straighten behind.
+          const a = base + wave * f * 0.65 - armSide(i) * curl * 1.1 * f * f;
           const tx = c[o - 4] + Math.cos(a) * seg;
           const ty = c[o - 3] + Math.sin(a) * seg;
           const pull = 1 - Math.exp(-(10 - 7 * f) * dt);
