@@ -4,8 +4,10 @@ import { WORLD, darknessAt, depthMeters, zoneAt } from '../content/world';
 import type { ZoneId } from '../content/types';
 import { BASE_RADIUS, maturity } from '../content/progression';
 import { TAU, angleLerp, clamp, damp, hexToRgb, lerp, rgba } from '../core/math';
-import { bellSize, drawCreatureShape, drawJelly, jellyStyleForSpecies, lookFor, marginalLength, marginalTentacles, type JellyBody, type JellyStyle } from './creatures';
+import { drawCreatureShape, drawJelly, jellyStyleForSpecies, lookFor, type JellyBody, type JellyStyle } from './creatures';
 import { drawGlow } from './sprites';
+import { ARM_COUNT, armLength, drawOctopus, proceduralArms, type EyeMood, type OctoLook } from './octopus';
+import { OctoRig } from './octorig';
 import { Backdrop, coralPiece } from './backdrop';
 import { css, mixRGB, paletteAt, waterColor, type Palette } from './biomeArt';
 import { drawChest, drawShip } from './wreck';
@@ -22,10 +24,6 @@ export interface JoystickView {
   cy: number;
 }
 
-/** Samples along each hunting tentacle. */
-const TENT_SEGS = 22;
-/** Links in each trailing marginal tentacle. */
-const TRAIL_LINKS = 12;
 /** Edge arrows stay below the HUD's depth readout and evolution bar. */
 const HUD_TOP = 120;
 /** Height of one tile of the far parallax layer, in parallax units. */
@@ -247,7 +245,7 @@ export class Renderer {
     const p = world.player;
     // A new jelly: its body faces where it does, and its tentacles start fresh.
     this.visHeading = p.heading;
-    this.trails = [];
+    this.resetOctopus();
     this.zoom = this.targetZoom(p.r);
     this.camX = p.x + this.focusOffsetX / this.zoom;
     this.camY = p.y + this.focusOffset / this.zoom;
@@ -313,6 +311,7 @@ export class Renderer {
     this.drawCreatures(world);
     this.drawPlayer(world, dt);
     this.drawFeatures(world, true);
+    this.drawInk(world);
     this.particles.update(dt);
     this.particles.draw(ctx, this.camX, this.camY, this.zoom, w, h);
     this.drawDarkness(world, dt);
@@ -787,6 +786,34 @@ export class Renderer {
     for (const pod of world.pods) this.atWorld(pod.x, pod.y, 60, () => drawPod(ctx, pod, t, pod.grove ? '#7dffb9' : color));
   }
 
+  /** Ink clouds: dark, billowing, thinning as they drift apart. */
+  private drawInk(world: World): void {
+    const ctx = this.ctx;
+    const z = this.zoom;
+    for (const k of world.inks) {
+      const age = 1 - k.t / k.max;
+      const fade = Math.min(1, k.t / 1.2);
+      const grow = 0.55 + 0.45 * Math.min(1, age * 3);
+      for (let i = 0; i < 6; i++) {
+        const a = i * 1.7 + k.x * 0.01;
+        const ox = Math.cos(a) * k.r * 0.45 * grow + Math.sin(this.time * 0.6 + i) * 6;
+        const oy = Math.sin(a) * k.r * 0.4 * grow - age * 20;
+        const x = this.sx(k.x + ox);
+        const y = this.sy(k.y + oy);
+        const rr = k.r * (0.55 + (i % 3) * 0.12) * grow * z;
+        if (!this.onScreen(x, y, rr)) continue;
+        const g = ctx.createRadialGradient(x, y, rr * 0.1, x, y, rr);
+        g.addColorStop(0, `rgba(14,8,26,${0.75 * fade})`);
+        g.addColorStop(0.6, `rgba(20,12,38,${0.45 * fade})`);
+        g.addColorStop(1, 'rgba(20,12,38,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(x, y, rr, 0, TAU);
+        ctx.fill();
+      }
+    }
+  }
+
   /** A bloom in progress, laid over the darkness so it lights the whole view. */
   private drawEncounter(world: World): void {
     const e = world.encounter;
@@ -884,6 +911,15 @@ export class Renderer {
         ctx.stroke();
       } else if (threat) {
         drawGlow(ctx, '#ff4d6d', x, y, c.r * z * 2.2, 0.12 + alert * 0.12);
+      } else if (c.def.stings && Math.hypot(c.x - world.player.x, c.y - world.player.y) < 320) {
+        // Not food, not a hunter: dangerous to touch. A dashed amber ring says keep clear.
+        ctx.strokeStyle = 'rgba(255,170,90,0.45)';
+        ctx.lineWidth = Math.max(1, 1.4 * z);
+        ctx.setLineDash([4 * z, 5 * z]);
+        ctx.beginPath();
+        ctx.arc(x, y + c.r * z * 0.6, c.r * z * 1.7, 0, TAU);
+        ctx.stroke();
+        ctx.setLineDash([]);
       }
 
       ctx.save();
@@ -892,7 +928,13 @@ export class Renderer {
       const gulp = 1 - 0.85 * c.consume;
       ctx.scale(z * gulp, z * gulp);
       if (c.consume > 0) ctx.globalAlpha = 1 - c.consume * 0.6;
-      if (c.def.shape === 'jelly') {
+      if (c.def.shape === 'octopus') {
+        // Another octopus: arms trailing as it swims, eyes on you.
+        ctx.rotate(c.heading + Math.PI / 2);
+        const sp = Math.min(1, Math.hypot(c.vx, c.vy) / 120);
+        const look: OctoLook = { skin: c.def.colors.body, spots: c.def.colors.accent, arm: c.def.colors.body, rim: '#ffffff', glow: c.def.colors.glow };
+        drawOctopus(ctx, look, { r: c.r, t: c.phase, squeeze: sp, mutations: [], forms: [], armsLost: 0, regrow: 1, lookX: 0, lookY: -0.5, open: 1, mood: c.timer > 2 ? 'alarm' : 'calm', camo: 0, camoColor: '#000000', alarm: 0, lum: 0, personality: null }, proceduralArms(c.r, c.phase, [], 0.3, null, sp));
+      } else if (c.def.shape === 'jelly') {
         ctx.rotate(c.heading + Math.PI / 2);
         // Until the jelly's light is strong enough to take it in, the Phantom is barely there.
         if (c.def.revealLight) ctx.globalAlpha = world.hasSeen(c.def.id) ? 0.75 : 0.1;
@@ -901,7 +943,7 @@ export class Renderer {
         ctx.rotate(c.heading);
         if (Math.cos(c.heading) < 0 && c.def.shape !== 'seahorse') ctx.scale(1, -1);
         if (c.stunned > 0) ctx.globalAlpha = 0.6 + 0.4 * Math.sin(this.time * 20);
-        drawCreatureShape(ctx, c.def, lookFor(c.def), { r: c.r, t: c.phase, alert, puffed: c.state === 'puffed' ? 1 : 0 });
+        drawCreatureShape(ctx, c.def, lookFor(c.def), { r: c.r, t: c.phase, alert, puffed: c.state === 'puffed' ? 1 : 0, shut: Math.min(1, c.shell * 4) });
       }
       ctx.restore();
 
@@ -961,7 +1003,6 @@ export class Renderer {
     this.body.rimLag = damp(this.body.rimLag ?? 0, p.thrust, 6, dt);
     this.body.lean = clamp(this.sway * 0.3, -0.3, 0.3);
     this.body.trailing = true;
-    this.bodyHeading = heading;
 
     let alpha = 1;
     let scale = 1;
@@ -1017,25 +1058,193 @@ export class Renderer {
     const holding = world.tentacles.some((tt) => tt.phase === 'grab' || tt.phase === 'pull' || tt.phase === 'eat');
     this.body.hunt = damp(this.body.hunt ?? 0, holding ? 1 : 0, holding ? 12 : 3, dt);
     if (world.sweepT > 0 && p.alive) this.drawSweep(world);
-    this.drawTrails(world, tr * scale, alpha, dt);
-    this.drawTentacles(world, tr * scale, alpha);
+    this.drawOctopusPlayer(world, tr * scale, alpha, dt, x, y);
+  }
 
+  private rig = new OctoRig();
+  /** The angle the octopus is drawn at: upright when drifting, mantle-first when swimming hard. */
+  private bodyAngle = 0;
+  private blinkT = 2;
+  private eyeOpen = 1;
+  private lookX = 0;
+  private lookY = 0;
+  private saccadeT = 0;
+  private saccadeX = 0;
+  private saccadeY = 0;
+  private happyT = 0;
+  private camoK = 0;
+  private squeeze = 0;
+
+  /** Called when a new octopus hatches, so its arms start fresh. */
+  resetOctopus(): void {
+    this.rig.reset();
+    this.bodyAngle = 0;
+  }
+
+  private drawOctopusPlayer(world: World, r: number, alpha: number, dt: number, x: number, y: number): void {
+    const ctx = this.ctx;
+    const p = world.player;
+    const z = this.zoom;
+    const t = this.reducedMotion ? world.time * 0.6 : world.time;
+    const speed = Math.hypot(p.vx, p.vy);
+    const fast = clamp((speed - 70) / 160, 0, 1) || (p.burstT > 0 ? 1 : 0);
+    const mood = p.personality;
+    // Drifting, it floats upright and tilts a little into its motion; swimming hard, the mantle leads.
+    const upright = clamp(p.vx / 260, -0.45, 0.45) + Math.sin(world.time * 0.8) * 0.05;
+    const target = fast > 0.5 ? p.heading + Math.PI / 2 : upright;
+    this.bodyAngle = angleLerp(this.bodyAngle, target, 1 - Math.exp(-(fast > 0.5 ? 6 : 3) * dt));
+    this.squeeze = damp(this.squeeze, Math.max(p.thrust * 0.6, p.burstT > 0 ? 1 : 0), 10, dt);
+
+    // Which arm does what: hunting arms follow the simulation's tentacles; one idle arm feels the reef.
+    const targets: ({ x: number; y: number; w: number } | null)[] = new Array(ARM_COUNT).fill(null);
+    const used = new Set<number>();
+    for (const tt of world.tentacles) {
+      if (tt.phase === 'idle') continue;
+      let i = Math.round(clamp(tt.slot, 0, 1) * (ARM_COUNT - 1));
+      for (let k = 0; used.has(i) && k < ARM_COUNT; k++) i = (i + (k % 2 ? k : -k) + ARM_COUNT) % ARM_COUNT;
+      if (used.has(i)) continue;
+      used.add(i);
+      targets[i] = { x: tt.x, y: tt.y, w: tt.phase === 'retract' ? 0.5 : 1 };
+    }
+    const len = armLength(r, p.mutations, this.body.maturity) * (mood === 'cautious' ? 0.88 : 1);
+    if (p.alive && speed < 60 && !used.has(3)) {
+      // Curious arms: when it is still, an arm reaches out to touch the nearest rock.
+      const cell = world.coralNear(p.x, p.y + r);
+      if (cell) {
+        let best: { x: number; y: number } | null = null;
+        let bd = len * 0.95;
+        for (const c of cell) {
+          const d = Math.hypot(c.x - p.x, c.y - p.y) - c.r;
+          if (d < bd && d > r * 0.6) {
+            bd = d;
+            const k = c.r / (d + c.r);
+            best = { x: c.x + (p.x - c.x) * k, y: c.y + (p.y - c.y) * k };
+          }
+        }
+        if (best) targets[mood === 'playful' ? 2 : 3] = { x: best.x, y: best.y, w: 0.35 };
+      }
+    }
+    const spreadBase = mood === 'cautious' ? 0.55 : mood === 'aggressive' ? 0.75 : 0.9;
+    const curlBase = mood === 'playful' ? 0.75 : mood === 'cautious' ? 0.3 : 0.5;
+    this.rig.update({
+      x: p.x,
+      y: p.y,
+      angle: this.bodyAngle,
+      r,
+      len,
+      spread: lerp(spreadBase, 0.18, fast),
+      curl: lerp(curlBase, 0.12, fast),
+      time: t,
+      dt,
+      targets,
+    });
+
+    // Eyes: on whatever matters most. A hunter about to strike, then the catch, then food, then the way ahead.
+    let lx = Math.cos(p.heading) * 0.6;
+    let ly = Math.sin(p.heading) * 0.6;
+    let mood2: EyeMood = 'calm';
+    let focus: { x: number; y: number } | null = null;
+    let bestD = Infinity;
+    for (const c of world.creatures) {
+      if (c.dead) continue;
+      const d = Math.hypot(c.x - p.x, c.y - p.y);
+      if ((c.state === 'notice' || c.state === 'chase' || c.state === 'orbit') && isThreat(world.playerReach(), c.r, c.def) && d < 600) {
+        focus = c;
+        mood2 = 'alarm';
+        break;
+      }
+      if (d < bestD && d < 260 && canEat(world.playerReach(), c.r, c.def)) {
+        bestD = d;
+        focus = c;
+      }
+    }
+    const busy = world.tentacles.find((tt) => tt.phase === 'reach' || tt.phase === 'grab' || tt.phase === 'pull');
+    if (mood2 !== 'alarm' && busy) {
+      focus = busy;
+      mood2 = 'focus';
+    }
+    this.saccadeT -= dt;
+    if (this.saccadeT <= 0) {
+      // Idle glances; a curious octopus looks around far more.
+      this.saccadeT = mood === 'curious' ? 0.5 + Math.random() * 0.8 : 1.2 + Math.random() * 2;
+      this.saccadeX = (Math.random() - 0.5) * 1.6;
+      this.saccadeY = (Math.random() - 0.5) * 1.2;
+    }
+    if (focus) {
+      lx = focus.x - p.x;
+      ly = focus.y - p.y;
+      const m = Math.hypot(lx, ly) || 1;
+      lx /= m;
+      ly /= m;
+    } else if (speed < 40) {
+      lx = this.saccadeX;
+      ly = this.saccadeY;
+    }
+    const ca = Math.cos(-this.bodyAngle);
+    const sa = Math.sin(-this.bodyAngle);
+    this.lookX = damp(this.lookX, lx * ca - ly * sa, 12, dt);
+    this.lookY = damp(this.lookY, lx * sa + ly * ca, 12, dt);
+    this.happyT = Math.max(0, this.happyT - dt);
+    if (this.happyT > 0 && mood2 === 'calm') mood2 = 'happy';
+    if (!p.alive) mood2 = 'closed';
+    this.blinkT -= dt;
+    if (this.blinkT <= 0) this.blinkT = 2.5 + Math.random() * 3.5;
+    this.eyeOpen = this.blinkT < 0.12 ? 0 : 1;
+    this.camoK = damp(this.camoK, p.camo ? 1 : 0, p.camo ? 3 : 8, dt);
+
+    const style = this.playerStyle;
+    const look: OctoLook = { skin: style.bell, spots: style.organ, arm: style.tentacle, rim: style.rim, glow: style.glow };
+    const water = this.pal.water;
+    const camoColor = `#${water.map((v) => Math.round(v * 1.15).toString(16).padStart(2, '0').slice(-2)).join('')}`;
+    const lost = p.armsLost;
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.translate(x, y);
-    ctx.scale(z * scale, z * scale);
-    ctx.rotate(heading + Math.PI / 2);
-    drawJelly(ctx, tr, world.time, p.thrust, this.playerStyle, p.tiers, false, this.sway, this.body, p.forms);
+    ctx.scale(z, z);
+    ctx.rotate(this.bodyAngle);
+    drawOctopus(
+      ctx,
+      look,
+      {
+        r,
+        t,
+        squeeze: this.squeeze,
+        mutations: p.mutations,
+        forms: p.forms,
+        armsLost: lost,
+        regrow: lost > 0 ? 1 - p.regrowT / 25 : 1,
+        lookX: this.lookX,
+        lookY: this.lookY,
+        open: this.eyeOpen,
+        mood: mood2,
+        camo: this.camoK,
+        camoColor,
+        alarm: (this.body.startle ?? 0) * 0.8,
+        lum: this.body.lum ?? 0,
+        personality: mood,
+      },
+      this.rig.local,
+    );
     ctx.restore();
+
+    // Prey held at an arm's tip, coiled round so the grip reads.
+    for (const tt of world.tentacles) {
+      const prey = tt.target;
+      if (!prey || (tt.phase !== 'grab' && tt.phase !== 'pull' && tt.phase !== 'eat')) continue;
+      const cr = prey.r * (1 - 0.85 * prey.consume) * z * 1.1;
+      const spin = world.time * 6 + tt.seed;
+      ctx.strokeStyle = rgba(style.tentacle, 0.9 * alpha);
+      ctx.lineWidth = Math.max(1.6, r * z * 0.08);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(this.sx(tt.x), this.sy(tt.y), cr, spin, spin + Math.PI * 1.3);
+      ctx.stroke();
+    }
   }
 
   private body: JellyBody = { maturity: 0, gulp: 0, gut: '#ffffff' };
   /** The heading the body is drawn at: it trails the swim heading for a softer turn. */
   private visHeading = -Math.PI / 2;
-  private bodyHeading = -Math.PI / 2;
-  /** Marginal tentacles as chains of [x, y, prevX, prevY] links in world space. */
-  private trails: Float32Array[] = [];
-  private bodyPt = { x: 0, y: 0 };
 
   /**
    * The sweep's net while it is open: a fan of light ahead of the bell, the size and angle
@@ -1073,239 +1282,13 @@ export class Renderer {
     ctx.stroke();
   }
 
-  /** A point in the jelly's own frame (bell facing -y) to world space, at the drawn heading. */
-  private bodyPoint(world: World, lx: number, ly: number, out: { x: number; y: number }): { x: number; y: number } {
-    const p = world.player;
-    const a = this.bodyHeading + Math.PI / 2;
-    const cos = Math.cos(a);
-    const sin = Math.sin(a);
-    out.x = p.x + lx * cos - ly * sin;
-    out.y = p.y + lx * sin + ly * cos;
-    return out;
-  }
-
-  /**
-   * Marginal tentacles that really trail. Each is a chain of links hanging from the rim:
-   * every link keeps its momentum, eases toward a relaxed line streaming behind the bell
-   * (stiff near the rim, loose at the tip), and stays a fixed length from the link before it.
-   * Turns and bursts drag the tips round behind the body instead of swinging them with it.
-   */
-  private drawTrails(world: World, r: number, alpha: number, dt: number): void {
-    const p = world.player;
-    const tiers = p.tiers;
-    const { count, lenBase } = marginalTentacles(r, tiers, this.body.maturity);
-    const { w } = bellSize(r, p.thrust, this.body);
-    const rimY = r * 0.2;
-    const N = TRAIL_LINKS;
-    const h = this.bodyHeading;
-    const time = this.reducedMotion ? world.time * 0.5 : world.time;
-    if (this.trails.length !== count) this.trails = [];
-    const anchor = this.bodyPt;
-    const ctx = this.ctx;
-    const z = this.zoom;
-    const sting = tiers.sting;
-    const color = sting > 0 ? '#c59bff' : this.playerStyle.tentacle;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = rgba(color, 0.5 * alpha);
-    ctx.lineWidth = Math.max(0.6, r * (0.055 + sting * 0.008) * z);
-    ctx.beginPath();
-    for (let i = 0; i < count; i++) {
-      const k = count === 1 ? 0.5 : i / (count - 1);
-      this.bodyPoint(world, (k - 0.5) * w * 1.7, rimY, anchor);
-      const seg = marginalLength(lenBase, i) / N;
-      // Outer tentacles fan out a little from the bell's axis.
-      const fan = h + Math.PI + (k - 0.5) * 0.5;
-      let chain = this.trails[i];
-      if (!chain || Math.hypot(chain[0] - anchor.x, chain[1] - anchor.y) > seg * N) {
-        chain = this.trails[i] = new Float32Array((N + 1) * 4);
-        for (let j = 0; j <= N; j++) {
-          const x = anchor.x + Math.cos(fan) * seg * j;
-          const y = anchor.y + Math.sin(fan) * seg * j;
-          chain.set([x, y, x, y], j * 4);
-        }
-      }
-      chain[0] = chain[2] = anchor.x;
-      chain[1] = chain[3] = anchor.y;
-      if (dt > 0) {
-        for (let j = 1; j <= N; j++) {
-          const f = j / N;
-          const o = j * 4;
-          let x = chain[o];
-          let y = chain[o + 1];
-          // Momentum: water damps it quickly, but the tip still swings through a turn.
-          const vx = (x - chain[o + 2]) * 0.9;
-          const vy = (y - chain[o + 3]) * 0.9;
-          chain[o + 2] = x;
-          chain[o + 3] = y;
-          x += vx;
-          y += vy;
-          // Relaxed line: straight back from the previous link, curling with a wave that travels to the tip.
-          const curl = Math.sin(time * 1.8 + i * 0.9 - f * 3.6) * 0.22 + Math.sin(time * 2.9 + i * 2.1 - f * 6.5) * 0.07;
-          const a = fan + curl * (0.4 + 0.6 * f);
-          const tx = chain[o - 4] + Math.cos(a) * seg;
-          const ty = chain[o - 3] + Math.sin(a) * seg;
-          const pull = 1 - Math.exp(-(9 - 7 * f) * dt);
-          x += (tx - x) * pull;
-          y += (ty - y) * pull;
-          // Keep each link its length from the one before.
-          const dx = x - chain[o - 4];
-          const dy = y - chain[o - 3];
-          const d = Math.hypot(dx, dy) || 1;
-          chain[o] = chain[o - 4] + (dx / d) * seg;
-          chain[o + 1] = chain[o - 3] + (dy / d) * seg;
-        }
-      }
-      // Smooth curve through the link midpoints.
-      ctx.moveTo(this.sx(chain[0]), this.sy(chain[1]));
-      for (let j = 1; j < N; j++) {
-        const o = j * 4;
-        ctx.quadraticCurveTo(this.sx(chain[o]), this.sy(chain[o + 1]), this.sx((chain[o] + chain[o + 4]) / 2), this.sy((chain[o + 1] + chain[o + 5]) / 2));
-      }
-      ctx.lineTo(this.sx(chain[N * 4]), this.sy(chain[N * 4 + 1]));
-    }
-    ctx.stroke();
-    if (sting > 0) {
-      // Barbed nettles along every other tentacle.
-      ctx.fillStyle = rgba('#e3ccff', 0.85 * alpha);
-      for (let i = 0; i < count; i += 2) {
-        const chain = this.trails[i];
-        for (let j = 1; j <= 2 + sting; j++) {
-          const o = Math.round((j / (3 + sting)) * N) * 4;
-          ctx.beginPath();
-          ctx.arc(this.sx(chain[o]), this.sy(chain[o + 1]), Math.max(0.6, r * 0.05 * z), 0, TAU);
-          ctx.fill();
-        }
-      }
-    }
-  }
-
   /** A meal just went down: the bell swells and glows with its color for a moment. */
   feed(color: string): void {
+    this.happyT = 0.55;
     this.body.gulp = 1;
     this.body.gut = color;
   }
 
-  private tentRoot = { x: 0, y: 0 };
-  private ribbon = new Float32Array((TENT_SEGS + 1) * 4);
-
-  /**
-   * Hunting arms, drawn in world space from the bell rim to each simulated tip.
-   * A cubic curve leaves the rim sideways and back, then bends toward the tip; a travelling
-   * wave rides on top and calms as the arm pulls taut around a catch.
-   */
-  private drawTentacles(world: World, r: number, alpha: number): void {
-    const ctx = this.ctx;
-    const p = world.player;
-    const z = this.zoom;
-    const time = this.reducedMotion ? world.time * 0.4 : world.time;
-    const color = p.tiers.sting > 0 ? '#c59bff' : this.playerStyle.tentacle;
-    const fx = Math.cos(this.bodyHeading);
-    const fy = Math.sin(this.bodyHeading);
-    const pts = this.ribbon;
-    const N = TENT_SEGS;
-
-    for (const tt of world.tentacles) {
-      const root = this.bodyPoint(world, (tt.slot - 0.5) * r * 1.3, r * 0.2, this.tentRoot);
-      const dx = tt.x - root.x;
-      const dy = tt.y - root.y;
-      const len = Math.hypot(dx, dy);
-      if (len < 0.5) continue;
-      const ux = dx / len;
-      const uy = dy / len;
-      const nx = -uy;
-      const ny = ux;
-      const side = tt.slot < 0.5 ? -1 : 1;
-      const active = tt.phase !== 'idle';
-      const taut =
-        tt.phase === 'reach' ? 0.3 + 0.4 * Math.min(1, tt.t / 0.35) : tt.phase === 'grab' || tt.phase === 'pull' ? 0.75 : tt.phase === 'eat' ? 0.5 : 0;
-
-      // Leave the rim out to the arm's own side, then run straight at the tip. A trailing arm
-      // also hangs back; one striking forward drops that, so it reaches ahead past the bell.
-      const back = clamp(0.45 - (ux * fx + uy * fy) * 0.9, 0, 0.9);
-      let ox = -fx * back - fy * side * 0.6 + ux;
-      let oy = -fy * back + fx * side * 0.6 + uy;
-      const om = Math.hypot(ox, oy) || 1;
-      ox /= om;
-      oy /= om;
-      const bend = Math.sin(time * 2.1 + tt.seed) * len * 0.2 * (1 - taut);
-      const x1 = root.x + ox * len * 0.38;
-      const y1 = root.y + oy * len * 0.38;
-      const x2 = tt.x - ux * len * 0.3 + nx * bend;
-      const y2 = tt.y - uy * len * 0.3 + ny * bend;
-      const amp = Math.min(r * 0.9, len * 0.16) * (1 - taut * 0.8);
-      const speed = active ? 8 : 2.6;
-
-      for (let i = 0; i <= N; i++) {
-        const s = i / N;
-        const m = 1 - s;
-        const a = m * m * m;
-        const b = 3 * m * m * s;
-        const c = 3 * m * s * s;
-        const d = s * s * s;
-        // Two travelling waves, a long swell and a quick ripple, for a loose, flowing arm.
-        const wave = (Math.sin(s * 9 - time * speed + tt.seed) + 0.4 * Math.sin(s * 17 - time * speed * 1.5 + tt.seed * 2)) * amp * Math.sin(Math.PI * s);
-        pts[i * 2] = a * root.x + b * x1 + c * x2 + d * tt.x + nx * wave;
-        pts[i * 2 + 1] = a * root.y + b * y1 + c * y2 + d * tt.y + ny * wave;
-      }
-
-      // Tapered ribbon: thick at the rim, fine at the tip.
-      const base = r * (active ? 0.19 : 0.13) * (1 + 0.35 * this.body.maturity);
-      const L = (N + 1) * 2;
-      for (let i = 0; i <= N; i++) {
-        const j0 = Math.max(0, i - 1) * 2;
-        const j1 = Math.min(N, i + 1) * 2;
-        let tx = pts[j1] - pts[j0];
-        let ty = pts[j1 + 1] - pts[j0 + 1];
-        const tm = Math.hypot(tx, ty) || 1;
-        tx /= tm;
-        ty /= tm;
-        // Never thinner than a couple of screen pixels, so a young jelly's arms still read on a phone.
-        const w = Math.max((base * (1 - i / N) + r * 0.03) * 0.5, ((active ? 2.2 : 1.4) * (1 - i / N) + 0.5) / z);
-        pts[L + i * 2] = -ty * w;
-        pts[L + i * 2 + 1] = tx * w;
-      }
-      ctx.fillStyle = rgba(color, (active ? 0.82 : 0.5) * alpha);
-      ctx.beginPath();
-      for (let i = 0; i <= N; i++) {
-        const X = this.sx(pts[i * 2] + pts[L + i * 2]);
-        const Y = this.sy(pts[i * 2 + 1] + pts[L + i * 2 + 1]);
-        if (i === 0) ctx.moveTo(X, Y);
-        else ctx.lineTo(X, Y);
-      }
-      for (let i = N; i >= 0; i--) ctx.lineTo(this.sx(pts[i * 2] - pts[L + i * 2]), this.sy(pts[i * 2 + 1] - pts[L + i * 2 + 1]));
-      ctx.closePath();
-      ctx.fill();
-
-      if (!active || alpha < 0.3) continue;
-      const tipX = this.sx(tt.x);
-      const tipY = this.sy(tt.y);
-      ctx.globalCompositeOperation = 'lighter';
-      drawGlow(ctx, this.playerStyle.glow, tipX, tipY, r * z * 0.7, 0.55 * alpha);
-      ctx.globalCompositeOperation = 'source-over';
-      const prey = tt.target;
-      if (prey && (tt.phase === 'grab' || tt.phase === 'pull' || tt.phase === 'eat')) {
-        // The tip coils around the catch so the grip reads clearly.
-        const cr = prey.r * (1 - 0.85 * prey.consume) * z * 1.15;
-        const spin = time * 6 + tt.seed;
-        ctx.strokeStyle = rgba(color, 0.85 * alpha);
-        ctx.lineWidth = Math.max(1.8, r * z * 0.07);
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        ctx.arc(tipX, tipY, cr, spin, spin + Math.PI * 1.3);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(tipX, tipY, cr * 0.8, spin + Math.PI, spin + Math.PI * 2.1);
-        ctx.stroke();
-      }
-    }
-  }
-
-  /**
-   * The dark, drawn as a soft low-resolution mask with light cut out of it: the jelly's own glow,
-   * every bioluminescent creature, glowing scenery and brief flashes from bursts and catches.
-   * In the deep, anything that shines lights up its surroundings, and you can see by it.
-   */
   private drawDarkness(world: World, dt: number): void {
     for (let i = this.flashes.length - 1; i >= 0; i--) {
       this.flashes[i].life -= dt;

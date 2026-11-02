@@ -1,6 +1,8 @@
 import type { SpeciesDef } from '../content/types';
 import type { SkinDef } from '../content/unlocks';
-import type { Tiers } from '../content/evolutions';
+import type { MutationId } from '../content/mutations';
+import type { PersonalityId } from '../content/personality';
+import { drawOctopus, proceduralArms, type OctoLook } from '../render/octopus';
 import type { FormId } from '../content/forms';
 import { drawCreatureShape, drawJelly, jellyStyleForSpecies, lookFor, type JellyStyle } from '../render/creatures';
 import { drawGlow } from '../render/sprites';
@@ -25,6 +27,9 @@ const FIT: Partial<Record<SpeciesDef['shape'], number>> = {
   razorfin: 0.3,
   shark: 0.22,
   comb: 0.3,
+  octopus: 0.17,
+  crab: 0.3,
+  clam: 0.28,
   whale: 0.2,
 };
 
@@ -75,41 +80,47 @@ export function renderPortrait(canvas: HTMLCanvasElement, def: SpeciesDef, known
   }
 }
 
+function octoLook(style: JellyStyle): OctoLook {
+  return { skin: style.bell, spots: style.organ, arm: style.tentacle, rim: style.rim, glow: style.glow };
+}
+
+/** Draws a posed octopus centred in a portrait, with the given mutations, forms and character. */
+function posedOctopus(ctx: CanvasRenderingContext2D, s: number, style: JellyStyle, mutations: readonly MutationId[], forms: readonly FormId[], maturity: number, personality: PersonalityId | null, flat = false, t = 1.2): void {
+  const r = s * 0.17 * (mutations.includes('gigantism') ? 1.12 : 1);
+  ctx.save();
+  ctx.translate(s / 2, s * 0.42);
+  drawOctopus(
+    ctx,
+    flat ? { skin: SILHOUETTE, spots: SILHOUETTE, arm: SILHOUETTE, rim: SILHOUETTE, glow: SILHOUETTE } : octoLook(style),
+    { r, t, squeeze: 0.2, mutations, forms, armsLost: 0, regrow: 1, lookX: 0.15, lookY: 0.25, open: 1, mood: 'calm', camo: 0, camoColor: '#000000', alarm: 0, lum: 0.3, personality, flat },
+    proceduralArms(r, t, mutations, maturity, personality),
+  );
+  ctx.restore();
+}
+
 export function renderSkin(canvas: HTMLCanvasElement, skin: SkinDef, cssSize: number): void {
   const ctx = prep(canvas, cssSize);
   ctx.clearRect(0, 0, cssSize, cssSize);
-  ctx.save();
-  ctx.translate(cssSize / 2, cssSize * 0.42);
-  drawJelly(ctx, cssSize * 0.22, 1, 0.3, skin, null, false);
-  ctx.restore();
+  posedOctopus(ctx, cssSize, skin, [], [], 0.2, null);
 }
 
-/** A particular Jelli as it grew: its colors, evolutions, forms and how well fed it was. */
-export function renderJelli(canvas: HTMLCanvasElement, style: JellyStyle, tiers: Tiers | null, forms: readonly FormId[], maturity: number, cssSize: number): void {
+/** A particular octopus as it grew: its colors, mutations, forms, size and character. */
+export function renderOctopus(canvas: HTMLCanvasElement, style: JellyStyle, mutations: readonly MutationId[], forms: readonly FormId[], maturity: number, cssSize: number, personality: PersonalityId | null = null, t = 1.2): void {
   const ctx = prep(canvas, cssSize);
-  const s = cssSize;
-  backdrop(ctx, s, style.glow);
-  const r = s * 0.2;
-  ctx.save();
-  // Leave headroom for a crown (needle, lure) and room below for the arms.
-  ctx.translate(s / 2, s * 0.44);
-  drawJelly(ctx, r, 1.2, 0.3, style, tiers, false, 0, { maturity, gulp: 0, gut: '#ffffff' }, forms);
-  ctx.restore();
+  backdrop(ctx, cssSize, style.glow);
+  posedOctopus(ctx, cssSize, style, mutations, forms, maturity, personality, false, t);
 }
 
-/** One form worn by a plain moon jelly, or its silhouette while still unknown. */
+/** One form worn by a plain octopus, or its silhouette while still unknown. */
 export function renderForm(canvas: HTMLCanvasElement, style: JellyStyle, form: FormId, known: boolean, cssSize: number): void {
   if (known) {
-    renderJelli(canvas, style, null, [form], 0.4, cssSize);
+    renderOctopus(canvas, style, [], [form], 0.4, cssSize);
     return;
   }
   const ctx = prep(canvas, cssSize);
   const s = cssSize;
   backdrop(ctx, s, null);
-  ctx.save();
-  ctx.translate(s / 2, s * 0.44);
-  drawJelly(ctx, s * 0.2, 1.2, 0.3, { bell: SILHOUETTE, rim: SILHOUETTE, organ: SILHOUETTE, tentacle: SILHOUETTE, glow: SILHOUETTE }, null, true);
-  ctx.restore();
+  posedOctopus(ctx, s, style, [], [], 0.4, null, true);
   ctx.fillStyle = 'rgba(234,246,255,0.5)';
   ctx.font = `600 ${Math.round(s * 0.22)}px Fraunces Variable, Georgia, serif`;
   ctx.textAlign = 'center';

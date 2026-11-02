@@ -25,7 +25,10 @@ export type Shape =
   | 'razorfin'
   | 'shark'
   | 'comb'
-  | 'whale';
+  | 'whale'
+  | 'crab'
+  | 'clam'
+  | 'octopus';
 
 export type Behavior =
   | 'drift'
@@ -42,7 +45,10 @@ export type Behavior =
   | 'ambush'
   | 'pack'
   | 'circle'
-  | 'loom';
+  | 'loom'
+  | 'crawl'
+  | 'clam'
+  | 'rival';
 
 export interface RareRule {
   /** Chance per rare roll (every few seconds) before Glow multipliers. */
@@ -100,6 +106,10 @@ export interface SpeciesDef {
   spawnNearCoral?: boolean;
   /** The evolution path eating this creature pushes Jelli toward. Plain plankton has none. */
   diet?: PathId;
+  /** Touching it stings: the octopus is knocked back, numbed and loses its jet charge. */
+  stings?: boolean;
+  /** Hides in a shell when threatened; the arms can't take it while it is shut. */
+  shell?: boolean;
   /** In dark water it is drawn toward the jelly's light, or flees it. */
   light?: 'drawn' | 'shy';
   /** When threatened it darts behind the nearest coral, where arms can't reach. */
@@ -144,15 +154,26 @@ export interface PlayerStats {
   lashSpeed: number;
   /** Multiplies how far away a landmark's glint shows at the screen edge. */
   placeSense: number;
-}
-
-export interface PathTier {
-  title: string;
-  desc: string;
-  /** A few words for the in-run evolution moment. */
-  short: string;
-  add?: Partial<PlayerStats>;
-  mul?: Partial<PlayerStats>;
+  /** Multiplies how far the arms reach on their own. */
+  armReach: number;
+  /** Multiplies how readily held prey wriggles free (lower holds better). */
+  grip: number;
+  /** 1: every jet leaves an ink cloud. */
+  ink: number;
+  /** 1: warning colors keep hunters not much bigger away. */
+  warning: number;
+  /** Multiplies how far away prey notice the octopus coming. */
+  preyWary: number;
+  /** 1: holding still turns the skin to camouflage. */
+  camo: number;
+  /** 1: a bite can take an arm instead of the octopus, now and then. */
+  regrow: number;
+  /** The deepest biome (by index) the body can stand; beyond it the water presses back. */
+  depthTolerance: number;
+  /** Multiplies body size. */
+  sizeMult: number;
+  /** 1: clams can be cracked even when shut. */
+  crack: number;
 }
 
 export interface PathDef {
@@ -160,5 +181,4 @@ export interface PathDef {
   name: string;
   tagline: string;
   color: string;
-  tiers: PathTier[];
 }

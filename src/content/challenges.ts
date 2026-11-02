@@ -23,7 +23,9 @@ export type ChallengeMetric =
   | 'life.legendaryDiscovered'
   | 'life.places'
   | 'life.treasures'
-  | 'run.lashes';
+  | 'run.lashes'
+  | 'life.mutations'
+  | 'life.personality';
 
 export interface ChallengeDef {
   id: string;
@@ -35,14 +37,14 @@ export interface ChallengeDef {
 }
 
 export const CHALLENGES: ChallengeDef[] = [
-  { id: 'first-bloom', title: 'First Bloom', desc: 'Awaken your first instinct.', metric: 'run.evolutions', goal: 1, reward: 'skin:coral' },
+  { id: 'first-bloom', title: 'First Change', desc: 'Grow your first mutation.', metric: 'run.evolutions', goal: 1, reward: 'skin:coral' },
   { id: 'feast', title: 'Feeding Frenzy', desc: 'Eat 45 creatures in a single run.', metric: 'run.eaten', goal: 45, reward: 'trait:seed-surge' },
   { id: 'deep-diver', title: 'Deep Diver', desc: 'Reach the Abyss.', metric: 'run.maxDepth', goal: ZONES_BY_ID.abyss.top, reward: 'trait:seed-glow' },
   { id: 'tide-rider', title: 'Tide Rider', desc: 'Survive for 3 minutes in a single run.', metric: 'run.time', goal: 180, reward: 'trait:seed-sting' },
-  { id: 'stinger', title: 'Nettle Dance', desc: 'Sting 3 hunters in a single run.', metric: 'run.stings', goal: 3, reward: 'skin:nettle' },
-  { id: 'naturalist', title: 'Naturalist', desc: 'Discover 10 species in the Field Guide.', metric: 'life.discovered', goal: 10, reward: 'skin:aurora' },
+  { id: 'stinger', title: 'Venomous', desc: 'Stun 3 hunters with venom in a single dive.', metric: 'run.stings', goal: 3, reward: 'skin:nettle' },
+  { id: 'naturalist', title: 'Naturalist', desc: 'Record 10 species in your Journal.', metric: 'life.discovered', goal: 10, reward: 'skin:aurora' },
   { id: 'reversal', title: 'Turn the Tables', desc: 'Grow big enough to eat a hunter.', metric: 'run.predatorsEaten', goal: 1, reward: 'skin:abyssal' },
-  { id: 'apex', title: 'Apex Jelli', desc: 'Reach Apex size in a single run.', metric: 'run.stage', goal: 4, reward: 'skin:gilded' },
+  { id: 'apex', title: 'Giant', desc: 'Grow to Giant size in a single dive.', metric: 'run.stage', goal: 4, reward: 'skin:gilded' },
   { id: 'rare-sighting', title: 'Rare Sighting', desc: 'Discover a rare species.', metric: 'life.rareDiscovered', goal: 1 },
   { id: 'legend', title: 'Living Legend', desc: 'Witness a legendary species.', metric: 'life.legendaryDiscovered', goal: 1 },
   { id: 'power-surge', title: 'Power Surge', desc: 'Collect 3 power-ups in a single run.', metric: 'run.powerups', goal: 3 },
@@ -54,6 +56,9 @@ export const CHALLENGES: ChallengeDef[] = [
   { id: 'first-form', title: 'What You Eat', desc: 'Take on a new form by eating a hunter or a rare creature.', metric: 'life.forms', goal: 1 },
   { id: 'chimera', title: 'Chimera', desc: 'Wear 3 forms in a single run.', metric: 'run.forms', goal: 3 },
   { id: 'phantom', title: 'Into the Light', desc: 'See the Phantom with your own light.', metric: 'life.phantom', goal: 1, reward: 'skin:phantom' },
+  { id: 'many-forms', title: 'Strange Body', desc: 'Grow 5 mutations in a single dive.', metric: 'run.evolutions', goal: 5 },
+  { id: 'evolutionist', title: 'Endless Forms', desc: 'Grow 12 different mutations across your dives.', metric: 'life.mutations', goal: 12 },
+  { id: 'character', title: 'A Character of Its Own', desc: 'Let your octopus develop a personality.', metric: 'life.personality', goal: 1 },
   { id: 'lash', title: 'Long Reach', desc: 'Lash 10 creatures or pearls in a single dive.', metric: 'run.lashes', goal: 10 },
   { id: 'cartographer', title: 'Cartographer', desc: 'Find 3 landmarks.', metric: 'life.places', goal: 3 },
   { id: 'treasure-hunter', title: 'Treasure Hunter', desc: 'Recover 4 treasures.', metric: 'life.treasures', goal: 4 },

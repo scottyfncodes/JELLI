@@ -180,12 +180,14 @@ export class AudioEngine {
     this.tone(f, 0.16, 'triangle', 0.07, 0.03);
   }
 
+  /** Suckers taking hold: a soft wet pop. */
   grab(): void {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
     if (now - this.lastGrab < 0.05) return;
     this.lastGrab = now;
-    this.tone(420 + Math.random() * 60, 0.07, 'triangle', 0.06, 0, 260);
+    this.tone(520 + Math.random() * 80, 0.05, 'sine', 0.07, 0, 180);
+    this.whoosh(0.08, 1800, 600, 0.06);
   }
 
   /** A sweep closes on its haul: a bright arpeggio that climbs higher the more it caught. */
@@ -294,5 +296,22 @@ export class AudioEngine {
       this.tone(f, 3, 'sine', 0.05 + 0.08 * depth01, 0, f * (Math.random() < 0.5 ? 0.7 : 1.3));
       if (Math.random() < 0.5) this.tone(f * 3.01, 2, 'sine', 0.012 * depth01, 0.6);
     }
+  }
+
+  /** The growth meter is full: a rising swell before the choice. */
+  ready(): void {
+    [392, 523.25, 659.25].forEach((f, i) => this.tone(f, 0.5, 'sine', 0.08, i * 0.07));
+  }
+
+  /** A soft, muffled puff of ink. */
+  ink(): void {
+    this.whoosh(0.5, 500, 180, 0.3);
+    this.tone(110, 0.3, 'sine', 0.08, 0, 70);
+  }
+
+  /** A shell cracked open. */
+  crack(): void {
+    this.tone(1800, 0.05, 'square', 0.04);
+    this.tone(320, 0.12, 'triangle', 0.08, 0.02, 180);
   }
 }

@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Jelli: an underwater exploration and survival game. How deep can you go?",
+  "description": "Jelli: an underwater evolution and survival game. You begin as a tiny octopus.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

@@ -1,4 +1,6 @@
-import { PATHS, PATH_ORDER, MAX_TIER, type Tiers } from '../content/evolutions';
+import { PATHS } from '../content/evolutions';
+import { CATEGORY, MUTATIONS, MUTATIONS_BY_ID, type MutationId } from '../content/mutations';
+import { PERSONALITIES, PERSONALITY_ORDER, dominant, type PersonalityId } from '../content/personality';
 import { SPECIES, SPECIES_BY_ID, RARITY_LABEL } from '../content/species';
 import { STAGES } from '../content/progression';
 import { ZONES, depthMeters, zoneAt, zoneIndex } from '../content/world';
@@ -13,7 +15,7 @@ import type { JellyStyle } from '../render/creatures';
 import { ICONS } from './icons';
 import { POWERS, POWER_ORDER, type PowerTimers } from '../content/powerups';
 import { ENCOUNTERS, LANDMARKS, RELIC_SLOTS, TREASURES, TREASURES_BY_ID } from '../content/landmarks';
-import { renderForm, renderJelli, renderPortrait, renderSkin } from './portrait';
+import { renderForm, renderOctopus, renderPortrait, renderSkin } from './portrait';
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 const fmt = (n: number) => Math.round(n).toLocaleString('en-US');
@@ -43,12 +45,12 @@ export function buildUI(root: HTMLElement, touch: boolean): void {
     <div class="title-corner"><button class="icon-btn" data-action="settings" aria-label="Settings">${ICONS.gear}</button></div>
     <div class="title-wrap">
       <h1 class="logo">Jelli</h1>
-      <p class="tagline">How deep can you go?</p>
+      <p class="tagline">You begin as a tiny octopus.<br>What you become is up to you.</p>
     </div>
     <div class="title-actions">
       <button class="btn btn-primary" data-action="play">Play</button>
       <div class="title-row">
-        <button class="btn btn-ghost" data-action="guide">${ICONS.book.replace('aria-hidden', 'width="18" height="18" aria-hidden')} Field Guide <span class="badge" data-bind="guideCount"></span></button>
+        <button class="btn btn-ghost" data-action="guide">${ICONS.book.replace('aria-hidden', 'width="18" height="18" aria-hidden')} Journal <span class="badge" data-bind="guideCount"></span></button>
         <button class="btn btn-ghost" data-action="lineage">Lineage</button>
       </div>
       <div class="loadout" data-bind="loadout"></div>
@@ -75,9 +77,9 @@ export function buildUI(root: HTMLElement, touch: boolean): void {
     <div class="powers" data-bind="powers"></div>
     <div class="sweep-pop" data-bind="sweepPop" aria-live="off"><strong data-bind="sweepN"></strong><span data-bind="sweepBonus"></span></div>
     <div class="combo" data-bind="combo" aria-live="off"><span class="combo-n" data-bind="comboN"></span><span class="combo-mult" data-bind="comboMult"></span><span class="combo-bar"><i data-bind="comboBar"></i></span></div>
-    <div class="sting-chip" data-bind="sting">${ICONS.sting.replace('aria-hidden', 'width="14" height="14" aria-hidden')}<span data-bind="stingText">Sting ready</span></div>
-    <div class="burst-label">${touch ? 'Burst' : 'Space'}</div>
-    <button class="burst-btn" data-bind="burst" aria-label="Burst">${ICONS.burst}<span class="charges" data-bind="charges"></span></button>
+    <div class="sting-chip" data-bind="sting">${ICONS.sting.replace('aria-hidden', 'width="14" height="14" aria-hidden')}<span data-bind="stingText">Venom ready</span></div>
+    <div class="burst-label">${touch ? 'Jet' : 'Space'}</div>
+    <button class="burst-btn" data-bind="burst" aria-label="Jet">${ICONS.burst}<span class="charges" data-bind="charges"></span></button>
     <div class="flash" data-bind="flash"></div>
   </section>
 
@@ -91,6 +93,15 @@ export function buildUI(root: HTMLElement, touch: boolean): void {
         <button class="btn btn-ghost" data-action="restart">Restart run</button>
         <button class="btn btn-quiet" data-action="quit">End run</button>
       </div>
+    </div>
+  </section>
+
+  <section class="screen evolve" data-screen="evolve" aria-live="polite">
+    <div class="evolve-inner">
+      <p class="eyebrow">Your body is changing</p>
+      <h2>Evolve</h2>
+      <p class="evolve-note" data-bind="evolveNote"></p>
+      <div class="cards" data-bind="evolveCards"></div>
     </div>
   </section>
 
@@ -112,13 +123,15 @@ export function buildUI(root: HTMLElement, touch: boolean): void {
       <button class="icon-btn" data-action="close" aria-label="Back">${ICONS.back}</button>
       <div class="grow">
         <p class="eyebrow" data-bind="guideProgress"></p>
-        <h2>Field Guide</h2>
+        <h2>Journal</h2>
         <div class="progress-line"><i data-bind="guideBar"></i></div>
       </div>
     </div>
     <div class="tabs" role="tablist" data-bind="guideTabs">
       <button class="tab" role="tab" data-action="guideTab" data-tab="life">Life</button>
+      <button class="tab" role="tab" data-action="guideTab" data-tab="mutations">Body</button>
       <button class="tab" role="tab" data-action="guideTab" data-tab="places">Places</button>
+      <button class="tab" role="tab" data-action="guideTab" data-tab="record">Record</button>
     </div>
     <div class="guide-grid" data-bind="guideGrid"></div>
     <div class="places" data-bind="placesList"></div>
@@ -155,12 +168,14 @@ export function renderTitle(ui: Binds, save: SaveData): void {
   }
   if (save.selected.trait) {
     const tr = TRAITS_BY_ID[save.selected.trait];
-    chips.push(`<span class="chip"><span class="dot" style="--c:${PATHS[tr.path].color}"></span>${esc(tr.name)}</span>`);
+    chips.push(`<span class="chip"><span class="dot" style="--c:${CATEGORY[MUTATIONS_BY_ID[tr.mutation].category].color}"></span>${esc(tr.name)}</span>`);
   }
   for (const id of save.relics) {
     const tr = TREASURES_BY_ID[id];
     chips.push(`<span class="chip"><span class="dot" style="--c:${tr.color}"></span>${esc(tr.name)}</span>`);
   }
+  const mood = dominant(save.personality);
+  if (mood) chips.unshift(`<span class="chip"><span class="dot" style="--c:${PERSONALITIES[mood].color}"></span>${esc(PERSONALITIES[mood].name)}</span>`);
   if (save.heirloom) {
     const f = FORMS[save.heirloom];
     chips.push(`<span class="chip"><span class="dot" style="--c:${f.color}"></span>Inherits ${esc(f.name)}</span>`);
@@ -170,17 +185,37 @@ export function renderTitle(ui: Binds, save: SaveData): void {
 
 // ------------------------------------------------------------------ HUD
 
-export function renderPathPips(el: HTMLElement, tiers: Tiers): void {
-  el.innerHTML = PATH_ORDER.map((id) => {
-    const p = PATHS[id];
-    const dots = Array.from({ length: MAX_TIER }, (_, i) => `<i class="${i < tiers[id] ? 'on' : ''}"></i>`).join('');
-    return `<span class="path-pip ${tiers[id] ? 'on' : ''}" style="--c:${p.color}" title="${p.name}">${ICONS[id]}${dots}</span>`;
-  }).join('');
+/** The mutations grown this dive, as a row of small marks in their category colors. */
+export function renderMutationPips(el: HTMLElement, mutations: readonly MutationId[]): void {
+  el.innerHTML = mutations
+    .map((id) => {
+      const m = MUTATIONS_BY_ID[id];
+      return `<i class="mut-pip" style="--c:${CATEGORY[m.category].color}" title="${esc(m.name)}"></i>`;
+    })
+    .join('');
 }
 
-/** Lights up the path the jelly's diet is steering its next evolution toward. */
-export function markDietLead(el: HTMLElement, lead: PathId | null): void {
-  PATH_ORDER.forEach((id, i) => el.children[i]?.classList.toggle('lead', id === lead));
+/** The evolution choice: up to three mutations, each drawn on your octopus as it would look. */
+export function renderEvolve(ui: Binds, offers: MutationId[], view: { style: JellyStyle; mutations: readonly MutationId[]; forms: readonly FormId[]; maturity: number; personality: PersonalityId | null }, pending: number): void {
+  ui.evolveNote.textContent = pending > 1 ? `Choose one. ${pending - 1} more ${pending === 2 ? 'change is' : 'changes are'} waiting after this.` : 'Choose one. It stays for the rest of the dive.';
+  ui.evolveCards.innerHTML = offers
+    .map((id) => {
+      const m = MUTATIONS_BY_ID[id];
+      const c = CATEGORY[m.category];
+      return `<button class="evo-card" style="--c:${c.color}" data-action="mutate" data-id="${id}">
+        <canvas data-evo="${id}"></canvas>
+        <span class="evo-text">
+          <span class="rarity-tag">${esc(c.name)}</span>
+          <strong>${esc(m.name)}</strong>
+          <span class="evo-desc">${esc(m.desc)}</span>
+          ${m.cost ? `<span class="evo-cost">${esc(m.cost)}</span>` : ''}
+        </span>
+      </button>`;
+    })
+    .join('');
+  ui.evolveCards.querySelectorAll<HTMLCanvasElement>('canvas[data-evo]').forEach((cv) => {
+    renderOctopus(cv, view.style, [...view.mutations, cv.dataset.evo as MutationId], view.forms, view.maturity, 96, view.personality);
+  });
 }
 
 /** Depth for display: "742 m". */
@@ -238,7 +273,8 @@ export function renderPowers(el: HTMLElement, powers: PowerTimers): void {
 /** The jelly a run ended with, for its portrait on the results screen. */
 export interface JelliView {
   style: JellyStyle;
-  tiers: Tiers;
+  mutations: MutationId[];
+  personality: PersonalityId | null;
   forms: FormId[];
   maturity: number;
 }
@@ -258,12 +294,11 @@ export function renderHeirs(el: HTMLElement, forms: FormId[], heirloom: FormId |
 }
 
 export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, save: SaveData, jelli: JelliView): void {
-  const tiers = jelli.tiers;
   const caughtBy = run.caughtBy ? SPECIES_BY_ID[run.caughtBy] : null;
   const zone = zoneAt(run.maxDepth);
   const how = caughtBy ? `Caught by a ${caughtBy.name}` : 'You surfaced';
   // Why it ended comes right after how deep: it is the thing to try differently next run.
-  const sub = deathLesson(run) ?? (caughtBy ? 'Every jelly is somebody’s dinner. The deep is waiting.' : 'Every dive goes somewhere new.');
+  const sub = deathLesson(run) ?? (caughtBy ? 'Every octopus is somebody’s dinner. The deep is waiting.' : 'Every dive goes somewhere new.');
   const depth = depthMeters(run.maxDepth);
   const prev = depthMeters(outcome.prevBestDepth);
   const record =
@@ -284,12 +319,16 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
     ? `<section class="section wonder below" style="--c:${below.color}"><h3>Below ${fmt(depthMeters(below.top))} m</h3><div class="row-main"><strong>???</strong><small>${esc(below.teaser)}</small></div></section>`
     : '';
   const stageName = STAGES[run.stage - 1]?.name ?? '';
-  const evo = PATH_ORDER.filter((p) => tiers[p] > 0)
-    .map((p) => `<span class="chip"><span class="dot" style="--c:${PATHS[p].color}"></span>${PATHS[p].name} ${tiers[p]}</span>`)
+  const evo = jelli.mutations
+    .map((id) => `<span class="chip"><span class="dot" style="--c:${CATEGORY[MUTATIONS_BY_ID[id].category].color}"></span>${esc(MUTATIONS_BY_ID[id].name)}${outcome.newMutations.includes(id) ? ' <em>new</em>' : ''}</span>`)
     .join('');
+  const mood = outcome.personality;
+  const moodHtml = mood
+    ? `<section class="section persona" style="--c:${PERSONALITIES[mood].color}"><h3>${outcome.personalityNew ? 'A personality has emerged' : 'Personality'}</h3><div class="row-main"><strong>${esc(PERSONALITIES[mood].name)}</strong><small>${esc(PERSONALITIES[mood].line)} ${esc(PERSONALITIES[mood].perk)}</small></div></section>`
+    : '';
   const forms = jelli.forms.map(formChip).join('');
   const heirs = jelli.forms.length
-    ? `<section class="section"><h3>Pass one on</h3><p class="section-note">Your next Jelli hatches wearing it.</p><div class="heirs" data-bind="heirs"></div></section>`
+    ? `<section class="section"><h3>Pass one on</h3><p class="section-note">Your next octopus hatches wearing it.</p><div class="heirs" data-bind="heirs"></div></section>`
     : '';
   const wonder = below ? null : mystery(save, run);
   const wonderHtml = wonder
@@ -314,7 +353,7 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
   const relicNote = outcome.newTreasures.length ? '<p class="section-note">New treasures become relics. Carry them into your next dive from Lineage.</p>' : '';
   const foundHtml = foundChips.length ? `<section class="section"><h3>Found on this dive</h3>${relicNote}<div class="facts">${foundChips.join('')}</div></section>` : '';
   const disc = outcome.newDiscoveries.length
-    ? `<section class="section"><h3>New in the Field Guide</h3><div class="discoveries">${outcome.newDiscoveries
+    ? `<section class="section"><h3>New in the Journal</h3><div class="discoveries">${outcome.newDiscoveries
         .map((id) => {
           const d = SPECIES_BY_ID[id];
           return `<div class="mini r-${d.rarity}"><canvas data-portrait="${id}"></canvas>${esc(d.name)}<div class="rarity-tag">${RARITY_LABEL[d.rarity]}</div></div>`;
@@ -343,10 +382,10 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
     <div class="jelli-card">
       <canvas data-jelli></canvas>
       <div class="jelli-info">
-        <p class="eyebrow">Your Jelli grew into</p>
+        <p class="eyebrow">Your octopus became</p>
         <strong>${esc(stageName)}</strong>
         <div class="loadout">${evo}${forms}</div>
-        ${evo || forms ? '' : '<small>No instincts or forms yet. Eating and exploring awaken instincts.</small>'}
+        ${evo || forms ? '' : '<small>No mutations yet. Eat and explore to fill the growth meter, then choose what changes.</small>'}
       </div>
     </div>
     <div class="stat-grid">
@@ -357,6 +396,7 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
       <div class="stat"><span>Species seen</span><strong>${seenCount}${freshCount ? ` <em>${freshCount} new</em>` : ''}</strong></div>
       <div class="stat"><span>Pearls</span><strong>${run.pearls}${run.chest ? ' + chest' : ''}</strong></div>
     </div>
+    ${moodHtml}
     ${foundHtml}
     ${heirs}
     ${disc}
@@ -365,14 +405,14 @@ export function renderResults(ui: Binds, run: RunStats, outcome: RunOutcome, sav
     <div class="results-actions">
       <button class="btn btn-primary" data-action="play">Swim again</button>
       <div class="split">
-        <button class="btn btn-ghost" data-action="guide">Field Guide</button>
+        <button class="btn btn-ghost" data-action="guide">Journal</button>
         <button class="btn btn-ghost" data-action="home">Home</button>
       </div>
     </div>`;
   ui.results.querySelectorAll<HTMLCanvasElement>('canvas[data-portrait]').forEach((cv) => {
     renderPortrait(cv, SPECIES_BY_ID[cv.dataset.portrait!], true, 84);
   });
-  renderJelli(ui.results.querySelector<HTMLCanvasElement>('canvas[data-jelli]')!, jelli.style, tiers, jelli.forms, jelli.maturity, 132);
+  renderOctopus(ui.results.querySelector<HTMLCanvasElement>('canvas[data-jelli]')!, jelli.style, jelli.mutations, jelli.forms, jelli.maturity, 132, jelli.personality);
   const heirEl = ui.results.querySelector<HTMLElement>('[data-bind="heirs"]');
   if (heirEl) renderHeirs(heirEl, jelli.forms, save.heirloom);
 }
@@ -387,7 +427,7 @@ function sweepNote(n: number, prev: number): string {
 
 // ------------------------------------------------------------------ field guide
 
-export type GuideTab = 'life' | 'places';
+export type GuideTab = 'life' | 'mutations' | 'places' | 'record';
 
 export function renderGuide(ui: Binds, save: SaveData, tab: GuideTab = 'life'): void {
   ui.guideTabs.querySelectorAll<HTMLElement>('[data-tab]').forEach((el) => {
@@ -396,13 +436,21 @@ export function renderGuide(ui: Binds, save: SaveData, tab: GuideTab = 'life'): 
     el.setAttribute('aria-selected', String(on));
   });
   ui.guideGrid.hidden = tab !== 'life';
-  ui.placesList.hidden = tab !== 'places';
+  ui.placesList.hidden = tab === 'life';
   if (tab === 'places') {
     renderPlaces(ui, save);
     return;
   }
+  if (tab === 'mutations') {
+    renderBody(ui, save);
+    return;
+  }
+  if (tab === 'record') {
+    renderRecord(ui, save);
+    return;
+  }
   const n = countDiscovered(save);
-  ui.guideProgress.textContent = `${n} of ${SPECIES.length} species discovered`;
+  ui.guideProgress.textContent = `${n} of ${SPECIES.length} species encountered`;
   ui.guideBar.style.width = `${(n / SPECIES.length) * 100}%`;
   ui.guideGrid.innerHTML = SPECIES.map((s) => {
     const known = !!save.discovered[s.id];
@@ -416,6 +464,48 @@ export function renderGuide(ui: Binds, save: SaveData, tab: GuideTab = 'life'): 
   ui.guideGrid.querySelectorAll<HTMLCanvasElement>('canvas[data-portrait]').forEach((cv) => {
     renderPortrait(cv, SPECIES_BY_ID[cv.dataset.portrait!], cv.dataset.known === '1', 110);
   });
+}
+
+/** Every mutation: grown ones with what they do and cost; unknown ones only by category. */
+function renderBody(ui: Binds, save: SaveData): void {
+  const n = save.mutations.length;
+  ui.guideProgress.textContent = `${n} of ${MUTATIONS.length} mutations grown`;
+  ui.guideBar.style.width = `${(n / MUTATIONS.length) * 100}%`;
+  ui.placesList.innerHTML = MUTATIONS.map((m) => {
+    const got = save.mutations.includes(m.id);
+    const c = CATEGORY[m.category];
+    return `<article class="place ${got ? '' : 'locked'}" style="--c:${got ? c.color : '#33406e'}">
+      <div class="place-head"><span class="dot"></span><div><h3>${got ? esc(m.name) : 'Unknown mutation'}</h3><small>${esc(c.name)}${m.requires && got ? ` · grows from ${esc(MUTATIONS_BY_ID[m.requires].name)}` : ''}</small></div></div>
+      <p>${got ? `${esc(m.desc)}${m.cost ? ` <span class="cost">${esc(m.cost)}</span>` : ''}` : 'Not yet grown by any octopus. Eat differently, play differently, and it may turn up.'}</p>
+      ${got ? `<div class="facts"><span class="chip">${esc(m.look)}</span></div>` : ''}
+    </article>`;
+  }).join('');
+}
+
+/** Personal milestones and the octopus's developing character. */
+function renderRecord(ui: Binds, save: SaveData): void {
+  const mood = dominant(save.personality);
+  ui.guideProgress.textContent = mood ? `Personality · ${PERSONALITIES[mood].name}` : 'Personality still forming';
+  const total = PERSONALITY_ORDER.reduce((a, id) => a + save.personality[id], 0) || 1;
+  ui.guideBar.style.width = `${Math.min(100, total)}%`;
+  const bars = PERSONALITY_ORDER.map((id) => {
+    const d = PERSONALITIES[id];
+    const v = save.personality[id];
+    return `<div class="trait-bar ${mood === id ? 'lead' : ''}" style="--c:${d.color}"><span>${esc(d.name)}</span><i style="width:${Math.round((v / total) * 100)}%"></i><small>${esc(d.line)}</small></div>`;
+  }).join('');
+  const stat = (label: string, value: string) => `<div class="stat"><span>${label}</span><strong>${value}</strong></div>`;
+  ui.placesList.innerHTML = `
+    <section class="section"><h3>Character</h3><p class="section-note">${mood ? `${esc(PERSONALITIES[mood].line)} ${esc(PERSONALITIES[mood].perk)}` : 'How you play shapes who your octopus becomes. Keep diving.'}</p>${bars}</section>
+    <div class="stat-grid">
+      ${stat('Deepest dive', save.best.depth > 0 ? meters(save.best.depth) : '0 m')}
+      ${stat('Dives', fmt(save.stats.runs))}
+      ${stat('Mutations grown', `${save.mutations.length}`)}
+      ${stat('Species found', `${countDiscovered(save)}`)}
+      ${stat('Eaten', fmt(save.stats.eaten))}
+      ${stat('Pearls', fmt(save.stats.pearls))}
+      ${stat('Places found', `${Object.keys(save.places).length}`)}
+      ${stat('Biggest sweep', `${save.best.sweep}`)}
+    </div>`;
 }
 
 /** Landmarks and their treasures: found ones with field notes, unfound ones with a hint. */
@@ -465,6 +555,9 @@ const BEHAVIOR_NOTE: Record<SpeciesDef['behavior'], string> = {
   pack: 'Hunts in packs that swarm together',
   circle: 'Circles at a distance before it dashes in',
   loom: 'Drifts along the bottom of the Abyss',
+  crawl: 'Walks the reef, carrying its shell',
+  clam: 'Opens to feed and snaps shut when anything comes close',
+  rival: 'Watches you, then inks and jets away',
 };
 
 /** What the field notes say about how it behaves, built from its traits. */
@@ -474,6 +567,9 @@ function behaviorNotes(def: SpeciesDef): string[] {
   if (def.light === 'shy') out.push('Flees from light in dark water');
   if (def.shelters) out.push('Hides behind coral when chased');
   if (def.territory) out.push('Patrols its own patch of water');
+  if (def.shell) out.push('Arms can’t take it while it is shut');
+  if (def.stings) out.push('Stings anything that touches it');
+  if (def.inedible) out.push('Not food');
   if (def.glows) out.push('Bioluminescent');
   return out;
 }
@@ -513,7 +609,7 @@ export function renderDetail(ui: Binds, save: SaveData, id: string): void {
       ${known && rec.firstSeen > 0 && def.role !== 'player' ? `<span class="chip">First seen ${new Date(rec.firstSeen).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>` : ''}
       ${known && def.role !== 'player' ? `<span class="chip">Seen in ${rec.seen} ${rec.seen === 1 ? 'dive' : 'dives'}</span>` : ''}
       ${known && rec.eaten ? `<span class="chip">Eaten ${rec.eaten}</span>` : ''}
-      ${known && def.diet ? `<span class="chip"><span class="dot" style="--c:${PATHS[def.diet].color}"></span>Feeds your ${PATHS[def.diet].name}</span>` : ''}
+      ${known && def.diet ? `<span class="chip"><span class="dot" style="--c:${PATHS[def.diet].color}"></span>${PATHS[def.diet].name} food · ${esc(PATHS[def.diet].tagline.split(': ')[1] ?? '')}</span>` : ''}
       ${!known && save.glimpses[id] ? `<span class="chip">Glimpsed in ${save.glimpses[id]} ${save.glimpses[id] === 1 ? 'dive' : 'dives'}</span>` : ''}
       ${formFact(save, id, known)}
       ${def.power ? `<span class="chip"><span class="dot" style="--c:${POWERS[def.power].color}"></span>${known ? `${esc(POWERS[def.power].name)} · ${esc(POWERS[def.power].desc)}` : 'Grants a power-up'}</span>` : ''}
@@ -589,7 +685,7 @@ export function renderLineage(ui: Binds, save: SaveData): void {
     <section class="section"><h3>Challenges</h3><div class="row-list">${challenges}</div></section>
     <div>
       <section class="section"><h3>Starting trait</h3>${traits}</section>
-      <section class="section" style="margin-top:16px"><h3>Bell colors</h3><div class="skins">${skins}</div></section>
+      <section class="section" style="margin-top:16px"><h3>Skin colors</h3><div class="skins">${skins}</div></section>
     </div>`;
   ui.lineage.querySelectorAll<HTMLCanvasElement>('canvas[data-skin]').forEach((cv) => renderSkin(cv, SKINS_BY_ID[cv.dataset.skin!], 64));
   const style = SKINS_BY_ID[save.selected.skin] ?? SKINS_BY_ID.moon;

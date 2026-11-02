@@ -4,6 +4,7 @@ import type { Tiers } from '../content/evolutions';
 import type { FormId } from '../content/forms';
 import { TAU, rgba } from '../core/math';
 import { drawGlow } from './sprites';
+import { drawOctopus, proceduralArms, type OctoLook } from './octopus';
 
 export interface Look {
   body: string;
@@ -24,6 +25,8 @@ export interface Pose {
   /** 0 calm, 1 alert/attacking. */
   alert: number;
   puffed: number;
+  /** 0..1 shut in its shell (crabs, clams). */
+  shut?: number;
 }
 
 function ellipse(ctx: CanvasRenderingContext2D, x: number, y: number, rx: number, ry: number, rot = 0): void {
@@ -681,6 +684,135 @@ export function drawCreatureShape(ctx: CanvasRenderingContext2D, def: SpeciesDef
         ellipse(ctx, r * 0.95, -r * 0.05, r * 0.035, r * 0.03);
         ctx.fill();
       }
+      break;
+    }
+    case 'crab': {
+      // A hermit crab: borrowed spiral shell on its back, legs ticking along, claws up front.
+      const shut = pose.shut ?? 0;
+      const walk = t * 10;
+      if (shut < 0.9) {
+        ctx.strokeStyle = rgba(look.body, a(1));
+        ctx.lineWidth = Math.max(0.6, r * 0.14);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        for (let i = 0; i < 3; i++) {
+          const lx = r * (0.1 + i * 0.28);
+          const k = Math.sin(walk + i * 2) * r * 0.18;
+          ctx.moveTo(lx, r * 0.25);
+          ctx.lineTo(lx + r * 0.2 + k, r * 0.75);
+          ctx.lineTo(lx + r * 0.32 + k, r * 0.95);
+        }
+        ctx.stroke();
+        ctx.fillStyle = rgba(look.body, a(1));
+        ellipse(ctx, r * 0.55, r * 0.1, r * 0.38, r * 0.28);
+        ctx.fill();
+        // Claws.
+        ctx.beginPath();
+        ctx.ellipse(r * 1.0, -r * 0.05, r * 0.26, r * 0.18, -0.3, 0, TAU);
+        ctx.ellipse(r * 0.95, r * 0.3, r * 0.2, r * 0.14, 0.3, 0, TAU);
+        ctx.fill();
+        if (!look.flat) {
+          ctx.fillStyle = '#1a1020';
+          ellipse(ctx, r * 0.78, -r * 0.22, r * 0.07, r * 0.07);
+          ctx.fill();
+          ellipse(ctx, r * 0.66, -r * 0.24, r * 0.06, r * 0.06);
+          ctx.fill();
+        }
+      }
+      // The shell.
+      const g = look.flat ? look.body : ctx.createRadialGradient(-r * 0.4, -r * 0.4, r * 0.1, -r * 0.2, -r * 0.1, r * 1.1);
+      if (typeof g !== 'string') {
+        g.addColorStop(0, '#fff2dc');
+        g.addColorStop(0.5, look.accent);
+        g.addColorStop(1, '#8a5a3a');
+      }
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(r * 0.4, r * 0.35);
+      ctx.quadraticCurveTo(-r * 1.3, r * 0.6, -r * 0.9, -r * 0.5);
+      ctx.quadraticCurveTo(-r * 0.2, -r * 1.05, r * 0.45, -r * 0.2);
+      ctx.closePath();
+      ctx.fill();
+      if (!look.flat) {
+        ctx.strokeStyle = rgba('#8a5a3a', 0.7);
+        ctx.lineWidth = Math.max(0.5, r * 0.07);
+        ctx.beginPath();
+        for (let k = 0; k <= 24; k++) {
+          const ang = k * 0.4;
+          const rr = r * 0.06 * Math.exp(ang * 0.17);
+          const x = -r * 0.35 + Math.cos(ang) * rr;
+          const y = -r * 0.2 + Math.sin(ang) * rr;
+          if (k === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+      break;
+    }
+    case 'clam': {
+      // A giant clam: two fluted shells; open, a glowing wavy mantle and a glint of pearl.
+      const shut = pose.shut ?? 0;
+      const gape = (1 - shut) * 0.42;
+      const shell = (dir: number) => {
+        ctx.save();
+        ctx.rotate(dir * gape);
+        const g = look.flat ? look.body : ctx.createLinearGradient(-r, 0, r, 0);
+        if (typeof g !== 'string') {
+          g.addColorStop(0, '#d8d0e8');
+          g.addColorStop(1, '#a89ac0');
+        }
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.moveTo(-r * 0.9, 0);
+        for (let k = 0; k <= 5; k++) {
+          const x = -r * 0.9 + (k / 5) * r * 2;
+          const y = dir * (r * 0.62 * Math.sin((k / 5) * Math.PI * 0.95 + 0.1) + (k % 2 ? r * 0.08 : 0));
+          ctx.lineTo(x, y);
+        }
+        ctx.lineTo(r * 1.1, 0);
+        ctx.closePath();
+        ctx.fill();
+        if (!look.flat) {
+          ctx.strokeStyle = 'rgba(90,70,120,0.5)';
+          ctx.lineWidth = Math.max(0.5, r * 0.05);
+          ctx.beginPath();
+          for (let k = 1; k < 5; k++) {
+            ctx.moveTo(-r * 0.85, 0);
+            ctx.lineTo(-r * 0.9 + (k / 5) * r * 2, dir * r * 0.6 * Math.sin((k / 5) * Math.PI * 0.95 + 0.1));
+          }
+          ctx.stroke();
+        }
+        ctx.restore();
+      };
+      if (gape > 0.03 && !look.flat) {
+        ctx.fillStyle = rgba(look.body, 0.95);
+        ctx.beginPath();
+        ctx.moveTo(-r * 0.8, 0);
+        for (let k = 0; k <= 10; k++) {
+          const x = -r * 0.8 + (k / 10) * r * 1.85;
+          ctx.lineTo(x, Math.sin(k * 1.4 + t * 3) * r * 0.06 - gape * r * 0.5 * Math.sin((k / 10) * Math.PI));
+        }
+        for (let k = 10; k >= 0; k--) {
+          const x = -r * 0.8 + (k / 10) * r * 1.85;
+          ctx.lineTo(x, Math.sin(k * 1.4 + t * 3 + 1) * r * 0.06 + gape * r * 0.5 * Math.sin((k / 10) * Math.PI));
+        }
+        ctx.fill();
+        drawGlow(ctx, look.accent, r * 0.1, 0, r * 0.9 * gape * 2, 0.6);
+        ctx.fillStyle = '#fff6fc';
+        ellipse(ctx, r * 0.2, 0, r * 0.13, r * 0.13);
+        ctx.fill();
+      }
+      shell(-1);
+      shell(1);
+      break;
+    }
+    case 'octopus': {
+      // Drawn upright (portraits); in play the renderer turns it to its heading.
+      ctx.translate(0, -r * 0.8);
+      const lk: OctoLook = look.flat
+        ? { skin: look.body, spots: look.body, arm: look.body, rim: look.body, glow: look.body }
+        : { skin: look.body, spots: look.accent, arm: look.body, rim: '#ffe2d2', glow: look.glow };
+      drawOctopus(ctx, lk, { r, t, squeeze: 0.2, mutations: [], forms: [], armsLost: 0, regrow: 1, lookX: 0.2, lookY: 0.2, open: 1, mood: 'calm', camo: 0, camoColor: '#000000', alarm: 0, lum: 0, personality: null, flat: look.flat }, proceduralArms(r, t, [], 0.2, null));
       break;
     }
     case 'jelly':

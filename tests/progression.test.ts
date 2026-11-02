@@ -41,7 +41,7 @@ describe('growth and stages', () => {
 describe('content data', () => {
   it('has a healthy roster of species with unique ids, including the player', () => {
     expect(SPECIES.length).toBeGreaterThanOrEqual(12);
-    expect(SPECIES.length).toBeLessThanOrEqual(28);
+    expect(SPECIES.length).toBeLessThanOrEqual(36);
     expect(new Set(SPECIES.map((s) => s.id)).size).toBe(SPECIES.length);
     expect(SPECIES.some((s) => s.role === 'player')).toBe(true);
   });
