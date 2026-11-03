@@ -21,6 +21,8 @@ export interface RigInput {
   curl: number;
   time: number;
   dt: number;
+  /** 0 drifting .. 1 swimming hard: trailing arms ripple with a wave that runs down their length. */
+  swim?: number;
   /** Per-arm targets in world space, or null to hang free. */
   targets: ({ x: number; y: number; w: number } | null)[];
 }
@@ -48,6 +50,7 @@ export class OctoRig {
 
   update(inp: RigInput): void {
     const { x, y, angle, r, len, spread, curl, time, dt, targets } = inp;
+    const swim = inp.swim ?? 0;
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
     const seg = len / (ARM_POINTS - 1);
@@ -81,9 +84,13 @@ export class OctoRig {
           px += vx;
           py += vy;
           // A relaxed, curling line: each arm waves on its own rhythm, most toward the tip.
-          const wave = Math.sin(time * 1.5 + i * 1.3 - f * 3.4) * curl + Math.sin(time * 2.3 + i * 2.1 - f * 6) * curl * 0.25;
+          let wave = Math.sin(time * 1.5 + i * 1.3 - f * 3.4) * curl + Math.sin(time * 2.3 + i * 2.1 - f * 6) * curl * 0.25;
+          // Swimming, a quicker ripple travels root to tip, each arm a little out of step, so the
+          // trailing arms stream like ribbons instead of a stiff bundle.
+          if (swim > 0) wave += Math.sin(time * 7.5 - f * 5.5 + i * 0.85) * 0.55 * swim;
           // Tips curl up and outward when relaxed; streaming fast, they straighten behind.
-          const a = base + wave * f * 0.65 - armSide(i) * curl * 1.1 * f * f;
+          // The curl lives in the last third of the arm: the arm hangs, then the tip curls up and out.
+          const a = base + wave * f * 0.65 - armSide(i) * curl * 1.9 * f * f * f * f;
           const tx = c[o - 4] + Math.cos(a) * seg;
           const ty = c[o - 3] + Math.sin(a) * seg;
           const pull = 1 - Math.exp(-(10 - 7 * f) * dt);

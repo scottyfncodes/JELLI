@@ -1168,7 +1168,7 @@ export class Renderer {
         if (best) targets[mood === 'playful' ? 2 : 3] = { x: best.x, y: best.y, w: 0.35 };
       }
     }
-    const spreadBase = mood === 'cautious' ? 0.55 : mood === 'aggressive' ? 0.75 : 0.9;
+    const spreadBase = mood === 'cautious' ? 0.48 : mood === 'aggressive' ? 0.64 : 0.76;
     const curlBase = mood === 'playful' ? 0.75 : mood === 'cautious' ? 0.3 : 0.5;
     this.rig.update({
       x: p.x,
@@ -1176,8 +1176,9 @@ export class Renderer {
       angle: this.bodyAngle,
       r,
       len,
-      spread: lerp(spreadBase + Math.min(1, this.wonderT * 2) * 0.3, 0.26, fast),
+      spread: lerp(spreadBase + Math.min(1, this.wonderT * 2) * 0.3, 0.4, fast),
       curl: lerp(curlBase, 0.3, fast),
+      swim: fast,
       time: t,
       dt,
       targets,

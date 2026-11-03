@@ -108,7 +108,10 @@ export function armRestAngle(i: number, spread: number): number {
   // Fan out from a gap in the middle: even the two centre arms angle away from each other,
   // so they never hang together as one thick column under the face.
   const k = (i / (ARM_COUNT - 1)) * 2 - 1;
-  return Math.PI / 2 + Math.sign(k) * (0.32 + Math.abs(k) * 0.95) * spread;
+  // Angles run clockwise from +x with y pointing down, so a left-hand arm (k < 0) needs an angle
+  // past PI / 2 to point down and to the LEFT. (With the sign the other way round every arm aimed
+  // across the body, and the eight of them crossed in an X under the face.)
+  return Math.PI / 2 - Math.sign(k) * (0.2 + Math.abs(k) * 0.62) * spread;
 }
 
 /** How long the arms are, in body radii. */
@@ -138,7 +141,7 @@ export function proceduralArms(r: number, t: number, mutations: readonly Mutatio
     for (let j = 1; j < ARM_POINTS; j++) {
       const f = j / (ARM_POINTS - 1);
       // Each arm waves on its own, and its tip curls up and outward, the way octopus arms coil.
-      a += (Math.sin(t * 1.4 + i * 1.3 - f * 3.2) * curlAmp * f * 0.6 - armSide(i) * 0.42 * f * f) * 0.5;
+      a += (Math.sin(t * 1.4 + i * 1.3 - f * 3.2) * curlAmp * f * 0.6 - armSide(i) * 0.9 * f * f * f) * 0.5;
       x += Math.cos(a) * seg;
       y += Math.sin(a) * seg;
       pts[j * 2] = x;
@@ -403,7 +406,7 @@ function drawArm(ctx: CanvasRenderingContext2D, raw: Float32Array, index: number
   const S = ARM_SUB;
   const L: number[] = [];
   const R: number[] = [];
-  const base = r * 0.16 * (has(pose, 'deep-body') ? 1.12 : 1);
+  const base = r * 0.2 * (has(pose, 'deep-body') ? 1.12 : 1);
   const stub = visible < 1;
   for (let j = 0; j < N; j++) {
     const j0 = Math.max(0, j - 1) * 2;
