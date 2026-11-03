@@ -21,6 +21,8 @@ export interface RigInput {
   curl: number;
   time: number;
   dt: number;
+  /** 0 drifting .. 1 swimming hard: trailing arms ripple with a wave that runs down their length. */
+  swim?: number;
   /** Per-arm targets in world space, or null to hang free. */
   targets: ({ x: number; y: number; w: number } | null)[];
 }
@@ -48,6 +50,7 @@ export class OctoRig {
 
   update(inp: RigInput): void {
     const { x, y, angle, r, len, spread, curl, time, dt, targets } = inp;
+    const swim = inp.swim ?? 0;
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
     const seg = len / (ARM_POINTS - 1);
@@ -73,16 +76,21 @@ export class OctoRig {
           const o = j * 4;
           let px = c[o];
           let py = c[o + 1];
-          const vx = (px - c[o + 2]) * 0.9;
-          const vy = (py - c[o + 3]) * 0.9;
+          const keep = Math.pow(0.9, dt * 60);
+          const vx = (px - c[o + 2]) * keep;
+          const vy = (py - c[o + 3]) * keep;
           c[o + 2] = px;
           c[o + 3] = py;
           px += vx;
           py += vy;
           // A relaxed, curling line: each arm waves on its own rhythm, most toward the tip.
-          const wave = Math.sin(time * 1.5 + i * 1.3 - f * 3.4) * curl + Math.sin(time * 2.3 + i * 2.1 - f * 6) * curl * 0.25;
+          let wave = Math.sin(time * 1.5 + i * 1.3 - f * 3.4) * curl + Math.sin(time * 2.3 + i * 2.1 - f * 6) * curl * 0.25;
+          // Swimming, a quicker ripple travels root to tip, each arm a little out of step, so the
+          // trailing arms stream like ribbons instead of a stiff bundle.
+          if (swim > 0) wave += Math.sin(time * 7.5 - f * 5.5 + i * 0.85) * 0.55 * swim;
           // Tips curl up and outward when relaxed; streaming fast, they straighten behind.
-          const a = base + wave * f * 0.65 - armSide(i) * curl * 1.1 * f * f;
+          // The curl lives in the last third of the arm: the arm hangs, then the tip curls up and out.
+          const a = base + wave * f * 0.65 - armSide(i) * curl * 1.9 * f * f * f * f;
           const tx = c[o - 4] + Math.cos(a) * seg;
           const ty = c[o - 3] + Math.sin(a) * seg;
           const pull = 1 - Math.exp(-(10 - 7 * f) * dt);
@@ -93,6 +101,24 @@ export class OctoRig {
           const d = Math.hypot(dx, dy) || 1;
           c[o] = c[o - 4] + (dx / d) * seg;
           c[o + 1] = c[o - 3] + (dy / d) * seg;
+        }
+        // Bending stiffness: ease each joint toward the midpoint of its neighbours, so a fast
+        // turn bends the arm in a curve instead of folding it into zigzags.
+        for (let pass = 0; pass < 2; pass++) {
+          for (let j = 1; j < N - 1; j++) {
+            const o = j * 4;
+            const k = 0.35 * (1 - (j / (N - 1)) * 0.5);
+            c[o] += ((c[o - 4] + c[o + 4]) * 0.5 - c[o]) * k;
+            c[o + 1] += ((c[o - 3] + c[o + 5]) * 0.5 - c[o + 1]) * k;
+          }
+          for (let j = 1; j < N; j++) {
+            const o = j * 4;
+            const dx = c[o] - c[o - 4];
+            const dy = c[o + 1] - c[o - 3];
+            const d = Math.hypot(dx, dy) || 1;
+            c[o] = c[o - 4] + (dx / d) * seg;
+            c[o + 1] = c[o - 3] + (dy / d) * seg;
+          }
         }
         const tg = targets[i];
         if (tg) this.reach(c, tg.x, tg.y, seg, tg.w);

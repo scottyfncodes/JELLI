@@ -59,7 +59,15 @@ class Game {
   private input = new Input(this.canvas);
   private renderer: Renderer;
   private world: World;
-  private state: State = 'title';
+  private _state: State = 'title';
+  private get state(): State {
+    return this._state;
+  }
+  /** Mirrors the state onto the UI root, so CSS can quiet the HUD layer under menus. */
+  private set state(v: State) {
+    this._state = v;
+    this.uiRoot.dataset.state = v;
+  }
   private overlay: Overlay = null;
   private simInput: SimInput = { ax: 0, ay: 0, burst: false };
   private last = performance.now();
@@ -73,6 +81,15 @@ class Game {
   /** Biggest sweep on record when this run began, for the mid-run record moment. */
   private sweepRecord = 0;
   private noticeCooldown = 0;
+  private hitStop = 0;
+  private hitStopScale = 1;
+
+  private freeze(seconds: number, scale: number): void {
+    if (seconds > this.hitStop) {
+      this.hitStop = seconds;
+      this.hitStopScale = scale;
+    }
+  }
   /** One-off lines already shown this dive. */
   private said = new Set<string>();
 
@@ -420,6 +437,9 @@ class Game {
     for (const s of ['title', 'pause', 'results', 'evolve']) this.show(s, false);
     this.show('hud', true);
     this.ui.toasts.innerHTML = '';
+    this.zoneQueue.length = 0;
+    this.hitStop = 0;
+    this.zoneBusyUntil = 0;
     this.said.clear();
     this.hudCache = Game.freshHud();
     this.tutorial = { step: this.save.tutorialDone ? 99 : 0, t: 0, eats: 0 };
@@ -450,11 +470,17 @@ class Game {
     this.input.reset();
     this.applySettings();
     this.show('pause', true);
+    // Lift the camera so the dozing octopus floats above the pause sheet instead of behind it.
+    const wide = this.renderer.w > this.renderer.h;
+    this.renderer.focusOffset = this.renderer.h * (wide ? 0.05 : 0.3);
+    if (wide) this.renderer.focusOffsetX = this.renderer.w * 0.3;
   }
 
   private resume(): void {
     if (this.state !== 'paused') return;
     this.show('pause', false);
+    this.renderer.focusOffset = this.renderer.h * 0.12;
+    this.renderer.focusOffsetX = 0;
     this.state = 'play';
     this.input.enabled = true;
     this.last = performance.now();
@@ -518,9 +544,15 @@ class Game {
       const tap = this.input.consumeTap();
       if (tap) this.lashAt(tap.x, tap.y);
       this.audio.tick(dt, Math.min(1, depthMeters(this.world.player.y) / 6000));
-      const steps = dt > 1 / 45 ? 2 : 1;
+      // Hit-stop: a big haul or a bite freezes the water for a beat, then lets go.
+      let simDt = dt;
+      if (this.hitStop > 0) {
+        this.hitStop -= dt;
+        simDt = dt * (this.reducedMotion() ? 1 : this.hitStopScale);
+      }
+      const steps = simDt > 1 / 45 ? 2 : 1;
       for (let i = 0; i < steps; i++) {
-        this.world.update(dt / steps, this.simInput);
+        this.world.update(simDt / steps, this.simInput);
         this.simInput.burst = false;
       }
       this.handleEvents(dt);
@@ -545,8 +577,15 @@ class Game {
       // The world holds still while the body changes, but the octopus keeps breathing and blinking.
       r.render(this.world, dt, null);
     } else {
-      // Paused: hold the frame still but keep it rendered.
-      r.render(this.world, 0, null);
+      // Paused: the world holds still and the octopus dozes, breathing out a slow bubble now and then.
+      r.sleeping = true;
+      const pl = this.world.player;
+      if (pl.alive && !this.reducedMotion() && Math.random() < dt * 0.9) {
+        r.particles.emit(PKind.Bubble, pl.x + pl.r * 0.5, pl.y - pl.r * 0.6, 6, -38, 2.4, 2 + Math.random() * 2.5, '#fff', 0.4, 0.6);
+      }
+      r.updateCamera(this.world, dt);
+      r.render(this.world, dt * 0.6, null);
+      r.sleeping = false;
     }
   };
 
@@ -676,6 +715,7 @@ class Game {
         ps.emit(PKind.Ring, e.x, e.y, 0, 0, 0.6, p.r, color, 140 + e.n * 22, 0);
         ps.burst(e.x, e.y, 10 + e.n * 4, 120 + e.n * 18, 3, color, 0.7);
         this.renderer.addShake(Math.min(0.5, 0.08 + e.n * 0.04));
+        if (e.n >= 4) this.freeze(Math.min(0.14, 0.04 + e.n * 0.012), 0.08);
         const record = e.n > this.sweepRecord && e.n >= 3;
         if (record) this.sweepRecord = e.n;
         this.callout(`Sweep ×${e.n}`, record ? `New record · +${fmt(e.bonus)}` : `+${fmt(e.bonus)}`, record, e.n >= 6);
@@ -706,6 +746,7 @@ class Game {
         }
         ps.burst(p.x, p.y, 20, 160, 4, this.renderer.playerStyle.glow, 0.8);
         this.renderer.addShake(0.8);
+        this.freeze(0.55, 0.2);
         this.audio.caught();
         break;
       case 'discover': {
@@ -976,11 +1017,25 @@ class Game {
     this.pushToast(el, 2200);
   }
 
+  /** Big banners take turns: a second one waits for the first instead of stacking over the octopus. */
+  private zoneQueue: { name: string; sub: string }[] = [];
+  private zoneBusyUntil = 0;
+
   private zoneToast(name: string, sub: string): void {
+    const now = performance.now();
+    if (now < this.zoneBusyUntil) {
+      if (this.zoneQueue.length < 3) this.zoneQueue.push({ name, sub });
+      return;
+    }
     const el = document.createElement('div');
     el.className = 'toast zone';
     el.innerHTML = `<strong>${name}</strong><span>${sub}</span>`;
-    this.pushToast(el, 2800);
+    this.pushToast(el, 2600);
+    this.zoneBusyUntil = now + 2900;
+    setTimeout(() => {
+      const next = this.zoneQueue.shift();
+      if (next && this.state !== 'title') this.zoneToast(next.name, next.sub);
+    }, 2950);
   }
 
   private pushToast(el: HTMLElement, ms: number): void {

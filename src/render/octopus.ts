@@ -108,7 +108,10 @@ export function armRestAngle(i: number, spread: number): number {
   // Fan out from a gap in the middle: even the two centre arms angle away from each other,
   // so they never hang together as one thick column under the face.
   const k = (i / (ARM_COUNT - 1)) * 2 - 1;
-  return Math.PI / 2 + Math.sign(k) * (0.32 + Math.abs(k) * 0.95) * spread;
+  // Angles run clockwise from +x with y pointing down, so a left-hand arm (k < 0) needs an angle
+  // past PI / 2 to point down and to the LEFT. (With the sign the other way round every arm aimed
+  // across the body, and the eight of them crossed in an X under the face.)
+  return Math.PI / 2 - Math.sign(k) * (0.2 + Math.abs(k) * 0.62) * spread;
 }
 
 /** How long the arms are, in body radii. */
@@ -138,7 +141,7 @@ export function proceduralArms(r: number, t: number, mutations: readonly Mutatio
     for (let j = 1; j < ARM_POINTS; j++) {
       const f = j / (ARM_POINTS - 1);
       // Each arm waves on its own, and its tip curls up and outward, the way octopus arms coil.
-      a += (Math.sin(t * 1.4 + i * 1.3 - f * 3.2) * curlAmp * f * 0.6 - armSide(i) * 0.42 * f * f) * 0.5;
+      a += (Math.sin(t * 1.4 + i * 1.3 - f * 3.2) * curlAmp * f * 0.6 - armSide(i) * 0.9 * f * f * f) * 0.5;
       x += Math.cos(a) * seg;
       y += Math.sin(a) * seg;
       pts[j * 2] = x;
@@ -358,13 +361,53 @@ function drawWebbing(ctx: CanvasRenderingContext2D, arms: Float32Array[], color:
   }
 }
 
+/** Curve samples per chain segment when drawing an arm. */
+const ARM_SUB = 3;
+const smoothBuf: Float32Array[] = [];
+
+/** Catmull-Rom resampling of the first `n` points of a chain, `sub` samples per segment. */
+function smoothChain(src: Float32Array, n: number, sub: number): Float32Array {
+  const len = ((n - 1) * sub + 1) * 2;
+  let out = smoothBuf[len];
+  if (!out) out = smoothBuf[len] = new Float32Array(len);
+  let k = 0;
+  for (let i = 0; i < n - 1; i++) {
+    const i0 = Math.max(0, i - 1) * 2;
+    const i1 = i * 2;
+    const i2 = (i + 1) * 2;
+    const i3 = Math.min(n - 1, i + 2) * 2;
+    for (let s = 0; s < sub; s++) {
+      const t = s / sub;
+      const t2 = t * t;
+      const t3 = t2 * t;
+      for (let c = 0; c < 2; c++) {
+        const p0 = src[i0 + c];
+        const p1 = src[i1 + c];
+        const p2 = src[i2 + c];
+        const p3 = src[i3 + c];
+        out[k + c] = 0.5 * (2 * p1 + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3);
+      }
+      k += 2;
+    }
+  }
+  out[k] = src[(n - 1) * 2];
+  out[k + 1] = src[(n - 1) * 2 + 1];
+  return out;
+}
+
 /** One arm: a tapered, shaded ribbon with a row of suckers along its inner edge. */
-function drawArm(ctx: CanvasRenderingContext2D, pts: Float32Array, index: number, color: string, look: OctoLook, pose: OctoPose, visible: number): void {
+function drawArm(ctx: CanvasRenderingContext2D, raw: Float32Array, index: number, color: string, look: OctoLook, pose: OctoPose, visible: number): void {
   const r = pose.r;
-  const N = Math.max(2, Math.round((ARM_POINTS - 1) * visible) + 1);
+  const N0 = Math.max(2, Math.round((ARM_POINTS - 1) * visible) + 1);
+  // Resample the chain as a Catmull-Rom curve, so the arm reads as one smooth, muscular line
+  // instead of a row of straight segments with corners.
+  const pts = smoothChain(raw, N0, ARM_SUB);
+  const N = (N0 - 1) * ARM_SUB + 1;
+  const S = ARM_SUB;
   const L: number[] = [];
   const R: number[] = [];
-  const base = r * 0.16 * (has(pose, 'deep-body') ? 1.12 : 1);
+  const base = r * 0.2 * (has(pose, 'deep-body') ? 1.12 : 1);
+  const stub = visible < 1;
   for (let j = 0; j < N; j++) {
     const j0 = Math.max(0, j - 1) * 2;
     const j1 = Math.min(N - 1, j + 1) * 2;
@@ -373,16 +416,22 @@ function drawArm(ctx: CanvasRenderingContext2D, pts: Float32Array, index: number
     const tm = Math.hypot(tx, ty) || 1;
     tx /= tm;
     ty /= tm;
-    const f = j / (ARM_POINTS - 1);
-    const w = Math.max(r * 0.025, base * Math.pow(1 - f, 0.85) + r * 0.02) * (j === N - 1 && visible < 1 ? 0.7 : 1);
+    const f = j / ((ARM_POINTS - 1) * S);
+    // Thick at the root, tapering to a fine curling tip (a stub ends blunt, where it was bitten).
+    const taper = stub ? Math.pow(1 - f, 0.85) + 0.12 : Math.pow(1 - f, 1.05);
+    const w = Math.max(r * 0.012, base * taper + r * 0.018 * (1 - f));
     L.push(pts[j * 2] - ty * w, pts[j * 2 + 1] + tx * w);
     R.push(pts[j * 2] + ty * w, pts[j * 2 + 1] - tx * w);
   }
+  const tipX0 = pts[(N - 1) * 2];
+  const tipY0 = pts[(N - 1) * 2 + 1];
   const ribbon = () => {
     ctx.beginPath();
     ctx.moveTo(L[0], L[1]);
     for (let j = 1; j < N; j++) ctx.lineTo(L[j * 2], L[j * 2 + 1]);
-    for (let j = N - 1; j >= 0; j--) ctx.lineTo(R[j * 2], R[j * 2 + 1]);
+    // A rounded tip joins the two edges.
+    ctx.quadraticCurveTo(tipX0 + (tipX0 - pts[(N - 2) * 2]) * 0.6, tipY0 + (tipY0 - pts[(N - 2) * 2 + 1]) * 0.6, R[(N - 1) * 2], R[(N - 1) * 2 + 1]);
+    for (let j = N - 2; j >= 0; j--) ctx.lineTo(R[j * 2], R[j * 2 + 1]);
     ctx.closePath();
   };
   if (pose.flat) {
@@ -392,27 +441,33 @@ function drawArm(ctx: CanvasRenderingContext2D, pts: Float32Array, index: number
     return;
   }
   // Outline, body, then a lighter stripe down the upper side for a rounded, fleshy arm.
-  ctx.fillStyle = mixHex(color, '#14081c', 0.5);
-  ribbon();
-  ctx.fill();
+  const outline = mixHex(color, '#14081c', 0.5);
   ctx.lineJoin = 'round';
-  ctx.strokeStyle = mixHex(color, '#14081c', 0.5);
-  ctx.lineWidth = Math.max(0.6, r * 0.03);
+  ctx.strokeStyle = outline;
+  ctx.lineWidth = Math.max(0.6, r * 0.05);
+  ribbon();
   ctx.stroke();
+  // Underside shade, then the lit upper side, so each arm is a rounded, fleshy tube.
+  const shade = mixHex(color, '#14081c', 0.22);
+  ctx.fillStyle = shade;
+  ctx.fill();
   ctx.fillStyle = color;
+  const inner = index < ARM_COUNT / 2 ? R : L;
+  const outer = index < ARM_COUNT / 2 ? L : R;
   ctx.beginPath();
-  ctx.moveTo((L[0] * 2 + R[0]) / 3, (L[1] * 2 + R[1]) / 3);
-  for (let j = 1; j < N; j++) ctx.lineTo((L[j * 2] * 3 + R[j * 2]) / 4, (L[j * 2 + 1] * 3 + R[j * 2 + 1]) / 4);
-  for (let j = N - 1; j >= 0; j--) ctx.lineTo((L[j * 2] + R[j * 2] * 3) / 4, (L[j * 2 + 1] + R[j * 2 + 1] * 3) / 4);
+  ctx.moveTo(outer[0], outer[1]);
+  for (let j = 1; j < N; j++) ctx.lineTo(outer[j * 2], outer[j * 2 + 1]);
+  for (let j = N - 1; j >= 0; j--) ctx.lineTo((inner[j * 2] + pts[j * 2] * 2) / 3, (inner[j * 2 + 1] + pts[j * 2 + 1] * 2) / 3);
   ctx.closePath();
   ctx.fill();
-  ctx.strokeStyle = rgba(mixHex(color, '#ffffff', 0.45), 0.55);
-  ctx.lineWidth = Math.max(0.5, r * 0.035);
+  ctx.strokeStyle = rgba(mixHex(color, '#ffffff', 0.5), 0.6);
+  ctx.lineWidth = Math.max(0.5, r * 0.03);
   ctx.lineCap = 'round';
   ctx.beginPath();
-  for (let j = 0; j < N - 1; j++) {
-    const x = (L[j * 2] * 2 + pts[j * 2]) / 3;
-    const y = (L[j * 2 + 1] * 2 + pts[j * 2 + 1]) / 3;
+  const hl = Math.max(2, Math.round(N * 0.8));
+  for (let j = 0; j < hl; j++) {
+    const x = (outer[j * 2] * 3 + pts[j * 2] * 2) / 5;
+    const y = (outer[j * 2 + 1] * 3 + pts[j * 2 + 1] * 2) / 5;
     if (j === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   }
@@ -421,10 +476,9 @@ function drawArm(ctx: CanvasRenderingContext2D, pts: Float32Array, index: number
   // Suckers along the inner edge: bigger and rimmed when strong, hooked when hooked.
   const strong = has(pose, 'strong-suckers');
   const hooked = has(pose, 'hooked-suckers');
-  const inner = index < ARM_COUNT / 2 ? R : L;
-  for (let j = 1; j < N - 1; j++) {
-    const f = j / (ARM_POINTS - 1);
-    const sr = r * 0.075 * (1 - f * 0.75) * (strong ? 1.45 : 1);
+  for (let j = S; j < N - S; j += S) {
+    const f = j / ((ARM_POINTS - 1) * S);
+    const sr = r * 0.062 * (1 - f * 0.8) * (strong ? 1.45 : 1);
     const x = (inner[j * 2] * 2 + pts[j * 2]) / 3;
     const y = (inner[j * 2 + 1] * 2 + pts[j * 2 + 1]) / 3;
     ctx.fillStyle = rgba(look.rim, 0.85);
@@ -450,18 +504,19 @@ function drawArm(ctx: CanvasRenderingContext2D, pts: Float32Array, index: number
     drawGlow(ctx, '#c59bff', tipX, tipY, r * 0.3, 0.6);
   }
   if (has(pose, 'bioluminescence')) {
-    for (let j = 2; j < N; j += 2) drawGlow(ctx, look.glow, pts[j * 2], pts[j * 2 + 1], r * 0.22, 0.55 + 0.35 * Math.sin(pose.t * 3 - j - index));
+    for (let j = 2 * S; j < N; j += 2 * S) drawGlow(ctx, look.glow, pts[j * 2], pts[j * 2 + 1], r * 0.22, 0.55 + 0.35 * Math.sin(pose.t * 3 - j / S - index));
   }
   if (has(pose, 'blue-rings')) {
-    const j = Math.min(N - 2, 3);
+    const j = Math.min(N - 2, 3 * S);
     drawRings(ctx, pose.t, [[pts[j * 2], pts[j * 2 + 1]]], r * 0.06);
   }
   if (hasForm(pose, 'razor') && visible >= 1) {
     ctx.fillStyle = rgba('#ff6b6b', 0.9);
     ctx.beginPath();
-    ctx.moveTo(L[(N - 2) * 2], L[(N - 2) * 2 + 1]);
-    ctx.lineTo(tipX + (tipX - pts[(N - 2) * 2]) * 0.8, tipY + (tipY - pts[(N - 2) * 2 + 1]) * 0.8);
-    ctx.lineTo(R[(N - 2) * 2], R[(N - 2) * 2 + 1]);
+    const b = N - 1 - S;
+    ctx.moveTo(L[b * 2], L[b * 2 + 1]);
+    ctx.lineTo(tipX + (tipX - pts[b * 2]) * 0.8, tipY + (tipY - pts[b * 2 + 1]) * 0.8);
+    ctx.lineTo(R[b * 2], R[b * 2 + 1]);
     ctx.fill();
   }
 }

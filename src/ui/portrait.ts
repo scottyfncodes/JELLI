@@ -8,7 +8,7 @@ import type { FormId } from '../content/forms';
 import { drawCreatureShape, drawJelly, jellyStyleForSpecies, lookFor, type JellyStyle } from '../render/creatures';
 import { drawGlow } from '../render/sprites';
 
-const SILHOUETTE = '#1b2a62';
+const SILHOUETTE = '#0e3352';
 
 /** Display radius per shape so every portrait fills its frame nicely. */
 const FIT: Partial<Record<SpeciesDef['shape'], number>> = {
@@ -44,11 +44,40 @@ function prep(canvas: HTMLCanvasElement, cssSize: number): CanvasRenderingContex
 }
 
 function backdrop(ctx: CanvasRenderingContext2D, s: number, color: string | null): void {
-  const g = ctx.createRadialGradient(s / 2, s * 0.45, 0, s / 2, s / 2, s * 0.7);
-  g.addColorStop(0, '#163a72');
-  g.addColorStop(1, '#070d2c');
+  // A little window into the water: lit from above, a shaft of light, and a sandbank underfoot,
+  // so every creature in the Journal is seen where it lives rather than on a flat swatch.
+  const g = ctx.createLinearGradient(0, 0, 0, s);
+  g.addColorStop(0, '#1d5a7e');
+  g.addColorStop(0.55, '#0c2c4c');
+  g.addColorStop(1, '#061527');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, s, s);
+  const ray = ctx.createLinearGradient(0, 0, 0, s * 0.9);
+  ray.addColorStop(0, 'rgba(190,250,255,0.18)');
+  ray.addColorStop(1, 'rgba(190,250,255,0)');
+  ctx.fillStyle = ray;
+  ctx.beginPath();
+  ctx.moveTo(s * 0.34, 0);
+  ctx.lineTo(s * 0.62, 0);
+  ctx.lineTo(s * 0.78, s * 0.9);
+  ctx.lineTo(s * 0.3, s * 0.9);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = 'rgba(2,10,22,0.55)';
+  ctx.beginPath();
+  ctx.moveTo(0, s * 0.9);
+  ctx.quadraticCurveTo(s * 0.35, s * 0.8, s * 0.62, s * 0.88);
+  ctx.quadraticCurveTo(s * 0.85, s * 0.94, s, s * 0.86);
+  ctx.lineTo(s, s);
+  ctx.lineTo(0, s);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = 'rgba(220,250,255,0.35)';
+  for (const [bx, by, br] of [[0.18, 0.3, 0.018], [0.22, 0.2, 0.011], [0.84, 0.42, 0.014]]) {
+    ctx.beginPath();
+    ctx.arc(bx * s, by * s, br * s, 0, Math.PI * 2);
+    ctx.fill();
+  }
   if (color) {
     ctx.globalCompositeOperation = 'lighter';
     drawGlow(ctx, color, s / 2, s / 2, s * 0.5, 0.35);

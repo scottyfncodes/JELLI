@@ -8,6 +8,8 @@ Eat, grow, explore, evolve, adapt, survive. A hatchling octopus no bigger than a
 
 SQUIDO was called Jelli until the octopus became its star. The wordmark is HTML and CSS (`wordmark()` in `src/ui/screens.ts`): Fraunces at its heaviest with the SOFT axis turned up, letters set slightly out of line, a tentacle curling off the Q, and an O that is an eye which blinks and glances about. The icon (`public/icon.svg`, with PNGs rendered from it) is the octopus itself. Coral is for the octopus and anything you press; turquoise is for life and light.
 
+**Art direction.** The interface lives in the water: deep ocean ink surfaces lit along their top edge, a row of suckers crowning each panel, buttons that squish and spring back, and a reef underfoot on the title and results screens. The reef silhouettes (`src/assets/reef-back.svg`, `src/assets/reef-front.svg`), the share card (`public/og-card.jpg`) and the icon PNGs were made with GITCRAFT: modelled and unioned in VectorCraft, resized and exported in PhotoCraft.
+
 Some identifiers keep the old name on purpose, because changing them would lose players' data or break continuity: the save key `jelli.save.v1`, the player species id `moon-jelli`, and the analytics app id `jelli`.
 
 ## The octopus

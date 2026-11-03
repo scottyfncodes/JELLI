@@ -183,3 +183,16 @@ describe('personality', () => {
     expect(w.player.stats.rareChance).toBeGreaterThan(1);
   });
 });
+
+describe('arm fan', () => {
+  it('points every arm down and away from the middle, so no two arms cross under the face', async () => {
+    const { armRestAngle, armRoot, ARM_COUNT } = await import('../src/render/octopus');
+    const root = { x: 0, y: 0 };
+    for (let i = 0; i < ARM_COUNT; i++) {
+      const a = armRestAngle(i, 1);
+      armRoot(i, 10, root);
+      expect(Math.sin(a)).toBeGreaterThan(0); // downward
+      expect(Math.sign(Math.cos(a))).toBe(Math.sign(root.x)); // the same side as its root
+    }
+  });
+});

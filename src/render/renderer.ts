@@ -174,6 +174,8 @@ export class Renderer {
   private streaks = new WeakMap<Current, Streak[]>();
   private far: BgShape[] = [];
   private snow: Snow[] = [];
+  /** Out-of-focus specks drifting just in front of the lens: depth of field for the whole scene. */
+  private motes: Snow[] = [];
   private vignette: CanvasGradient | null = null;
   private lastHeading = 0;
   private sway = 0;
@@ -204,6 +206,9 @@ export class Renderer {
     // Parallax layers only need to span the world scaled by their scroll factor.
     // Parallax layers tile vertically, so the endless shaft never runs out of background.
     this.far = shapes(28, WORLD.width * 0.35 + 1400, FAR_TILE, 60, 150);
+    for (let i = 0; i < 9; i++) {
+      this.motes.push({ u: Math.random(), v: Math.random(), f: 1.5 + Math.random() * 0.9, s: 18 + Math.random() * 34 });
+    }
     for (let i = 0; i < 110; i++) {
       this.snow.push({ u: Math.random(), v: Math.random(), f: 0.25 + Math.random() * 0.9, s: 0.6 + Math.random() * 1.6 });
     }
@@ -326,6 +331,7 @@ export class Renderer {
     this.drawEncounter(world);
     this.drawSnow(1.1);
     this.backdrop.drawFore(ctx, this.pal, this.camX, this.camY, this.zoom, bt);
+    if (this.backdrop.quality > 0) this.drawMotes();
     if (this.vignette) {
       ctx.fillStyle = this.vignette;
       ctx.fillRect(0, 0, w, h);
@@ -494,6 +500,28 @@ export class Renderer {
       const size = s.s * (layer > 1 ? 1.4 : 1);
       ctx.fillRect(x - 20, y - 20, size, size);
     }
+  }
+
+  private drawMotes(): void {
+    const ctx = this.ctx;
+    const pad = 80;
+    const W = this.w + pad * 2;
+    const H = this.h + pad * 2;
+    const t = this.reducedMotion ? 0 : this.time;
+    // Quantized, so the glow-sprite cache stays small while the palette blends between biomes.
+    const color = `#${this.pal.snow.map((v) => Math.min(255, Math.round(v / 32) * 32).toString(16).padStart(2, '0')).join('')}`;
+    // Brighter in sunlit water, where light catches them; faint glints in the dark.
+    const alpha = 0.05 + 0.07 * (1 - darknessAt(this.camY));
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < this.motes.length; i++) {
+      const m = this.motes[i];
+      let x = (m.u * W - this.camX * this.zoom * m.f + Math.sin(t * 0.21 + i * 2.1) * 26) % W;
+      let y = (m.v * H - this.camY * this.zoom * m.f + Math.cos(t * 0.17 + i) * 18) % H;
+      if (x < 0) x += W;
+      if (y < 0) y += H;
+      drawGlow(ctx, color, x - pad, y - pad, m.s, alpha * (0.6 + 0.4 * Math.sin(t * 0.5 + i * 1.7)));
+    }
+    ctx.globalCompositeOperation = 'source-over';
   }
 
   private drawCurrents(world: World, dt: number): void {
@@ -1086,6 +1114,8 @@ export class Renderer {
   wonder(): void {
     this.wonderT = 1.3;
   }
+  /** Paused: the octopus dozes with its eyes shut. */
+  sleeping = false;
   private camoK = 0;
   private squeeze = 0;
 
@@ -1138,7 +1168,7 @@ export class Renderer {
         if (best) targets[mood === 'playful' ? 2 : 3] = { x: best.x, y: best.y, w: 0.35 };
       }
     }
-    const spreadBase = mood === 'cautious' ? 0.55 : mood === 'aggressive' ? 0.75 : 0.9;
+    const spreadBase = mood === 'cautious' ? 0.48 : mood === 'aggressive' ? 0.64 : 0.76;
     const curlBase = mood === 'playful' ? 0.75 : mood === 'cautious' ? 0.3 : 0.5;
     this.rig.update({
       x: p.x,
@@ -1146,8 +1176,9 @@ export class Renderer {
       angle: this.bodyAngle,
       r,
       len,
-      spread: lerp(spreadBase + Math.min(1, this.wonderT * 2) * 0.3, 0.18, fast),
-      curl: lerp(curlBase, 0.12, fast),
+      spread: lerp(spreadBase + Math.min(1, this.wonderT * 2) * 0.3, 0.4, fast),
+      curl: lerp(curlBase, 0.3, fast),
+      swim: fast,
       time: t,
       dt,
       targets,
@@ -1202,7 +1233,7 @@ export class Renderer {
     this.wonderT = Math.max(0, this.wonderT - dt);
     if (this.happyT > 0 && mood2 === 'calm') mood2 = 'happy';
     else if (this.wonderT > 0 && (mood2 === 'calm' || mood2 === 'focus')) mood2 = 'wonder';
-    if (!p.alive) mood2 = 'closed';
+    if (!p.alive || this.sleeping) mood2 = 'closed';
     this.blinkT -= dt;
     if (this.blinkT <= 0) this.blinkT = 2.5 + Math.random() * 3.5;
     this.eyeOpen = this.blinkT < 0.12 ? 0 : 1;
@@ -1218,6 +1249,12 @@ export class Renderer {
     ctx.translate(x, y);
     ctx.scale(z, z);
     ctx.rotate(this.bodyAngle);
+    // A gulp: the body squashes wide and springs back, a wobble that settles as the meal goes down.
+    const g = this.reducedMotion ? 0 : this.body.gulp;
+    if (g > 0.01) {
+      const wob = g * g * Math.cos((1 - g) * 14);
+      ctx.scale(1 + 0.16 * wob, 1 - 0.12 * wob);
+    }
     drawOctopus(
       ctx,
       look,
