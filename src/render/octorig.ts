@@ -73,8 +73,9 @@ export class OctoRig {
           const o = j * 4;
           let px = c[o];
           let py = c[o + 1];
-          const vx = (px - c[o + 2]) * 0.9;
-          const vy = (py - c[o + 3]) * 0.9;
+          const keep = Math.pow(0.9, dt * 60);
+          const vx = (px - c[o + 2]) * keep;
+          const vy = (py - c[o + 3]) * keep;
           c[o + 2] = px;
           c[o + 3] = py;
           px += vx;
@@ -93,6 +94,24 @@ export class OctoRig {
           const d = Math.hypot(dx, dy) || 1;
           c[o] = c[o - 4] + (dx / d) * seg;
           c[o + 1] = c[o - 3] + (dy / d) * seg;
+        }
+        // Bending stiffness: ease each joint toward the midpoint of its neighbours, so a fast
+        // turn bends the arm in a curve instead of folding it into zigzags.
+        for (let pass = 0; pass < 2; pass++) {
+          for (let j = 1; j < N - 1; j++) {
+            const o = j * 4;
+            const k = 0.35 * (1 - (j / (N - 1)) * 0.5);
+            c[o] += ((c[o - 4] + c[o + 4]) * 0.5 - c[o]) * k;
+            c[o + 1] += ((c[o - 3] + c[o + 5]) * 0.5 - c[o + 1]) * k;
+          }
+          for (let j = 1; j < N; j++) {
+            const o = j * 4;
+            const dx = c[o] - c[o - 4];
+            const dy = c[o + 1] - c[o - 3];
+            const d = Math.hypot(dx, dy) || 1;
+            c[o] = c[o - 4] + (dx / d) * seg;
+            c[o + 1] = c[o - 3] + (dy / d) * seg;
+          }
         }
         const tg = targets[i];
         if (tg) this.reach(c, tg.x, tg.y, seg, tg.w);

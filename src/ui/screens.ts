@@ -42,6 +42,7 @@ function settingsBlock(): string {
 
 export function buildUI(root: HTMLElement, touch: boolean): void {
   root.innerHTML = `
+  <div class="reef" aria-hidden="true"><i class="reef-back"></i><i class="reef-front"></i></div>
   <section class="screen title" data-screen="title">
     <div class="title-corner"><button class="icon-btn" data-action="settings" aria-label="Settings">${ICONS.gear}</button></div>
     <div class="title-wrap">
@@ -85,7 +86,7 @@ export function buildUI(root: HTMLElement, touch: boolean): void {
     <div class="flash" data-bind="flash"></div>
   </section>
 
-  <section class="screen scrim" data-screen="pause">
+  <section class="screen scrim pause" data-screen="pause">
     <div class="panel">
       <p class="eyebrow">Paused</p>
       <h2>Drifting…</h2>

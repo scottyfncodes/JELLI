@@ -2,9 +2,9 @@
   <title>SQUIDO</title>
   <defs>
     <radialGradient id="sea" cx="50%" cy="30%" r="80%">
-      <stop offset="0" stop-color="#16508a"/>
-      <stop offset=".55" stop-color="#0b2558"/>
-      <stop offset="1" stop-color="#070f2e"/>
+      <stop offset="0" stop-color="#1f7896"/>
+      <stop offset=".55" stop-color="#0c3a5c"/>
+      <stop offset="1" stop-color="#04142a"/>
     </radialGradient>
     <radialGradient id="halo" cx="50%" cy="44%" r="42%">
       <stop offset="0" stop-color="#2fe0d0" stop-opacity=".45"/>

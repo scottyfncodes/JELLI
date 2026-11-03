@@ -1,5 +1,5 @@
 :root {
-  --abyss: #070f2e;
+  --abyss: #04142a;
   /* SQUIDO: coral for the octopus and everything you press, turquoise for life and light. */
   --coral: #ff8f6b;
   --coral-deep: #e0506a;
@@ -13,8 +13,8 @@
   --violet: #c59bff;
   --gold: #ffd27a;
   --danger: #ff5d5d;
-  --surface: rgba(10, 20, 58, 0.82);
-  --surface-2: rgba(22, 38, 92, 0.72);
+  --surface: rgba(5, 26, 46, 0.82);
+  --surface-2: rgba(12, 44, 70, 0.72);
   --line: rgba(160, 220, 255, 0.16);
   --line-strong: rgba(160, 220, 255, 0.32);
   --radius: 20px;
@@ -119,7 +119,7 @@ input:focus-visible {
 }
 
 .scrim {
-  background: radial-gradient(120% 90% at 50% 30%, rgba(6, 10, 36, 0.55), rgba(3, 5, 20, 0.88));
+  background: radial-gradient(120% 90% at 50% 30%, rgba(3, 16, 32, 0.55), rgba(2, 10, 22, 0.88));
 }
 
 .eyebrow {
@@ -174,7 +174,7 @@ h2 {
 }
 
 .btn-ghost:hover {
-  background: rgba(30, 52, 120, 0.8);
+  background: rgba(18, 64, 94, 0.8);
 }
 
 .btn-quiet {
@@ -187,7 +187,7 @@ h2 {
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: rgba(10, 20, 58, 0.55);
+  background: rgba(5, 26, 46, 0.55);
   box-shadow: 0 0 0 1px var(--line) inset;
   transition: transform var(--t-fast) var(--ease);
 }
@@ -291,7 +291,7 @@ h2 {
   gap: 6px;
   padding: 6px 12px;
   border-radius: 999px;
-  background: rgba(10, 20, 58, 0.6);
+  background: rgba(5, 26, 46, 0.6);
   box-shadow: 0 0 0 1px var(--line) inset;
 }
 
@@ -345,7 +345,7 @@ h2 {
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
-  background: rgba(10, 20, 58, 0.7);
+  background: rgba(5, 26, 46, 0.7);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 55%, transparent) inset, 0 0 14px color-mix(in srgb, var(--c) 30%, transparent);
 }
 
@@ -382,7 +382,7 @@ h2 {
   width: clamp(120px, 38vw, 220px);
   height: 8px;
   border-radius: 999px;
-  background: rgba(10, 20, 58, 0.65);
+  background: rgba(5, 26, 46, 0.65);
   box-shadow: 0 0 0 1px var(--line) inset;
   overflow: hidden;
 }
@@ -473,7 +473,7 @@ h2 {
   place-items: center;
   pointer-events: auto;
   touch-action: none;
-  background: radial-gradient(circle at 50% 40%, rgba(127, 227, 255, 0.35), rgba(10, 20, 58, 0.7) 70%);
+  background: radial-gradient(circle at 50% 40%, rgba(127, 227, 255, 0.35), rgba(5, 26, 46, 0.7) 70%);
   box-shadow: 0 0 0 1px var(--line-strong) inset, 0 0 30px rgba(127, 227, 255, 0.25);
   transition: transform var(--t-fast) var(--ease), opacity var(--t-fast) var(--ease);
 }
@@ -550,7 +550,7 @@ h2 {
   color: var(--violet);
   padding: 8px 12px;
   border-radius: 999px;
-  background: rgba(10, 20, 58, 0.6);
+  background: rgba(5, 26, 46, 0.6);
   box-shadow: 0 0 0 1px rgba(197, 155, 255, 0.3) inset;
 }
 
@@ -992,7 +992,7 @@ input[type='range']::-moz-range-thumb {
 /* ------------------------------------------------------------ guide & lineage */
 
 .sheet {
-  background: linear-gradient(180deg, #081030, #040719);
+  background: linear-gradient(180deg, #06223a, #031021);
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
@@ -1122,7 +1122,7 @@ input[type='range']::-moz-range-thumb {
   overflow-y: auto;
   padding: 22px;
   border-radius: 26px;
-  background: #0b1640;
+  background: #071c33;
   box-shadow: 0 0 0 1px var(--line-strong) inset, 0 30px 80px rgba(0, 0, 0, 0.5);
   transform: translateY(20px);
   transition: transform var(--t-med) var(--ease);
@@ -1382,7 +1382,7 @@ input[type='range']::-moz-range-thumb {
   row-gap: 6px;
   padding: 8px 16px 10px;
   border-radius: var(--radius-sm);
-  background: rgba(10, 20, 58, 0.6);
+  background: rgba(5, 26, 46, 0.6);
   box-shadow: 0 0 0 1px var(--line) inset;
   opacity: 0;
   transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
@@ -1803,7 +1803,7 @@ input[type='range']::-moz-range-thumb {
   margin: 0 auto 16px;
   padding: 4px;
   border-radius: 999px;
-  background: rgba(10, 20, 58, 0.6);
+  background: rgba(5, 26, 46, 0.6);
   box-shadow: 0 0 0 1px var(--line) inset;
 }
 
@@ -1947,7 +1947,7 @@ input[type='range']::-moz-range-thumb {
 
 .evolve {
   justify-content: flex-end;
-  background: linear-gradient(to top, rgba(3, 5, 20, 0.92) 0%, rgba(3, 5, 20, 0.72) 55%, rgba(3, 5, 20, 0.1) 100%);
+  background: linear-gradient(to top, rgba(2, 10, 22, 0.92) 0%, rgba(2, 10, 22, 0.72) 55%, rgba(2, 10, 22, 0.1) 100%);
 }
 
 .evolve-inner {
@@ -2236,4 +2236,347 @@ body.reduced-motion .wm-eye i {
 .meet b {
   color: var(--coral);
   font-weight: 700;
+}
+
+/* Menus own the screen: notices and tutorial hints wait underneath instead of bleeding through. */
+#ui[data-state='evolve'] .toasts,
+#ui[data-state='evolve'] .hint,
+#ui[data-state='paused'] .toasts,
+#ui[data-state='paused'] .hint,
+#ui[data-state='results'] .hint {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--t-fast) var(--ease), visibility 0s linear var(--t-fast);
+}
+
+/* ================================================================ art direction pass
+ * The interface belongs to the water: surfaces are deep ocean ink rather than dashboard navy,
+ * lit along their top edge the way light lands on anything under the surface. A row of
+ * suckers (the octopus's own mark) crowns each panel. Menus stand on a reef drawn in
+ * VectorCraft (src/assets/reef-*.svg), so the title and results have ground under them.
+ */
+:root {
+  --deep: #071c33;
+  --surface: rgba(5, 22, 42, 0.9);
+  --surface-2: rgba(12, 44, 70, 0.82);
+  --line: rgba(120, 236, 224, 0.16);
+  --line-strong: rgba(120, 236, 224, 0.34);
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --sucker: rgba(255, 176, 150, 0.55);
+}
+
+/* --- the reef under the menus */
+.reef {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: min(46vh, 340px);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 600ms var(--ease), transform 900ms var(--ease);
+}
+
+#ui[data-state='title'] .reef,
+#ui[data-state='results'] .reef {
+  opacity: 1;
+  transform: none;
+}
+
+.reef i {
+  position: absolute;
+  inset: 0 -6%;
+  -webkit-mask: var(--m) bottom center / auto 100% repeat-x;
+  mask: var(--m) bottom center / auto 100% repeat-x;
+  transform-origin: 50% 100%;
+}
+
+.reef-back {
+  --m: url('./assets/reef-back.svg');
+  bottom: 18px !important;
+  background: linear-gradient(to top, rgba(6, 40, 66, 0.72), rgba(10, 62, 92, 0.42));
+  animation: reef-sway 9s ease-in-out infinite alternate;
+}
+
+.reef-front {
+  --m: url('./assets/reef-front.svg');
+  background: linear-gradient(to top, #031020 30%, #062035);
+  animation: reef-sway 7s ease-in-out -3s infinite alternate-reverse;
+}
+
+@keyframes reef-sway {
+  from {
+    transform: skewX(-1.6deg) translateX(-6px);
+  }
+  to {
+    transform: skewX(1.6deg) translateX(6px);
+  }
+}
+
+/* --- surfaces */
+.panel,
+.evo-card,
+.toast:not(.zone),
+.hint {
+  background: linear-gradient(180deg, rgba(10, 40, 66, 0.94), var(--surface) 46%);
+  box-shadow:
+    0 0 0 1px var(--line) inset,
+    0 1px 0 rgba(160, 255, 240, 0.22) inset,
+    0 24px 60px rgba(0, 4, 14, 0.5);
+}
+
+.panel {
+  position: relative;
+  border-radius: 28px;
+  padding-top: 30px;
+}
+
+/* A row of suckers along the top of each panel: the octopus's signature. */
+.panel::before {
+  content: '';
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  width: 62px;
+  height: 8px;
+  transform: translateX(-50%);
+  background:
+    radial-gradient(circle at 4px 4px, var(--sucker) 2.4px, transparent 3px) 0 0 / 14px 8px repeat-x;
+  opacity: 0.8;
+}
+
+.evo-card {
+  border-radius: 22px;
+  box-shadow:
+    0 0 0 1px var(--line) inset,
+    0 1px 0 rgba(160, 255, 240, 0.2) inset,
+    inset 3px 0 0 var(--c),
+    0 14px 40px rgba(0, 4, 14, 0.45);
+}
+
+/* --- buttons: they squish when pressed and spring back, like something soft */
+.btn,
+.icon-btn,
+.evo-card {
+  transition:
+    transform 340ms var(--spring),
+    background var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease),
+    filter var(--t-fast) var(--ease);
+}
+
+.btn:active,
+.evo-card:active {
+  transform: scale(0.95, 0.92);
+  transition-duration: 90ms;
+  transition-timing-function: var(--ease);
+}
+
+.icon-btn:active {
+  transform: scale(0.86);
+  transition-duration: 90ms;
+}
+
+.btn-primary {
+  position: relative;
+  letter-spacing: 0.02em;
+  background: linear-gradient(180deg, #ffd9bf 0%, #ff9c74 52%, #ef6a66 100%);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.5) inset,
+    0 -4px 0 rgba(150, 30, 66, 0.34) inset,
+    0 3px 0 rgba(120, 22, 50, 0.55),
+    0 12px 34px rgba(255, 110, 96, 0.32);
+}
+
+.btn-primary:active {
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.5) inset,
+    0 -2px 0 rgba(150, 30, 66, 0.34) inset,
+    0 1px 0 rgba(120, 22, 50, 0.55),
+    0 6px 20px rgba(255, 110, 96, 0.28);
+}
+
+@media (hover: hover) {
+  .btn-primary:hover {
+    filter: brightness(1.05) saturate(1.05);
+  }
+}
+
+.btn-ghost {
+  background: linear-gradient(180deg, rgba(16, 58, 86, 0.9), rgba(8, 34, 56, 0.9));
+  box-shadow:
+    0 0 0 1px var(--line-strong) inset,
+    0 1px 0 rgba(160, 255, 240, 0.18) inset,
+    0 2px 0 rgba(0, 8, 20, 0.5);
+}
+
+@media (hover: hover) {
+  .btn-ghost:hover {
+    background: linear-gradient(180deg, rgba(20, 70, 100, 0.95), rgba(10, 42, 66, 0.95));
+  }
+}
+
+.icon-btn {
+  background: rgba(5, 26, 46, 0.66);
+  box-shadow:
+    0 0 0 1px var(--line-strong) inset,
+    0 1px 0 rgba(160, 255, 240, 0.2) inset;
+}
+
+.chip {
+  background: rgba(5, 26, 46, 0.7);
+}
+
+/* --- pause: a sheet at the bottom, so the dozing octopus stays in view above it */
+.pause.scrim {
+  background: linear-gradient(to bottom, rgba(2, 10, 24, 0.18) 0%, rgba(2, 10, 24, 0.35) 40%, rgba(2, 8, 20, 0.9) 100%);
+}
+
+.pause .panel {
+  margin: auto auto 0;
+}
+
+.pause.is-open .panel {
+  animation: sheet-up 420ms var(--spring) both;
+}
+
+@keyframes sheet-up {
+  from {
+    opacity: 0;
+    transform: translateY(60px);
+  }
+}
+
+/* --- title: the logo drifts like it is floating */
+.title-wrap .logo {
+  animation: logo-float 5.5s ease-in-out infinite;
+}
+
+@keyframes logo-float {
+  50% {
+    transform: translateY(-5px) rotate(-0.6deg);
+  }
+}
+
+.title.is-open .title-actions > * {
+  animation: rise-in 600ms var(--spring) both;
+}
+
+.title.is-open .title-actions > :nth-child(2) {
+  animation-delay: 80ms;
+}
+
+.title.is-open .title-actions > :nth-child(3),
+.title.is-open .title-actions > :nth-child(4) {
+  animation-delay: 160ms;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+}
+
+body.reduced-motion .reef i,
+body.reduced-motion .title-wrap .logo,
+body.reduced-motion .title.is-open .title-actions > * {
+  animation: none;
+}
+
+.pause .panel {
+  padding: 28px 22px 20px;
+}
+
+.pause .panel h2 {
+  font-size: 30px;
+}
+
+.pause .setting {
+  min-height: 46px;
+}
+
+.pause .panel-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.pause .panel-actions .btn-primary {
+  grid-column: 1 / -1;
+}
+
+/* Results and Journal tiles share the panel's water-lit surface. */
+.stat,
+.section,
+.place {
+  background: linear-gradient(180deg, rgba(10, 40, 66, 0.9), rgba(5, 22, 42, 0.9) 60%);
+  box-shadow:
+    0 0 0 1px var(--line) inset,
+    0 1px 0 rgba(160, 255, 240, 0.16) inset;
+}
+
+/* Notices keep clear of the octopus: big banners up top, small pills low, above the hint. */
+.toasts {
+  bottom: calc(var(--sab) + 196px);
+  justify-content: flex-start;
+}
+
+.toasts::before {
+  content: '';
+  order: 0;
+  flex: 1;
+}
+
+.toast.zone {
+  order: -1;
+}
+
+.toast:not(.zone) {
+  order: 1;
+}
+
+@media (max-height: 520px) {
+  .toasts {
+    bottom: calc(var(--sab) + 88px);
+  }
+}
+
+/* Short landscape screens: the later wordmark rule above outranked the short-screen size, so the
+ * logo ran off the top and right edges. Size it to the height here. */
+@media (max-height: 480px) {
+  .logo {
+    font-size: clamp(48px, 16vh, 72px);
+  }
+}
+
+/* Landscape pause: the sheet takes the right side, the dozing octopus floats on the left. */
+@media (orientation: landscape) and (max-height: 600px) {
+  .pause .panel {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 22px;
+    align-items: start;
+    width: min(64vw, 640px);
+    margin: auto 0 auto auto;
+    padding: 26px 20px 18px;
+  }
+  .pause .panel > .eyebrow,
+  .pause .panel > h2 {
+    grid-column: 1;
+  }
+  .pause .panel .settings {
+    grid-column: 1;
+    margin-top: 6px;
+  }
+  .pause .panel-actions {
+    grid-column: 2;
+    grid-row: 1 / span 3;
+    grid-template-columns: 1fr;
+    align-self: center;
+    margin-top: 0;
+  }
+  .pause.scrim {
+    background: linear-gradient(to right, rgba(2, 10, 22, 0.1) 0%, rgba(2, 10, 22, 0.3) 35%, rgba(2, 8, 20, 0.86) 100%);
+  }
 }
